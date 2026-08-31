@@ -51,9 +51,9 @@ flowchart TD
 
 ### 步骤 0：解析 Markdown 资产与封面
 
-运行辅助解析脚本提取元数据：
+运行辅助解析脚本提取元数据（脚本路径相对本技能目录，即 `SKILL.md` 所在目录）：
 ```bash
-node /Users/jyx/project/doudou-baijia-skill/scripts/parser.mjs <Markdown文件绝对路径>
+node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `articleTitle`: 清洗并规范至 2~64 字以内的文章标题
@@ -145,21 +145,26 @@ node /Users/jyx/project/doudou-baijia-skill/scripts/parser.mjs <Markdown文件�
 
 ## 脚本工具与在 Agent 中的调用方法
 
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- `scripts/parser.mjs`：解析 Markdown，提取标题、摘要、话题标签、语义 HTML 与封面资产。
+- `scripts/baijia_publisher.mjs`：浏览器注入脚本生成器（编辑器状态同步与防风控人机模拟）。
+
 ### 1. 运行命令行测试
 
 ```bash
 # 1. 测试资产解析
-node /Users/jyx/project/doudou-baijia-skill/scripts/parser.mjs <Markdown文件路径>
+node scripts/parser.mjs <Markdown文件路径>
 
 # 2. 测试浏览器代码生成
-node /Users/jyx/project/doudou-baijia-skill/scripts/baijia_publisher.mjs <Markdown文件路径>
+node scripts/baijia_publisher.mjs <Markdown文件路径>
 ```
 
 ### 2. 在 Agent 中配合 `chrome-devtools-mcp` 调用
 
 ```javascript
-import { parseAllAssets } from '/Users/jyx/project/doudou-baijia-skill/scripts/parser.mjs';
-import { buildPublishBrowserScript } from '/Users/jyx/project/doudou-baijia-skill/scripts/baijia_publisher.mjs';
+import { parseAllAssets } from './scripts/parser.mjs';
+import { buildPublishBrowserScript } from './scripts/baijia_publisher.mjs';
 
 // 1. 解析目标 Markdown 及其同名资产目录
 const meta = parseAllAssets(markdownFilePath);

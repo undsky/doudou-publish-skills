@@ -80,5 +80,7 @@ description: "通过 chrome-devtools-mcp 实现抖音发布文章、图文到草
 
 ## 🛠️ 核心脚本
 
-- [scripts/parser.mjs](file:///Users/jyx/project/doudou-douyin-skill/scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、排版 HTML、高清封面及图文卡片集。
-- [scripts/douyin_publisher.mjs](file:///Users/jyx/project/doudou-douyin-skill/scripts/douyin_publisher.mjs)：文章与图文发布浏览器注入脚本生成器。
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、排版 HTML、高清封面及图文卡片集。
+- [scripts/douyin_publisher.mjs](scripts/douyin_publisher.mjs)：文章与图文发布浏览器注入脚本生成器。

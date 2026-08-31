@@ -92,5 +92,7 @@ flowchart TD
 
 ## 🛠️ 核心脚本
 
-- [scripts/parser.mjs](file:///Users/jyx/project/doudou-xiaohongshu-skill/scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、TipTap 专属图片节点 HTML 以及 3:4 归藏社媒卡片集。
-- [scripts/xhs_publisher.mjs](file:///Users/jyx/project/doudou-xiaohongshu-skill/scripts/xhs_publisher.mjs)：长文与图文发布浏览器注入脚本生成器（涵盖 TipTap 状态同步、Shadow DOM 交互与防风控人机模拟）。
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、TipTap 专属图片节点 HTML 以及 3:4 归藏社媒卡片集。
+- [scripts/xhs_publisher.mjs](scripts/xhs_publisher.mjs)：长文与图文发布浏览器注入脚本生成器（涵盖 TipTap 状态同步、Shadow DOM 交互与防风控人机模拟）。

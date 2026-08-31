@@ -52,12 +52,19 @@ export async function buildBrowserPublishScript(markdownFilePath) {
 
   // 2. 获取 CSRF Token (bili_jct)
   function getCookie(name) {
-    const match = (document.cookie || targetDoc.cookie).match(new RegExp('(^|;\\\\s*)(' + name + ')=([^;]*)'));
-    return match ? decodeURIComponent(match[3]) : '';
+    const cookieStr = (document.cookie || targetDoc.cookie || '');
+    const items = cookieStr.split(';');
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i].trim();
+      if (item.indexOf(name + '=') === 0) {
+        return decodeURIComponent(item.substring(name.length + 1));
+      }
+    }
+    return '';
   }
 
   const csrf = getCookie('bili_jct');
-  log('CSRF Token (bili_jct) 状态: ' + (csrf ? '已获取' : '未检测到(尝试直接请求)'));
+  log('CSRF Token (bili_jct) 状态: ' + (csrf ? '已获取(' + csrf.substring(0, 6) + '...)' : '未检测到(尝试直接请求)'));
 
   // Base64 转 Blob 辅助函数
   function base64ToBlob(base64, mimeType = 'image/png') {
@@ -70,32 +77,40 @@ export async function buildBrowserPublishScript(markdownFilePath) {
     return new Blob([byteArray], { type: mimeType });
   }
 
-  // 官方图床 BFS 上传函数
-  async function uploadToBFS(blob, filename = 'image.png') {
-    const fd = new FormData();
-    fd.append('file_up', blob, filename);
-    fd.append('biz', 'new_dyn');
-    fd.append('category', 'daily');
-    if (csrf) {
-      fd.append('csrf', csrf);
-    }
+  // 官方图床 BFS 上传函数（带重试）
+  async function uploadToBFS(blob, filename = 'image.png', retries = 2) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const fd = new FormData();
+        fd.append('file_up', blob, filename);
+        fd.append('biz', 'new_dyn');
+        fd.append('category', 'daily');
+        if (csrf) {
+          fd.append('csrf', csrf);
+        }
 
-    const resp = await fetch('https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs', {
-      method: 'POST',
-      body: fd,
-      credentials: 'include'
-    });
-    const res = await resp.json();
-    if (res.code !== 0) {
-      throw new Error(res.message || 'BFS 上传失败: code ' + res.code);
+        const resp = await fetch('https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs', {
+          method: 'POST',
+          body: fd,
+          credentials: 'include'
+        });
+        const res = await resp.json();
+        if (res.code === 0 && res.data && res.data.image_url) {
+          return res.data;
+        }
+        throw new Error(res.message || 'BFS 上传失败 code: ' + res.code);
+      } catch (err) {
+        if (attempt === retries) throw err;
+        await delay(500);
+      }
     }
-    return res.data;
   }
 
   // 3. 批量将正文中的所有配图转存至 B 站 BFS 图床
   let finalHtml = data.html;
   log('开始检查并转存正文配图 (共 ' + data.images.length + ' 张)...');
 
+  let successImgCount = 0;
   for (let idx = 0; idx < data.images.length; idx++) {
     const imgInfo = data.images[idx];
     try {
@@ -109,14 +124,16 @@ export async function buildBrowserPublishScript(markdownFilePath) {
       }
 
       if (blob) {
-        log('正在上传正文配图 [' + (idx + 1) + '/' + data.images.length + '] 至 B站 BFS...');
+        log('正在上传正文配图 [' + (idx + 1) + '/' + data.images.length + '] (' + (imgInfo.alt || '配图') + ') 至 B站 BFS...');
         const bfsData = await uploadToBFS(blob, 'article_img_' + idx + '.png');
         const hdslbUrl = bfsData.image_url.replace(/^http:/, 'https:');
         log('配图 [' + (idx + 1) + '] 上传成功: ' + hdslbUrl);
 
         const imgNodeHtml = '<img class="eva3-bili-image" data-eva3-scoped="" src="' + hdslbUrl + '" alt="' + (imgInfo.alt || '配图') + '" data-caption="' + (imgInfo.alt || '配图') + '" data-ai-gen-pic="0" data-eva-image="enhanced">';
         finalHtml = finalHtml.replaceAll(imgInfo.placeholder, imgNodeHtml);
+        successImgCount++;
       } else {
+        log('配图 [' + (idx + 1) + '] 未获取到有效数据，清除占位');
         finalHtml = finalHtml.replaceAll(imgInfo.placeholder, '');
       }
       await randomDelay(250, 450);
@@ -125,6 +142,7 @@ export async function buildBrowserPublishScript(markdownFilePath) {
       finalHtml = finalHtml.replaceAll(imgInfo.placeholder, '');
     }
   }
+  log('正文配图处理完成，成功转存: ' + successImgCount + '/' + data.images.length);
 
   // 4. 拟真人机输入文章标题
   log('正在拟真输入文章标题: ' + data.title);
@@ -155,18 +173,18 @@ export async function buildBrowserPublishScript(markdownFilePath) {
     settingsBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     await randomDelay(200, 400);
     settingsBtn.click();
-    await randomDelay(500, 900);
+    await randomDelay(600, 1000);
 
     // 检查并开启「自定义封面」
-    const formItems = Array.from(targetDoc.querySelectorAll('.publish-settings .form .form-item'));
-    const coverItem = formItems.find(item => item.querySelector('.form-item-label')?.innerText?.includes('自定义封面'));
+    const formItems = Array.from(targetDoc.querySelectorAll('.publish-settings .form .form-item, .publish-settings .form-item'));
+    const coverItem = formItems.find(item => item.querySelector('.form-item-label')?.innerText?.includes('自定义封面') || item.innerText?.includes('自定义封面'));
 
     if (coverItem && data.cover && (data.cover.base64 || data.cover.url)) {
       log('开始上传并设置文章自定义封面...');
 
       // 如果存在旧封面，先点击删除
-      const deleteBtn = coverItem.querySelector('.selected-action button');
-      if (deleteBtn && deleteBtn.innerText.includes('删除')) {
+      const deleteBtn = coverItem.querySelector('.selected-action button') || Array.from(coverItem.querySelectorAll('button')).find(b => b.innerText.includes('删除'));
+      if (deleteBtn) {
         log('检测到已有旧封面，先点击删除以更新新封面...');
         deleteBtn.click();
         await randomDelay(500, 800);
@@ -174,13 +192,14 @@ export async function buildBrowserPublishScript(markdownFilePath) {
 
       // 确保自定义封面开关处于开启状态
       const switchEl = coverItem.querySelector('.vui_switch--switch');
-      const isChecked = switchEl?.classList.contains('is-checked') || switchEl?.getAttribute('aria-checked') === 'true';
+      const isChecked = switchEl?.classList.contains('is-checked') || switchEl?.getAttribute('aria-checked') === 'true' || coverItem.querySelector('input.vui_switch-input')?.checked;
 
       if (!isChecked) {
-        const switchCore = coverItem.querySelector('.vui_switch-core') || coverItem.querySelector('.vui_switch-input');
+        log('点击开启自定义封面开关...');
+        const switchCore = coverItem.querySelector('.vui_switch--switch') || coverItem.querySelector('.vui_switch-core') || coverItem.querySelector('.vui_switch-input');
         if (switchCore) {
           switchCore.click();
-          await randomDelay(400, 700);
+          await randomDelay(600, 900);
         }
       }
 
@@ -194,17 +213,15 @@ export async function buildBrowserPublishScript(markdownFilePath) {
       }
 
       if (coverBlob) {
-        const coverFile = new File([coverBlob], 'cover.png', { type: 'image/png' });
-        let fileInput = coverItem.querySelector('input[type="file"]') || targetDoc.querySelector('.select-method input[type="file"]') || targetDoc.querySelector('input[type="file"]');
-
-        if (!fileInput) {
-          const uploadBtn = coverItem.querySelector('.upload-button');
-          if (uploadBtn) {
-            uploadBtn.click();
-            await randomDelay(300, 500);
-          }
-          fileInput = coverItem.querySelector('input[type="file"]') || targetDoc.querySelector('input[type="file"]');
+        // 点击「添加封面」/「重新上传」以唤起文件选择控件
+        const uploadBtn = coverItem.querySelector('.upload-button') || Array.from(coverItem.querySelectorAll('div, button')).find(el => el.innerText?.trim() === '添加封面' || el.innerText?.trim() === '重新上传');
+        if (uploadBtn) {
+          uploadBtn.click();
+          await randomDelay(400, 700);
         }
+
+        const coverFile = new File([coverBlob], 'cover.png', { type: 'image/png' });
+        let fileInput = coverItem.querySelector('input[type="file"]') || targetDoc.querySelector('input[type="file"]');
 
         if (fileInput) {
           const dt = new DataTransfer();
@@ -215,18 +232,23 @@ export async function buildBrowserPublishScript(markdownFilePath) {
 
           // 轮询等待裁切对话框出现
           let confirmBtn = null;
-          for (let waitCount = 0; waitCount < 10; waitCount++) {
+          for (let waitCount = 0; waitCount < 15; waitCount++) {
             await delay(400);
-            confirmBtn = targetDoc.querySelector('.vui_dialog--btn-confirm') || Array.from(targetDoc.querySelectorAll('button')).find(b => b.innerText.trim() === '确定');
+            confirmBtn = targetDoc.querySelector('.vui_dialog--btn-confirm') || Array.from(targetDoc.querySelectorAll('button')).find(b => b.innerText.trim() === '确定' && (b.className.includes('confirm') || b.className.includes('blue')));
             if (confirmBtn) break;
           }
 
           if (confirmBtn) {
             confirmBtn.click();
-            log('已点击封面裁切确定按钮');
-            await randomDelay(800, 1200);
+            log('已点击封面裁切确定按钮，封面绑定成功');
+            await randomDelay(800, 1400);
           } else {
-            log('未检测到裁切弹窗确定按钮，尝试继续');
+            log('未检测到裁切弹窗确定按钮，尝试备用查找');
+            const anyConfirmBtn = Array.from(targetDoc.querySelectorAll('button')).find(b => b.innerText.trim() === '确定');
+            if (anyConfirmBtn) {
+              anyConfirmBtn.click();
+              await randomDelay(800, 1400);
+            }
           }
         } else {
           log('未找到封面文件上传控件 input[type="file"]');
@@ -235,12 +257,12 @@ export async function buildBrowserPublishScript(markdownFilePath) {
     }
 
     // 勾选「原创声明」
-    const originItem = formItems.find(item => item.querySelector('.form-item-label')?.innerText?.includes('创作声明'));
+    const originItem = formItems.find(item => item.querySelector('.form-item-label')?.innerText?.includes('创作声明') || item.innerText?.includes('创作声明'));
     if (originItem) {
       const checkbox = originItem.querySelector('.vui_checkbox');
       const isChecked = checkbox?.classList.contains('is-checked') || originItem.querySelector('input[type="checkbox"]')?.checked;
       if (!isChecked) {
-        const boxInput = originItem.querySelector('.vui_checkbox--input-box') || originItem.querySelector('input[type="checkbox"]');
+        const boxInput = originItem.querySelector('.vui_checkbox--input-box') || originItem.querySelector('.vui_checkbox') || originItem.querySelector('input[type="checkbox"]');
         if (boxInput) {
           boxInput.click();
           log('已勾选文章原创声明');

@@ -51,9 +51,9 @@ flowchart TD
 
 ### 步骤 0：解析 Markdown 资产与封面
 
-运行辅助解析脚本提取元数据：
+运行辅助解析脚本提取元数据（脚本路径相对本技能目录，即 `SKILL.md` 所在目录）：
 ```bash
-node /Users/jyx/project/doudou-csdn-skill/scripts/parser.mjs <Markdown文件绝对路径>
+node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
@@ -175,14 +175,19 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 
 ## 脚本工具与使用方法
 
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- `scripts/parser.mjs`：解析 Markdown，提取标题、摘要、分类专栏、标签、正文与封面资产。
+- `scripts/csdn_publisher.mjs`：浏览器注入脚本生成器（Markdown 编辑器状态同步与防风控人机模拟）。
+
 1. **直接运行 Node.js 脚本测试解析**：
 ```bash
-node /Users/jyx/project/doudou-csdn-skill/scripts/parser.mjs <Markdown文件路径>
+node scripts/parser.mjs <Markdown文件路径>
 ```
 
 2. **在 Agent 中配合 `chrome-devtools-mcp` 调用**：
 ```javascript
-import { buildBrowserPublishScript } from '/Users/jyx/project/doudou-csdn-skill/scripts/csdn_publisher.mjs';
+import { buildBrowserPublishScript } from './scripts/csdn_publisher.mjs';
 
 // 1. 生成自包含执行代码
 const code = buildBrowserPublishScript(markdownFilePath);

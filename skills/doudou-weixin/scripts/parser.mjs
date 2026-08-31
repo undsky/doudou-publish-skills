@@ -206,7 +206,8 @@ export function resolveArticleHtml(markdownFilePath) {
 }
 
 /**
- * 解析封面图资产（遵循 doudou-markdown-skill 规约）
+ * 解析封面图资产（遵循 doudou-markdown-skill:L94-L101 与 L213 规约）
+ * 严格优先选用 2.35:1 宽屏主封面，且优先选择 _thumb 缩略图
  * @param {string} markdownFilePath 
  * @param {string} content 
  * @returns {{ hasCover: boolean, url?: string, localPath?: string, base64?: string, mimeType?: string, fileName?: string }}
@@ -217,13 +218,18 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const baseName = path.basename(absPath, path.extname(absPath));
   const articleDir = path.join(dir, baseName);
 
-  // 1. 读取 cdn_manifest.json 中的宽屏主封面
+  // 1. 读取 cdn_manifest.json 中的宽屏主封面（优先 thumb_path 或 _thumb CDN）
   const manifestPath = path.join(articleDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       if (Array.isArray(manifest.files)) {
-        const coverItem = manifest.files.find(f => f.type === 'cover' && (f.name?.includes('2.35x1') || f.name?.includes('16x9') || f.name?.includes('main')));
+        // 查找 2.35:1 或 16:9 封面，优先 thumb 缩略图
+        const coverItem = manifest.files.find(f => f.type === 'cover' && (f.name?.includes('2.35x1_thumb') || f.name?.includes('main_thumb'))) ||
+                          manifest.files.find(f => f.type === 'cover' && (f.name?.includes('2.35x1') || f.name?.includes('main'))) ||
+                          manifest.files.find(f => f.type === 'cover' && f.name?.includes('16x9_thumb')) ||
+                          manifest.files.find(f => f.type === 'cover' && f.name?.includes('16x9')) ||
+                          manifest.files.find(f => f.type === 'cover');
         if (coverItem && coverItem.cdn_url) {
           const localPath = coverItem.local_path ? path.resolve(dir, coverItem.local_path) : null;
           let base64 = null;
@@ -239,7 +245,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
             localPath,
             base64,
             mimeType,
-            fileName: coverItem.name || 'cover.png'
+            fileName: coverItem.name || 'cover-2.35x1.png'
           };
         }
       }
@@ -248,11 +254,24 @@ export function resolveCoverImage(markdownFilePath, content = '') {
     }
   }
 
-  // 2. 读取 cover/images/ 下的本地封面
+  // 2. 读取 cover/images/ 下的本地封面（严格按 2.35:1_thumb > 2.35:1 > 16x9_thumb > 16x9 排序）
   const coverImagesDir = path.join(articleDir, 'cover', 'images');
   if (fs.existsSync(coverImagesDir)) {
-    const files = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')));
-    const mainCover = files.find(f => f.includes('2.35x1') || f.includes('16x9') || f.includes('main')) || files[0];
+    const files = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+    
+    // 排序策略
+    const pickPriority = (f) => {
+      if (f.includes('2.35x1') && f.includes('_thumb')) return 1;
+      if (f.includes('2.35x1')) return 2;
+      if (f.includes('16x9') && f.includes('_thumb')) return 3;
+      if (f.includes('16x9')) return 4;
+      if (f.includes('_thumb')) return 5;
+      return 6;
+    };
+
+    const sortedFiles = files.sort((a, b) => pickPriority(a) - pickPriority(b));
+    const mainCover = sortedFiles[0];
+
     if (mainCover) {
       const localPath = path.join(coverImagesDir, mainCover);
       const buf = fs.readFileSync(localPath);

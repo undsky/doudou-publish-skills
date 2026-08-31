@@ -48,9 +48,9 @@ flowchart TD
 
 ### 步骤 0：解析 Markdown 资产与封面
 
-运行辅助解析脚本或内置逻辑提取元数据：
+运行辅助解析脚本或内置逻辑提取元数据（脚本路径相对本技能目录，即 `SKILL.md` 所在目录）：
 ```bash
-node /Users/jyx/project/doudou-aliyun-skill/scripts/parser.mjs <Markdown文件绝对路径>
+node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
@@ -242,3 +242,34 @@ async function uploadCover(coverInfo, formInstance) {
 | **封面上传失败** | OSS 上传返回非 200 或超时 | 降级跳过封面上传，并在最终报告中标记封面待手动上传，不阻塞草稿主体的保存。 |
 | **Markdown 编辑器未就绪** | 页面 DOM 未完成渲染 | 增加轮询等待（最高 10s），确认 `.left-content textarea.textarea` 挂载后再注入。 |
 | **页面防重复提交拦截** | 保存按钮处于 loading 禁用态 | 确保每次点击间隔大于 3 秒，不连续狂点。 |
+
+---
+
+## 脚本工具与使用方法
+
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- `scripts/parser.mjs`：解析 Markdown，提取标题、摘要、正文与封面资产。
+- `scripts/aliyun_publisher.mjs`：浏览器注入脚本生成器（编辑器状态同步与防风控人机模拟）。
+
+1. **直接运行 Node.js 脚本测试解析**：
+```bash
+node scripts/parser.mjs <Markdown文件路径>
+```
+
+2. **在 Agent 中配合 `chrome-devtools-mcp` 调用**：
+```javascript
+import { buildBrowserPublishScript } from './scripts/aliyun_publisher.mjs';
+
+// 1. 生成自包含执行代码
+const code = buildBrowserPublishScript(markdownFilePath);
+
+// 2. 调用 evaluate_script 在阿里云发布页执行
+const result = await evaluate_script({
+  pageId: targetPageId,
+  function: code
+});
+
+// 3. 截屏存证
+await take_screenshot({ pageId: targetPageId });
+```

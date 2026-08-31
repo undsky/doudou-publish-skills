@@ -51,9 +51,9 @@ flowchart TD
 
 ### 步骤 0：解析 Markdown 资产与封面
 
-运行辅助解析脚本提取元数据：
+运行辅助解析脚本提取元数据（脚本路径相对本技能目录，即 `SKILL.md` 所在目录）：
 ```bash
-node skills/doudou-bilibili/scripts/parser.mjs <Markdown文件绝对路径>
+node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
@@ -116,10 +116,11 @@ editor.commands.setContent(finalHtml);
 
 若存在封面图资产（`cdn_manifest.json` 或 `cover/images/`）：
 1. 拟真点击顶部「发布设置」按钮；
-2. 检查「自定义封面」开关，若未开启则点击切换开启；
-3. 将封面转为 `File` 对象，通过 `DataTransfer` 注入 `.select-method input[type="file"]` 触发原生文件选择；
-4. 等待 1.2~1.8 秒弹出「截取展示区域」裁切弹窗（`.image-dialog`）；
-5. 点击裁切对话框的「确定」按钮（`.vui_dialog--btn-confirm`），完成官方封面上传与裁切绑定。
+2. 检查「自定义封面」开关，若未开启则点击切换开启（等待 500ms 渲染）；
+3. 点击「添加封面」/「重新上传」按钮（`.upload-button`），唤起 Vue 动态挂载原生 `input[type="file"]` 控件；
+4. 将封面转为 `File` 对象，通过 `DataTransfer` 注入 `input[type="file"]` 触发原生文件选择；
+5. 轮询等待 1.0~1.8 秒弹出「选择封面的截取位置」裁切弹窗（`.vui_dialog--btn-confirm` / `.image-dialog`）；
+6. 点击裁切对话框的「确定」按钮，完成官方封面上传与裁切绑定。
 
 ---
 
@@ -161,14 +162,19 @@ editor.commands.setContent(finalHtml);
 
 ## 脚本工具与使用方法
 
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- `scripts/parser.mjs`：解析 Markdown，提取标题、摘要、话题、封面资产与 TipTap 语义化 HTML。
+- `scripts/bilibili_publisher.mjs`：浏览器注入脚本生成器（BFS 图床转存、TipTap 状态同步、防风控人机模拟）。
+
 1. **直接运行 Node.js 脚本测试解析**：
 ```bash
-node skills/doudou-bilibili/scripts/parser.mjs <Markdown文件路径>
+node scripts/parser.mjs <Markdown文件路径>
 ```
 
 2. **在 Agent 中配合 `chrome-devtools-mcp` 调用**：
 ```javascript
-import { buildBrowserPublishScript } from './skills/doudou-bilibili/scripts/bilibili_publisher.mjs';
+import { buildBrowserPublishScript } from './scripts/bilibili_publisher.mjs';
 
 // 1. 生成自包含执行代码
 const code = buildBrowserPublishScript(markdownFilePath);

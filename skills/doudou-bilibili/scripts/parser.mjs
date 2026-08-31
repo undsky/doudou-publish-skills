@@ -131,17 +131,29 @@ export function resolveCoverImage(markdownFilePath, content) {
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(manifest.assets)) {
-        const coverAssets = manifest.assets.filter(a => a.type === 'cover');
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '16:9' || a.slug?.includes('16x9') || a.slug?.includes('16_9'))
-          || coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.slug?.includes('main'))
-          || coverAssets.find(a => a.aspect_ratio === '1:1' || a.slug?.includes('1x1'))
-          || coverAssets[0];
+      const list = Array.isArray(manifest.files) ? manifest.files : (Array.isArray(manifest.assets) ? manifest.assets : []);
+      if (list.length > 0) {
+        const coverAssets = list.filter(a => {
+          const pathStr = (a.local_path || a.original_name || a.slug || a.cdn_url || '').toLowerCase();
+          return a.type === 'cover' || pathStr.includes('cover');
+        });
+
+        const mainCover = coverAssets.find(a => {
+          const s = ((a.local_path || '') + ' ' + (a.original_name || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
+          return s.includes('16:9') || s.includes('16x9') || s.includes('16_9');
+        }) || coverAssets.find(a => {
+          const s = ((a.local_path || '') + ' ' + (a.original_name || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
+          return s.includes('2.35') || s.includes('main');
+        }) || coverAssets.find(a => {
+          const s = ((a.local_path || '') + ' ' + (a.original_name || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
+          return s.includes('1:1') || s.includes('1x1');
+        }) || coverAssets[0];
 
         if (mainCover) {
-          let localFullPath = mainCover.local_path ? path.resolve(artifactDir, mainCover.local_path) : undefined;
+          const relPath = mainCover.local_path || mainCover.original_name;
+          let localFullPath = relPath ? (path.isAbsolute(relPath) ? relPath : path.resolve(artifactDir, relPath)) : undefined;
           let base64Data = null;
-          let mimeType = 'image/jpeg';
+          let mimeType = mainCover.mime_type || 'image/png';
           if (localFullPath && fs.existsSync(localFullPath)) {
             const extName = path.extname(localFullPath).toLowerCase().replace('.', '');
             mimeType = extName === 'png' ? 'image/png' : 'image/jpeg';
@@ -508,7 +520,7 @@ export async function parseArticle(filePath) {
 // 命令行直接测试
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
   const targetFile = process.argv[2] || 'e:\\me\\undsky\\mds\\RuoYi-SpringBoot3\\byeidea.md';
-  const result = parseArticle(targetFile);
+  const result = await parseArticle(targetFile);
   console.log(JSON.stringify({
     title: result.title,
     summary: result.summary,

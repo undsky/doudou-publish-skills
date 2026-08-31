@@ -21,14 +21,14 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
    - **ProseMirror 原生富文本注入**：通过派发带有 `text/html` 的 `ClipboardEvent('paste')`，利用微信编辑器官方 DOMParser 解析并渲染复杂排版，保证样式与结构 100% 官方兼容。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 400~600ms 后再触发 `click`。
-3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
-   - **文章正文**：优先读取同名目录下 `gzh-design` 生成的纯排版正文 `[article_name]_排版_[theme].html`（排除带复制工具栏的 `_预览.html`）；若无则从原 Markdown 渲染基础段落。
-   - **文章封面**：
-     1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 链接（优先 2.35:1 / 16:9 宽屏主封面）；
-     2. 其次读取同名目录下 `cover/images/` 的本地图片文件（如 `cover-main-2.35x1.png`、`cover-16x9.png`）；
-     3. 再次从正文中提取首图；
-     4. 若均无则跳过封面设置。
-   - **贴图卡片集**：读取同名目录下 `xhs_images/images/`（或 `guizang_cards/`）的所有卡片图片（如 `01-cover.png`, `02-pitfalls.png`, ...），排除 `*_yuantu.png` 原图，按序号升序读取并批量注入贴图选择器。
+3. **资产自动解析与获取规范**（严格遵循 `doudou-markdown-skill` 规约）：
+   - **文章正文 HTML**（从 `doudou-markdown-skill:L116-L128` 获取）：
+     - 必须优先读取同名目录下由 `gzh-design` 生成的**纯排版正文 HTML**：`path/to/article_name/article_name_排版_主题(ID).html`（绝对不要使用带复制工具栏的 `_预览.html`）；
+     - 注入时先全选清空 ProseMirror 编辑器，派发带有 `text/html` 的 `paste` 事件（辅以 `document.execCommand('insertHTML', false, html)` 保底并同步 `input` 事件），确保主题配色、标题组件、引言卡片、阴影圆角等样式 100% 完整保留。
+   - **文章封面图**（从 `doudou-markdown-skill:L94-L101` 与 `L213` 获取）：
+     - 严格优先选用 **2.35:1 宽屏主封面**，且**必须优先选用 `_thumb` 缩略图**（如 `cover/images/cover-2.35x1_thumb.png`，或 `cdn_manifest.json` 中记录的 `thumb_path` / CDN 链接）；若无 `_thumb` 则降级选用 `cover-2.35x1.png`、`cover-16x9_thumb.png` 或 `cover-16x9.png`；
+     - 自动展开图片选择弹窗（`.weui-desktop-dialog_img-picker`），将封面文件注入上传，选中刚上传的第一张图片，点击「下一步」进入裁切页面，点击「确认」完成封面绑定。
+   - **贴图卡片集**（从 `doudou-markdown-skill:L130-L167` 获取）：读取同名目录下 `xhs_images/images/`（或 `guizang_cards/`）的所有卡片图片（如 `01-cover.png`, `02-resources.png`, ...），排除 `*_yuantu.png` 原图，按序号升序批量上传至贴图选择器。
    - **标题与摘要**：
      - 文章标题：64 字以内纯文本；贴图标题：20 字以内精炼文案。
      - 摘要：80~120 字纯文本（微信公众号限制 120 字以内）。
@@ -38,18 +38,18 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 
 ## 自动化执行全流程
 
-当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/ddagent.md`）时，依次执行以下阶段：
+当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/dddownsmartedu.md`）时，依次执行以下阶段：
 
 ```mermaid
 flowchart TD
-    S0[步骤 0: 解析 Markdown 资产与贴图] --> S1[步骤 1: 打开微信公众平台并进入草稿箱]
+    S0[步骤 0: 解析 Markdown 衍生资产与封面/排版] --> S1[步骤 1: 打开微信公众平台并进入草稿箱]
     S1 --> S2[步骤 2: 点击「新的创作」下拉菜单]
     
     subgraph 模态一: 图文文章草稿
         S2 --> A1[点击「文章」打开图文编辑器页面]
         A1 --> A2[拟真人机输入标题、作者与摘要]
-        A2 --> A3[聚焦正文 ProseMirror 并注入排版 HTML]
-        A3 --> A4[模拟拖拽注入 2.35:1 宽屏主封面]
+        A2 --> A3[聚焦正文 ProseMirror 注入 gzh-design 纯排版 HTML]
+        A3 --> A4[打开图片库上传 2.35:1 缩略主封面并裁切确认]
         A4 --> A5[平滑视口滚动模拟视觉排版审查]
         A5 --> A6[拟真悬停并点击「保存为草稿」]
         A6 --> A7[验证 appmsgid 与「已保存」提示并截屏存证]
@@ -57,7 +57,7 @@ flowchart TD
 
     subgraph 模态二: 小绿书贴图草稿
         S2 --> B1[点击「贴图」打开贴图编辑器页面 createType=8]
-        B1 --> B2[批量上传 xhs_images 卡片图片集]
+        B1 --> B2[批量上传 xhs_images / guizang_cards 卡片图片集]
         B2 --> B3[拟真人机输入贴图标题 20字以内]
         B3 --> B4[拟真输入卡片描述正文与 #话题标签]
         B4 --> B5[平滑视口滚动检查卡片轮播]
@@ -70,9 +70,9 @@ flowchart TD
 
 ### 步骤 0：解析 Markdown 资产与贴图
 
-运行辅助解析脚本提取文章与贴图的完整元数据：
+运行辅助解析脚本提取文章与贴图的完整元数据（脚本路径相对本技能目录，即 `SKILL.md` 所在目录）：
 ```bash
-node /Users/jyx/project/doudou-weixin-skill/scripts/parser.mjs <Markdown文件绝对路径>
+node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `title`: 清洗后的文章标题（64 字以内）
@@ -154,16 +154,21 @@ node /Users/jyx/project/doudou-weixin-skill/scripts/parser.mjs <Markdown文件�
 
 ## 脚本工具与使用方法
 
+以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+
+- `scripts/parser.mjs`：解析 Markdown，提取标题、作者、摘要、话题、贴图文案、排版 HTML 与封面/图文卡片资产。
+- `scripts/weixin_publisher.mjs`：文章与贴图发布浏览器注入脚本生成器（编辑器状态同步与防风控人机模拟）。
+
 1. **直接运行 Node.js 脚本测试资产解析与代码生成**：
 ```bash
-node /Users/jyx/project/doudou-weixin-skill/scripts/parser.mjs <Markdown文件路径>
-node /Users/jyx/project/doudou-weixin-skill/scripts/weixin_publisher.mjs <Markdown文件路径>
+node scripts/parser.mjs <Markdown文件路径>
+node scripts/weixin_publisher.mjs <Markdown文件路径>
 ```
 
 2. **在 Agent 中配合 `chrome-devtools-mcp` 全流程调用**：
 ```javascript
-import { parseAllAssets } from '/Users/jyx/project/doudou-weixin-skill/scripts/parser.mjs';
-import { buildArticleBrowserScript, buildStickerBrowserScript } from '/Users/jyx/project/doudou-weixin-skill/scripts/weixin_publisher.mjs';
+import { parseAllAssets } from './scripts/parser.mjs';
+import { buildArticleBrowserScript, buildStickerBrowserScript } from './scripts/weixin_publisher.mjs';
 
 // 1. 解析目标 Markdown
 const meta = parseAllAssets(markdownFilePath);
