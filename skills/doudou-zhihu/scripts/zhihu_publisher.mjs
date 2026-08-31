@@ -138,7 +138,17 @@ export function buildBrowserPublishScript(markdownFilePath) {
         file = new File([blob], fileName, { type: mimeType });
       }
 
-      const coverInput = document.querySelector('input.UploadPicture-input, input[type="file"][accept*="image"]');
+      // 精准查找顶部或设置区域中的封面上传输入框，坚决排除正文富文本内的插图/附件 input
+      let coverInput = document.querySelector('label.UploadPicture-wrapper input.UploadPicture-input, .UploadPicture-wrapper input');
+      if (!coverInput) {
+        const allFileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+        coverInput = allFileInputs.find(inp => {
+          const parent = inp.closest('.UploadPicture-wrapper') || inp.closest('.WriteCover') || inp.closest('[class*="Cover"]');
+          const isInsideEditor = inp.closest('.PostEditor, .DraftEditor-root, .public-DraftEditor-content');
+          return parent && !isInsideEditor;
+        });
+      }
+
       if (file && coverInput) {
         let dispatched = false;
         const keys = Object.keys(coverInput);
