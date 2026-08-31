@@ -317,7 +317,11 @@ export async function buildBrowserPublishScript(markdownFilePath) {
 
 // 命令行直接运行测试脚本生成
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('bilibili_publisher.mjs'))) {
-  const targetFile = process.argv[2] || 'e:\\me\\undsky\\mds\\RuoYi-SpringBoot3\\byeidea.md';
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node bilibili_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   const scriptCode = await buildBrowserPublishScript(targetFile);
   console.log('生成 Browser Payload 脚本长度:', scriptCode.length);
 }

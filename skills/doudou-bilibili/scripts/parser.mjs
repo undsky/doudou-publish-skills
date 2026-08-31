@@ -519,7 +519,11 @@ export async function parseArticle(filePath) {
 
 // 命令行直接测试
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
-  const targetFile = process.argv[2] || 'e:\\me\\undsky\\mds\\RuoYi-SpringBoot3\\byeidea.md';
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   const result = await parseArticle(targetFile);
   console.log(JSON.stringify({
     title: result.title,

@@ -366,8 +366,12 @@ export function parseAllAssets(markdownFilePath, author = '豆豆') {
 }
 
 // 命令行直接运行测试支持
-if (process.argv[1] && process.argv[1].endsWith('parser.mjs')) {
-  const targetFile = process.argv[2] || '/Users/jyx/project/undsky/mds/AICoding/ddagent.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   console.log(`[parser] 正在解析: ${targetFile}`);
   const result = parseAllAssets(targetFile);
   console.log(JSON.stringify({

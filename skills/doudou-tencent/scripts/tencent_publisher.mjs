@@ -346,8 +346,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
 }
 
 // 命令行直接运行测试与生成
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
-  const targetFile = process.argv[2] || '/Users/jyx/project/undsky/mds/AICoding/ddagent.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('tencent_publisher.mjs'))) {
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node tencent_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   const script = buildBrowserPublishScript(targetFile);
   console.log(`已成功生成发布脚本，字符数: ${script.length}`);
 }

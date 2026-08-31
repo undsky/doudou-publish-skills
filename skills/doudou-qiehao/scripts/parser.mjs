@@ -486,8 +486,12 @@ export function parseAllAssets(markdownFilePath) {
 }
 
 // 命令行直接执行测试
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
-  const testFile = process.argv[2] || '/Users/jyx/project/undsky/mds/RuoYi-SpringBoot3/byeidea.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
+  const testFile = process.argv[2];
+  if (!testFile) {
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   console.log(`\n🔍 正在解析目标 Markdown 文章资产: ${testFile}\n`);
   try {
     const res = parseAllAssets(testFile);

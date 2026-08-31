@@ -385,8 +385,12 @@ export function buildPublishBrowserScript(meta) {
 }
 
 // 命令行执行测试
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
-  const testFile = process.argv[2] || '/Users/jyx/project/undsky/mds/RuoYi-SpringBoot3/byeidea.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('qiehao_publisher.mjs'))) {
+  const testFile = process.argv[2];
+  if (!testFile) {
+    console.error('❌ 缺少必要参数！用法: node qiehao_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   try {
     const meta = parseAllAssets(testFile);
     const script = buildPublishBrowserScript(meta);

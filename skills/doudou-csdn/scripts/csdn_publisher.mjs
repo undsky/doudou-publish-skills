@@ -298,8 +298,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
 }
 
 // 命令行直接测试执行
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
-  const targetFile = process.argv[2] || '/Users/jyx/project/undsky/mds/AICoding/ddagent.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('csdn_publisher.mjs'))) {
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node csdn_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   const script = buildBrowserPublishScript(targetFile);
   console.log('--- GENERATED BROWSER PUBLISH SCRIPT PREVIEW (FIRST 500 CHARS) ---');
   console.log(script.substring(0, 500) + '...\n');

@@ -334,8 +334,12 @@ export function buildStickerBrowserScript(meta) {
 }
 
 // 命令行运行支持
-if (process.argv[1] && process.argv[1].endsWith('weixin_publisher.mjs')) {
-  const targetFile = process.argv[2] || '/Users/jyx/project/undsky/mds/AICoding/ddagent.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('weixin_publisher.mjs'))) {
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node weixin_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   const meta = parseAllAssets(targetFile);
   console.log(`[weixin_publisher] 生成针对: ${meta.title} 的发布脚本`);
   console.log(`- 封面文件: ${meta.cover?.fileName}`);

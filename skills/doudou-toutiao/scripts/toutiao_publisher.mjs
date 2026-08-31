@@ -243,8 +243,12 @@ export function buildPublishBrowserScript(meta) {
 }
 
 // 命令行直接测试支持
-if (process.argv[1] && process.argv[1].endsWith('toutiao_publisher.mjs')) {
-  const targetFile = process.argv[2] || '/Users/jyx/project/undsky/mds/AICoding/ddagent.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('toutiao_publisher.mjs'))) {
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node toutiao_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   console.log(`[toutiao_publisher] 正在为文章生成注入脚本: ${targetFile}`);
   const meta = parseAllAssets(targetFile);
   const script = buildPublishBrowserScript(meta);
