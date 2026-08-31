@@ -108,31 +108,41 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   // 5. 官方通道上传文章封面图
   let coverUploaded = false;
-  if (data.cover && data.cover.type !== 'none') {
+  if (data.cover && data.cover.type !== 'none' && data.cover.hasCover !== false && (data.cover.base64 || data.cover.url)) {
     log('正在通过官方通道上传封面图...');
     try {
       let file = null;
+      let mimeType = data.cover.mimeType || 'image/png';
+      const fileName = data.cover.fileName || 'cover.png';
+
       if (data.cover.base64) {
-        const byteCharacters = atob(data.cover.base64);
+        let base64Clean = data.cover.base64;
+        if (base64Clean.includes(',')) {
+          const parts = base64Clean.split(',');
+          base64Clean = parts[1];
+          const match = parts[0].match(/:(.*?);/);
+          if (match) mimeType = match[1];
+        }
+        const byteCharacters = atob(base64Clean);
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
         const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: data.cover.mimeType || 'image/png' });
-        file = new File([blob], 'cover.png', { type: blob.type });
+        const blob = new Blob([byteArray], { type: mimeType });
+        file = new File([blob], fileName, { type: blob.type });
       } else if (data.cover.url) {
         const resp = await fetch(data.cover.url);
         const blob = await resp.blob();
-        const mimeType = blob.type || 'image/jpeg';
-        const ext = mimeType.includes('png') ? 'png' : 'jpg';
-        file = new File([blob], 'cover.' + ext, { type: mimeType });
+        mimeType = blob.type || mimeType;
+        file = new File([blob], fileName, { type: mimeType });
       }
 
-      const coverInput = document.querySelector('input.UploadPicture-input');
+      const coverInput = document.querySelector('input.UploadPicture-input, input[type="file"][accept*="image"]');
       if (file && coverInput) {
+        let dispatched = false;
         const keys = Object.keys(coverInput);
-        const reactPropKey = keys.find(k => k.startsWith('__reactProps'));
+        const reactPropKey = keys.find(k => k.startsWith('__reactProps') || k.startsWith('__reactEventHandlers'));
         const props = reactPropKey ? coverInput[reactPropKey] : null;
 
         if (props && typeof props.onChange === 'function') {
@@ -142,14 +152,28 @@ export function buildBrowserPublishScript(markdownFilePath) {
             stopPropagation: () => {},
             preventDefault: () => {}
           });
-          
+          dispatched = true;
+        }
+
+        try {
+          const dataTransfer = new DataTransfer();
+          dataTransfer.items.add(file);
+          coverInput.files = dataTransfer.files;
+          coverInput.dispatchEvent(new Event('change', { bubbles: true }));
+          coverInput.dispatchEvent(new Event('input', { bubbles: true }));
+          dispatched = true;
+        } catch (e) {
+          // 忽略 DataTransfer 异常
+        }
+
+        if (dispatched) {
           // 等待封面上传完成
           let waitTime = 0;
           while (waitTime < 8000) {
             await delay(500);
             waitTime += 500;
             const coverWrapper = document.querySelector('.UploadPicture-wrapper, [class*="WriteCover"], [class*="TitleImage"]');
-            if (coverWrapper && (coverWrapper.innerText.includes('更换') || coverWrapper.querySelector('img'))) {
+            if (coverWrapper && (coverWrapper.innerText.includes('更换') || coverWrapper.innerText.includes('删除') || coverWrapper.querySelector('img'))) {
               coverUploaded = true;
               break;
             }

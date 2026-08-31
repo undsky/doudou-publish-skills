@@ -24,10 +24,11 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
 3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
-     1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 链接（优先 2.35:1 / 16:9 / 1:1 封面）；
-     2. 其次读取同名目录下 `cover/images/` 的本地图片文件（如 `cover-main-2.35x1.png`、`cover-square-1x1.png`）；
-     3. 再次从 Markdown 正文中提取第一张图片链接或本地路径；
-     4. 若均无则跳过封面设置。
+     1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的条目（优先 2.35:1 宽屏主封面、16:9 封面、1:1 方形封面，本地文件存在时优先读取 Base64 免疫浏览器跨域）；
+     2. 其次读取同名目录下 `cover/images/` 的本地图片文件（如 `cover-main-2.35x1.png`、`cover-16x9.png`、`cover-square-1x1.png`）；
+     3. 再次读取同名目录下 `xhs_images/images/` 的第一张封面卡片（如 `01-cover.png`）；
+     4. 再次从 Markdown 正文前 10 行或任意位置提取第一张网络图片链接或本地图片路径；
+     5. 若均无则跳过封面设置。
    - **摘要**：提炼 80~150 字纯文本摘要。
    - **知乎话题**：依据文章内容智能推断 1~3 个知乎官方高频话题（如「人工智能」、「智能体」、「AI 编程」、「Docker」、「程序员」等）并搜索绑定。
 
@@ -52,10 +53,13 @@ flowchart TD
 ### 步骤 0：解析 Markdown 资产、封面与话题
 
 运行辅助解析脚本提取元数据：
+
 ```bash
 node scripts/parser.mjs <Markdown文件绝对路径>
 ```
+
 输出包含：
+
 - `title`: 文章标题（自动清洗 Markdown 符号）
 - `summary`: 80~150 字纯文本摘要
 - `topics`: 智能推断的知乎话题关键词数组
@@ -83,17 +87,24 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 1. 聚焦标题输入框 `textarea[placeholder*="请输入标题"]`。
 2. 模拟微小随机延迟（300ms~600ms）。
 3. 使用 React 原生 property setter 设置标题值，并派发 `input` 与 `change` 事件：
+
 ```javascript
-const titleTextarea = document.querySelector('.WriteIndex-titleInput textarea, textarea[placeholder*="请输入标题"]');
+const titleTextarea = document.querySelector(
+  '.WriteIndex-titleInput textarea, textarea[placeholder*="请输入标题"]',
+);
 if (titleTextarea) {
   titleTextarea.focus();
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  ).set;
   setter.call(titleTextarea, articleTitle);
-  titleTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-  titleTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+  titleTextarea.dispatchEvent(new Event("input", { bubbles: true }));
+  titleTextarea.dispatchEvent(new Event("change", { bubbles: true }));
   titleTextarea.blur();
 }
 ```
+
 4. 随机停顿 500ms~900ms。
 
 ---
@@ -101,24 +112,29 @@ if (titleTextarea) {
 ### 步骤 3：注入富文本并触发 Draft.js 剪贴板渲染
 
 知乎专栏采用 Facebook Draft.js 富文本编辑器体系：
+
 1. 聚焦编辑器容器 `.notranslate.public-DraftEditor-content`；
 2. 构造包含 `text/html` 和 `text/plain` 格式的 `DataTransfer` 剪贴板对象；
 3. 派发真实的 `paste` 剪贴板事件，触发知乎词法分析器构建 ContentState（自动生成标题、加粗、列表、代码块、引用与图片等）：
+
 ```javascript
-const editorEl = document.querySelector('.notranslate.public-DraftEditor-content');
+const editorEl = document.querySelector(
+  ".notranslate.public-DraftEditor-content",
+);
 if (editorEl) {
   editorEl.focus();
   const dataTransfer = new DataTransfer();
-  dataTransfer.setData('text/html', htmlContent);
-  dataTransfer.setData('text/plain', bodyContent);
-  const pasteEvent = new ClipboardEvent('paste', {
+  dataTransfer.setData("text/html", htmlContent);
+  dataTransfer.setData("text/plain", bodyContent);
+  const pasteEvent = new ClipboardEvent("paste", {
     clipboardData: dataTransfer,
     bubbles: true,
-    cancelable: true
+    cancelable: true,
   });
   editorEl.dispatchEvent(pasteEvent);
 }
 ```
+
 4. 随机停顿 1200ms~2000ms，让编辑器完成富文本与图片语法树构建与渲染。
 
 ---
@@ -126,12 +142,14 @@ if (editorEl) {
 ### 步骤 4：模拟自然视口平滑滚动检查排版
 
 模拟人类作者自上而下检查文章排版：
+
 1. 平滑滚动到页面 450px 处，等待 600ms~900ms；
 2. 平滑滚动回顶部，等待 500ms~800ms：
+
 ```javascript
-window.scrollTo({ top: 450, behavior: 'smooth' });
+window.scrollTo({ top: 450, behavior: "smooth" });
 // 延时后
-window.scrollTo({ top: 0, behavior: 'smooth' });
+window.scrollTo({ top: 0, behavior: "smooth" });
 ```
 
 ---
@@ -139,6 +157,7 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 ### 步骤 5：官方通道上传并绑定文章封面
 
 若存在封面图资产（CDN URL 或本地 Base64）：
+
 1. 在浏览器端将图片转换为 `File` 对象（`new File([blob], 'cover.png', { type: blob.type })`）；
 2. 获取知乎官方封面上传输入组件 `input.UploadPicture-input` 上的 React Props；
 3. 调用 `props.onChange({ target: { files: [file] } })` 触发官方通道上传与绑定；
@@ -178,13 +197,13 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 
 ## 异常与风控处理
 
-| 异常场景 | 表现特征 | 应对与恢复策略 |
-| :--- | :--- | :--- |
+| 异常场景                | 表现特征                                            | 应对与恢复策略                                                               |
+| :---------------------- | :-------------------------------------------------- | :--------------------------------------------------------------------------- |
 | **未登录 / 登录态过期** | 未找到 `.public-DraftEditor-content` 或跳转至登录页 | 立即停止自动化输入，向用户发送提示，等待用户在浏览器中完成扫码登录后再继续。 |
-| **插件提示弹窗拦截** | 弹出「温馨提示：检测到您安装了某些破解复制插件...」 | 自动检测并点击「仍要继续」按钮关闭弹窗，恢复正常编辑。 |
-| **封面上传失败 / 超时** | 图片拉取超时或格式不兼容 | 降级跳过封面上传，在最终报告中标记，不阻塞草稿主体的保存。 |
-| **话题搜索无精确匹配** | 搜索未返回预期的完全匹配项 | 自动选用首项候选话题，或降级为默认「人工智能」话题。 |
-| **发布设置抽屉未展开** | 点击后未弹出抽屉 | 自动降级为保留主编辑区内容与封面，保证文章主体内容草稿不丢失。 |
+| **插件提示弹窗拦截**    | 弹出「温馨提示：检测到您安装了某些破解复制插件...」 | 自动检测并点击「仍要继续」按钮关闭弹窗，恢复正常编辑。                       |
+| **封面上传失败 / 超时** | 图片拉取超时或格式不兼容                            | 降级跳过封面上传，在最终报告中标记，不阻塞草稿主体的保存。                   |
+| **话题搜索无精确匹配**  | 搜索未返回预期的完全匹配项                          | 自动选用首项候选话题，或降级为默认「人工智能」话题。                         |
+| **发布设置抽屉未展开**  | 点击后未弹出抽屉                                    | 自动降级为保留主编辑区内容与封面，保证文章主体内容草稿不丢失。               |
 
 ---
 
@@ -196,13 +215,15 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 - `scripts/zhihu_publisher.mjs`：浏览器注入脚本生成器（Draft.js 状态注入、话题搜索绑定、防风控人机模拟）。
 
 1. **直接运行 Node.js 脚本测试解析**：
+
 ```bash
 node scripts/parser.mjs <Markdown文件路径>
 ```
 
 2. **在 Agent 中配合 `chrome-devtools-mcp` 调用**：
+
 ```javascript
-import { buildBrowserPublishScript } from './scripts/zhihu_publisher.mjs';
+import { buildBrowserPublishScript } from "./scripts/zhihu_publisher.mjs";
 
 // 1. 生成自包含执行代码
 const code = buildBrowserPublishScript(markdownFilePath);
@@ -210,7 +231,7 @@ const code = buildBrowserPublishScript(markdownFilePath);
 // 2. 调用 evaluate_script 在知乎写文章页面执行
 const result = await evaluate_script({
   pageId: targetPageId,
-  function: code
+  function: code,
 });
 
 // 3. 截屏存证

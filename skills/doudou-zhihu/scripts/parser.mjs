@@ -109,50 +109,95 @@ export function extractTopics(content, title = '') {
 
 /**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
+ * 优先级：
+ * 1. 同名目录 cdn_manifest.json 中类型为 cover 的条目（优先 2.35:1 宽屏主封面、16:9 封面、1:1 方形封面，存在本地文件时优先读取 base64）
+ * 2. 同名目录 cover/images/ 下的本地封面（cover-main-2.35x1.png / 16x9 / 1x1）
+ * 3. 同名目录 xhs_images/images/ 下的第一张封面卡片（01-cover.png）
+ * 4. 正文前 10 行内的封面图（网络或本地图片）
+ * 5. 正文中提取的第一张网络或本地图片
  * @param {string} markdownFilePath 
  * @param {string} content 
- * @returns {{ type: 'cdn'|'local'|'none', url?: string, localPath?: string, base64?: string, mimeType?: string }}
+ * @returns {{ hasCover: boolean, type: 'local'|'cdn'|'none', url?: string, localPath?: string, base64?: string, mimeType?: string, fileName?: string }}
  */
-export function resolveCoverImage(markdownFilePath, content) {
+export function resolveCoverImage(markdownFilePath, content = '') {
   const absPath = path.resolve(markdownFilePath);
   const dir = path.dirname(absPath);
   const ext = path.extname(absPath);
   const stem = path.basename(absPath, ext);
   const artifactDir = path.join(dir, stem);
 
-  // 1. 优先从同名目录的 cdn_manifest.json 查找
+  // 构建 manifest 快速映射表
+  let manifestMap = {};
+  let manifestAssets = [];
   const manifestPath = path.join(artifactDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(manifest.assets)) {
-        // 优先 2.35:1 或 16:9 或包含 main 的封面
-        const coverAssets = manifest.assets.filter(a => a.type === 'cover');
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.slug?.includes('main')) 
-          || coverAssets.find(a => a.aspect_ratio === '16:9' || a.slug?.includes('16x9'))
-          || coverAssets.find(a => a.aspect_ratio === '1:1' || a.slug?.includes('1x1'))
-          || coverAssets[0];
-        
-        if (mainCover) {
-          let localFullPath = mainCover.local_path ? path.resolve(artifactDir, mainCover.local_path) : undefined;
-          let base64Data = null;
-          let mimeType = 'image/jpeg';
-          if (!mainCover.cdn_url && localFullPath && fs.existsSync(localFullPath)) {
-            const extName = path.extname(localFullPath).toLowerCase().replace('.', '');
-            mimeType = extName === 'png' ? 'image/png' : 'image/jpeg';
-            base64Data = fs.readFileSync(localFullPath).toString('base64');
-          }
-          return {
-            type: mainCover.cdn_url ? 'cdn' : (base64Data ? 'local' : 'none'),
-            url: mainCover.cdn_url,
-            localPath: localFullPath,
-            base64: base64Data || undefined,
-            mimeType
-          };
+      manifestAssets = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
+      for (const asset of manifestAssets) {
+        if (asset.local_path && asset.cdn_url) {
+          manifestMap[path.resolve(artifactDir, asset.local_path)] = asset.cdn_url;
+          manifestMap[path.resolve(dir, asset.local_path)] = asset.cdn_url;
+          manifestMap[path.basename(asset.local_path)] = asset.cdn_url;
         }
       }
     } catch (e) {
-      // 忽略解析错误
+      console.warn('[parser] 解析 cdn_manifest.json 异常:', e.message);
+    }
+  }
+
+  // 1. 优先从同名目录的 cdn_manifest.json 查找
+  if (manifestAssets.length > 0) {
+    const coverAssets = manifestAssets.filter(a => {
+      const pathStr = (a.local_path || a.slug || a.original_name || a.cdn_url || '').toLowerCase();
+      return a.type === 'cover' || pathStr.includes('cover');
+    });
+
+    if (coverAssets.length > 0) {
+      const mainCover = coverAssets.find(a => {
+        const s = ((a.local_path || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
+        return s.includes('2.35') || s.includes('main');
+      }) || coverAssets.find(a => {
+        const s = ((a.local_path || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
+        return s.includes('16:9') || s.includes('16x9');
+      }) || coverAssets.find(a => {
+        const s = ((a.local_path || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
+        return s.includes('1:1') || s.includes('1x1');
+      }) || coverAssets[0];
+
+      if (mainCover) {
+        const relPath = mainCover.local_path || mainCover.original_name || mainCover.path;
+        let localFullPath = undefined;
+        if (relPath) {
+          if (path.isAbsolute(relPath) && fs.existsSync(relPath)) {
+            localFullPath = relPath;
+          } else if (fs.existsSync(path.resolve(artifactDir, relPath))) {
+            localFullPath = path.resolve(artifactDir, relPath);
+          } else if (fs.existsSync(path.resolve(dir, relPath))) {
+            localFullPath = path.resolve(dir, relPath);
+          }
+        }
+
+        let base64Data = null;
+        let mimeType = mainCover.mime_type || 'image/jpeg';
+        if (localFullPath && fs.existsSync(localFullPath)) {
+          const extName = path.extname(localFullPath).toLowerCase().replace('.', '');
+          mimeType = extName === 'png' ? 'image/png' : (extName === 'webp' ? 'image/webp' : 'image/jpeg');
+          base64Data = fs.readFileSync(localFullPath).toString('base64');
+        }
+
+        const fileName = localFullPath ? path.basename(localFullPath) : (mainCover.slug ? `${mainCover.slug}.png` : 'cover.png');
+
+        return {
+          hasCover: true,
+          type: base64Data ? 'local' : (mainCover.cdn_url ? 'cdn' : 'none'),
+          url: mainCover.cdn_url,
+          localPath: localFullPath,
+          base64: base64Data || undefined,
+          mimeType,
+          fileName
+        };
+      }
     }
   }
 
@@ -162,77 +207,126 @@ export function resolveCoverImage(markdownFilePath, content) {
     const files = fs.readdirSync(coverImagesDir);
     const validExts = ['.png', '.jpg', '.jpeg', '.webp'];
     const imageFiles = files.filter(f => validExts.includes(path.extname(f).toLowerCase()) && !f.includes('yuantu'));
-    
-    // 优先选择 2.35x1 或 16x9 或 main
-    const targetFile = imageFiles.find(f => f.includes('2.35') || f.includes('main') || f.includes('16x9')) 
-      || imageFiles.find(f => f.includes('1x1'))
-      || imageFiles[0];
 
-    if (targetFile) {
+    const candidates = [
+      imageFiles.find(f => f.includes('2.35x1') || f.includes('2.35:1') || f.includes('cover-main') || f.includes('main')),
+      imageFiles.find(f => f.includes('16x9') || f.includes('16:9')),
+      imageFiles.find(f => f.includes('square-1x1') || f.includes('1x1')),
+      imageFiles.find(f => f.includes('cover')),
+      imageFiles[0]
+    ].filter(Boolean);
+
+    if (candidates.length > 0) {
+      const targetFile = candidates[0];
       const fullLocalPath = path.join(coverImagesDir, targetFile);
       const extName = path.extname(targetFile).toLowerCase().replace('.', '');
-      const mimeType = extName === 'png' ? 'image/png' : 'image/jpeg';
-      
-      // 检查正文前 10 行是否有对应的 CDN 链接
-      const topLines = content.split('\n').slice(0, 10).join('\n');
-      const topImgMatch = topLines.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
-      
-      if (topImgMatch && topImgMatch[1]) {
-        return {
-          type: 'cdn',
-          url: topImgMatch[1],
-          localPath: fullLocalPath,
-          mimeType
-        };
-      }
-
+      const mimeType = extName === 'png' ? 'image/png' : (extName === 'webp' ? 'image/webp' : 'image/jpeg');
       const buffer = fs.readFileSync(fullLocalPath);
+      const cdnUrl = manifestMap[fullLocalPath] || manifestMap[targetFile] || undefined;
+
       return {
+        hasCover: true,
         type: 'local',
+        url: cdnUrl,
         localPath: fullLocalPath,
         base64: buffer.toString('base64'),
-        mimeType
+        mimeType,
+        fileName: targetFile
       };
     }
   }
 
-  // 3. 检查正文开头是否有封面图链接（如 ![封面图](https://...)）
-  const topLines = content.split('\n').slice(0, 10).join('\n');
+  // 3. 备选：读取 xhs_images/images/ 下的第一张封面卡片（如 01-cover.png）
+  const xhsImagesDir = path.join(artifactDir, 'xhs_images', 'images');
+  if (fs.existsSync(xhsImagesDir)) {
+    const allFiles = fs.readdirSync(xhsImagesDir)
+      .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const coverCard = allFiles.find(f => f.includes('01-cover') || f.includes('cover') || f.startsWith('01')) || allFiles[0];
+
+    if (coverCard) {
+      const localPath = path.join(xhsImagesDir, coverCard);
+      const buf = fs.readFileSync(localPath);
+      const extName = path.extname(coverCard).toLowerCase().replace('.', '');
+      const mimeType = extName === 'png' ? 'image/png' : (extName === 'webp' ? 'image/webp' : 'image/jpeg');
+      const cdnUrl = manifestMap[localPath] || manifestMap[coverCard] || undefined;
+      return {
+        hasCover: true,
+        type: 'local',
+        url: cdnUrl,
+        localPath,
+        base64: buf.toString('base64'),
+        mimeType,
+        fileName: coverCard
+      };
+    }
+  }
+
+  // 4. 检查正文前 10 行是否有封面图链接（网络或本地）
+  const topLines = (content || '').split('\n').slice(0, 10).join('\n');
   const topImgMatch = topLines.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
   if (topImgMatch && topImgMatch[1]) {
     return {
+      hasCover: true,
       type: 'cdn',
-      url: topImgMatch[1]
+      url: topImgMatch[1],
+      fileName: 'cover_top.png',
+      mimeType: 'image/jpeg'
     };
   }
 
-  // 4. 从 Markdown 正文任意位置提取第一张网络图片
-  const imgMatch = content.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+  const topLocalMatch = topLines.match(/!\[.*?\]\(([^)]+)\)/);
+  if (topLocalMatch && topLocalMatch[1] && !topLocalMatch[1].startsWith('http')) {
+    const localRel = topLocalMatch[1];
+    const fullImgPath = path.resolve(dir, localRel);
+    if (fs.existsSync(fullImgPath)) {
+      const extName = path.extname(fullImgPath).toLowerCase().replace('.', '');
+      const mimeType = extName === 'png' ? 'image/png' : (extName === 'webp' ? 'image/webp' : 'image/jpeg');
+      const buffer = fs.readFileSync(fullImgPath);
+      return {
+        hasCover: true,
+        type: 'local',
+        localPath: fullImgPath,
+        base64: buffer.toString('base64'),
+        mimeType,
+        fileName: path.basename(fullImgPath)
+      };
+    }
+  }
+
+  // 5. 从 Markdown 正文任意位置提取第一张图片
+  const imgMatch = (content || '').match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
   if (imgMatch && imgMatch[1]) {
     return {
+      hasCover: true,
       type: 'cdn',
-      url: imgMatch[1]
+      url: imgMatch[1],
+      fileName: 'cover_from_content.png',
+      mimeType: 'image/jpeg'
     };
   }
 
-  const localImgMatch = content.match(/!\[.*?\]\(([^)]+)\)/);
-  if (localImgMatch && localImgMatch[1]) {
+  const localImgMatch = (content || '').match(/!\[.*?\]\(([^)]+)\)/);
+  if (localImgMatch && localImgMatch[1] && !localImgMatch[1].startsWith('http')) {
     const localRel = localImgMatch[1];
     const fullImgPath = path.resolve(dir, localRel);
     if (fs.existsSync(fullImgPath)) {
       const extName = path.extname(fullImgPath).toLowerCase().replace('.', '');
-      const mimeType = extName === 'png' ? 'image/png' : 'image/jpeg';
+      const mimeType = extName === 'png' ? 'image/png' : (extName === 'webp' ? 'image/webp' : 'image/jpeg');
       const buffer = fs.readFileSync(fullImgPath);
       return {
+        hasCover: true,
         type: 'local',
         localPath: fullImgPath,
         base64: buffer.toString('base64'),
-        mimeType
+        mimeType,
+        fileName: path.basename(fullImgPath)
       };
     }
   }
 
-  return { type: 'none' };
+  return { hasCover: false, type: 'none' };
 }
 
 /**
@@ -439,16 +533,33 @@ export function parseArticle(filePath) {
   const htmlContent = markdownToHtml(bodyContent);
 
   return {
+    markdownFilePath: absPath,
     filePath: absPath,
     stem,
     title,
+    articleTitle: title,
     summary,
+    articleSummary: summary,
     topics,
+    tags: topics,
     cover,
     isCdnVersion,
     bodyContent,
     htmlContent,
     rawContent
+  };
+}
+
+/**
+ * 全面解析 Markdown 文件及其关联资产（兼容易与其他 skill 统一调用的签名）
+ * @param {string} filePath 
+ * @param {string} author 
+ */
+export function parseAllAssets(filePath, author = 'undsky') {
+  const result = parseArticle(filePath);
+  return {
+    ...result,
+    author
   };
 }
 
@@ -465,13 +576,16 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     summary: result.summary,
     topics: result.topics,
     cover: {
+      hasCover: result.cover.hasCover,
       type: result.cover.type,
       url: result.cover.url,
       localPath: result.cover.localPath,
-      hasBase64: !!result.cover.base64
+      hasBase64: !!result.cover.base64,
+      fileName: result.cover.fileName
     },
     isCdnVersion: result.isCdnVersion,
     bodyLength: result.bodyContent.length,
     htmlLength: result.htmlContent.length
   }, null, 2));
 }
+
