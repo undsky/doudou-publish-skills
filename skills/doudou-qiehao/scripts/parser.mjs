@@ -361,12 +361,12 @@ export function resolveCoverImage(markdownFilePath) {
     if (fs.existsSync(manifestPath)) {
       try {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-        if (Array.isArray(manifest.assets)) {
-          for (const asset of manifest.assets) {
-            if (asset.local_path && asset.cdn_url) {
-              manifestMap[path.resolve(asset.local_path)] = asset.cdn_url;
-              manifestMap[path.basename(asset.local_path)] = asset.cdn_url;
-            }
+        const items = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
+        for (const asset of items) {
+          if (asset.local_path && asset.cdn_url) {
+            manifestMap[path.resolve(articleDir, asset.local_path)] = asset.cdn_url;
+            manifestMap[path.resolve(dir, asset.local_path)] = asset.cdn_url;
+            manifestMap[path.basename(asset.local_path)] = asset.cdn_url;
           }
         }
       } catch (e) {}
@@ -408,13 +408,17 @@ export function resolveCoverImage(markdownFilePath) {
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      if (Array.isArray(manifest.assets)) {
-        const coverAsset = manifest.assets.find(a => a.type === 'cover' || a.local_path?.includes('/cover/'));
-        if (coverAsset && coverAsset.local_path && fs.existsSync(coverAsset.local_path)) {
+      const items = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
+      const coverAsset = items.find(a => a.type === 'cover' || a.local_path?.includes('/cover/') || a.slug?.includes('cover'));
+      if (coverAsset && coverAsset.local_path) {
+        const pathInArticle = path.resolve(articleDir, coverAsset.local_path);
+        const pathInDir = path.resolve(dir, coverAsset.local_path);
+        const targetPath = fs.existsSync(pathInArticle) ? pathInArticle : (fs.existsSync(pathInDir) ? pathInDir : null);
+        if (targetPath) {
           return {
-            localPath: coverAsset.local_path,
-            fileName: path.basename(coverAsset.local_path),
-            base64: fs.readFileSync(coverAsset.local_path).toString('base64'),
+            localPath: targetPath,
+            fileName: path.basename(targetPath),
+            base64: fs.readFileSync(targetPath).toString('base64'),
             cdnUrl: coverAsset.cdn_url
           };
         }

@@ -223,15 +223,21 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      if (Array.isArray(manifest.files)) {
+      const items = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
+      if (items.length > 0) {
         // 查找 2.35:1 或 16:9 封面，优先 thumb 缩略图
-        const coverItem = manifest.files.find(f => f.type === 'cover' && (f.name?.includes('2.35x1_thumb') || f.name?.includes('main_thumb'))) ||
-                          manifest.files.find(f => f.type === 'cover' && (f.name?.includes('2.35x1') || f.name?.includes('main'))) ||
-                          manifest.files.find(f => f.type === 'cover' && f.name?.includes('16x9_thumb')) ||
-                          manifest.files.find(f => f.type === 'cover' && f.name?.includes('16x9')) ||
-                          manifest.files.find(f => f.type === 'cover');
+        const coverItem = items.find(f => f.type === 'cover' && (f.slug?.includes('2.35x1_thumb') || f.name?.includes('2.35x1_thumb') || f.slug?.includes('main_thumb') || f.name?.includes('main_thumb'))) ||
+                          items.find(f => f.type === 'cover' && (f.aspect_ratio === '2.35:1' || f.slug?.includes('2.35x1') || f.name?.includes('2.35x1') || f.slug?.includes('main') || f.name?.includes('main'))) ||
+                          items.find(f => f.type === 'cover' && (f.slug?.includes('16x9_thumb') || f.name?.includes('16x9_thumb'))) ||
+                          items.find(f => f.type === 'cover' && (f.aspect_ratio === '16:9' || f.slug?.includes('16x9') || f.name?.includes('16x9'))) ||
+                          items.find(f => f.type === 'cover');
         if (coverItem && coverItem.cdn_url) {
-          const localPath = coverItem.local_path ? path.resolve(dir, coverItem.local_path) : null;
+          let localPath = null;
+          if (coverItem.local_path) {
+            const pathInArticle = path.resolve(articleDir, coverItem.local_path);
+            const pathInDir = path.resolve(dir, coverItem.local_path);
+            localPath = fs.existsSync(pathInArticle) ? pathInArticle : (fs.existsSync(pathInDir) ? pathInDir : pathInArticle);
+          }
           let base64 = null;
           let mimeType = 'image/png';
           if (localPath && fs.existsSync(localPath)) {
@@ -245,7 +251,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
             localPath,
             base64,
             mimeType,
-            fileName: coverItem.name || 'cover-2.35x1.png'
+            fileName: coverItem.slug ? `${coverItem.slug}.png` : (coverItem.name || 'cover-2.35x1.png')
           };
         }
       }
