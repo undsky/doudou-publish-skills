@@ -4,10 +4,11 @@ import { parseArticle } from './parser.mjs';
 /**
  * 生成可直接在知乎写文章页面 (https://zhuanlan.zhihu.com/write) evaluate_script 执行的拟真发布 Payload 函数字符串
  * @param {string} markdownFilePath 
+ * @param {object} options 可选参数（例如 { topics: ['自媒体', '微信公众号'] }）
  * @returns {string} 可在目标页面执行的自包含异步 JS 代码
  */
-export function buildBrowserPublishScript(markdownFilePath) {
-  const articleData = parseArticle(markdownFilePath);
+export function buildBrowserPublishScript(markdownFilePath, options = {}) {
+  const articleData = parseArticle(markdownFilePath, options);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
     summary: articleData.summary,
@@ -310,11 +311,23 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
 // 命令行直接测试生成执行代码
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('zhihu_publisher.mjs'))) {
-  const targetFile = process.argv[2];
+  const args = process.argv.slice(2);
+  let targetFile = null;
+  let cliTopics = null;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--topics' || arg === '-t') {
+      cliTopics = args[++i];
+    } else if (!arg.startsWith('-') && !targetFile) {
+      targetFile = arg;
+    }
+  }
+
   if (!targetFile) {
-    console.error('❌ 缺少必要参数！用法: node zhihu_publisher.mjs <Markdown文件路径>');
+    console.error('❌ 缺少必要参数！用法: node zhihu_publisher.mjs <Markdown文件路径> [--topics "话题1,话题2"]');
     process.exit(1);
   }
-  const script = buildBrowserPublishScript(targetFile);
+  const script = buildBrowserPublishScript(targetFile, cliTopics ? { topics: cliTopics } : {});
   console.log('--- GENERATED ZHIHU PUBLISH SCRIPT LENGTH: ' + script.length + ' BYTES ---');
 }

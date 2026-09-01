@@ -69,42 +69,223 @@ export function extractSummary(content) {
 }
 
 /**
- * 智能推断 1~3 个知乎官方高频话题关键词
+ * 解析 Markdown 文件的 YAML FrontMatter
  * @param {string} content 
- * @param {string} title 
- * @returns {string[]}
+ * @returns {Record<string, any>|null}
  */
-export function extractTopics(content, title = '') {
-  const keywordsMap = [
-    { topic: '人工智能', matches: ['ai', '人工智能', '大模型', 'llm', 'deepseek', 'gpt', 'openai', 'claude'] },
-    { topic: '智能体', matches: ['agent', '智能体', '多智能体', 'multi-agent', 'opencode'] },
-    { topic: 'AI 编程', matches: ['ai编程', 'aicoding', 'ai coding', '代码生成', 'cursor', 'copilot'] },
-    { topic: 'AIGC', matches: ['aigc', '生成式ai', 'stable diffusion', 'midjourney'] },
-    { topic: 'Docker', matches: ['docker', '容器', 'docker-compose', 'alpine', 'k8s', 'kubernetes'] },
-    { topic: '前端开发', matches: ['前端', 'javascript', 'typescript', 'vue', 'react', 'css', 'html', 'node.js'] },
-    { topic: '后端开发', matches: ['后端', 'java', 'springboot', 'go', 'golang', 'python', 'mysql', 'redis'] },
-    { topic: '软件架构', matches: ['架构', '架构设计', '微服务', '系统设计', '工业化'] },
-    { topic: '自动化', matches: ['自动化', 'automation', 'n8n', 'workflow', 'mcp', 'dify'] },
-    { topic: '程序员', matches: ['程序员', '开发者', '工程师', '开源', '代码'] }
-  ];
+export function extractFrontmatter(content) {
+  if (!content || !content.startsWith('---')) return null;
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  const fmBlock = match[1];
+  const data = {};
+  
+  const lines = fmBlock.split('\n');
+  let currentKey = null;
+  let currentArray = null;
 
-  const fullText = (title + ' ' + content).toLowerCase();
-  const matchedTopics = [];
+  for (let line of lines) {
+    line = line.trim();
+    if (!line || line.startsWith('#')) continue;
 
-  for (const item of keywordsMap) {
-    if (item.matches.some(m => fullText.includes(m))) {
-      if (!matchedTopics.includes(item.topic)) {
-        matchedTopics.push(item.topic);
+    if (line.startsWith('- ') && currentKey) {
+      if (!currentArray) {
+        currentArray = [];
+        data[currentKey] = currentArray;
+      }
+      currentArray.push(line.replace(/^- \s*/, '').replace(/^['"]|['"]$/g, '').trim());
+      continue;
+    }
+
+    const colonIdx = line.indexOf(':');
+    if (colonIdx > 0) {
+      currentKey = line.slice(0, colonIdx).trim();
+      currentArray = null;
+      let val = line.slice(colonIdx + 1).trim();
+      if (val.startsWith('[') && val.endsWith(']')) {
+        data[currentKey] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+      } else if (val) {
+        data[currentKey] = val.replace(/^['"]|['"]$/g, '');
       }
     }
-    if (matchedTopics.length >= 3) break;
+  }
+  return data;
+}
+
+/**
+ * 动态智能推断 1~3 个知乎官方高频话题关键词
+ * 遵循多级动态决策：
+ * 1. 显式传入参数 / 环境变量 (options.topics / process.env.ZHIHU_TOPICS)
+ * 2. 文章 FrontMatter (topics / tags / keywords / categories)
+ * 3. 同名目录元数据文件 (outline.md / analysis.md)
+ * 4. 标题与正文高权重实体词动态打分抽取 (无需修改任何代码，自适应所有领域)
+ * @param {string} content 
+ * @param {string} title 
+ * @param {object} options
+ * @returns {string[]}
+ */
+export function extractTopics(content, title = '', options = {}) {
+  // 1. 显式指定的优先级最高（支持数组、逗号/顿号/空格分隔字符串、环境变量）
+  const explicitTopics = options.topics || options.tags || (typeof process !== 'undefined' && process.env && process.env.ZHIHU_TOPICS);
+  if (explicitTopics) {
+    const list = Array.isArray(explicitTopics)
+      ? explicitTopics
+      : String(explicitTopics).split(/[,，、|# ]+/).map(s => s.trim()).filter(Boolean);
+    if (list.length > 0) {
+      return [...new Set(list)].slice(0, 3);
+    }
   }
 
-  if (matchedTopics.length === 0) {
-    matchedTopics.push('人工智能', '程序员');
+  // 2. 从 FrontMatter 提取
+  const fm = extractFrontmatter(content);
+  if (fm) {
+    const fmTopics = fm.topics || fm.tags || fm.keywords || fm.categories || fm.category;
+    if (fmTopics) {
+      const list = Array.isArray(fmTopics)
+        ? fmTopics
+        : String(fmTopics).split(/[,，、|# ]+/).map(s => s.trim()).filter(Boolean);
+      if (list.length > 0) {
+        return [...new Set(list)].slice(0, 3);
+      }
+    }
   }
 
-  return matchedTopics;
+  // 3. 从同名目录元数据文件推断 (如 outline.md, analysis.md)
+  if (options.markdownFilePath) {
+    try {
+      const absPath = path.resolve(options.markdownFilePath);
+      const dir = path.dirname(absPath);
+      const stem = path.basename(absPath, path.extname(absPath));
+      const metaFiles = [
+        path.join(dir, stem, 'analysis.md'),
+        path.join(dir, stem, 'outline.md'),
+        path.join(dir, stem, 'xhs_images', 'analysis.md')
+      ];
+      for (const mf of metaFiles) {
+        if (fs.existsSync(mf)) {
+          const txt = fs.readFileSync(mf, 'utf8');
+          const match = txt.match(/(?:话题|标签|关键词|Tags|Topics)[:：]\s*([^\n\r]+)/i);
+          if (match && match[1]) {
+            const list = match[1].split(/[,，、|# ]+/).map(s => s.trim().replace(/^#/, '')).filter(Boolean);
+            if (list.length > 0) {
+              return [...new Set(list)].slice(0, 3);
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 4. 动态文本语义分析与领域词频加权抽取（完全自适应，无需修改代码）
+  const domainTopicBank = [
+    // 自媒体与内容运营
+    { topic: '自媒体', matches: ['自媒体', '公众号', '微信公众号', '创作者', '发文', '违禁词', '敏感词', '百家号', '头条号', '小红书', '知乎', '短视频', '流量', '变现', '爆款', '自媒体运营', '新媒体'] },
+    { topic: '微信公众平台', matches: ['微信公众平台', '微信生态', '公众号运营', '公众号开发', '微信文章', '公众号排版'] },
+    { topic: '内容安全', matches: ['敏感词', '违规', '合规', '风控', '审核', '鉴黄', '内容审核', '风控系统', '敏感词检测', '内容安全'] },
+    
+    // AI 与大模型
+    { topic: '人工智能', matches: ['人工智能', 'ai', '大模型', 'llm', 'deepseek', 'gpt', 'gpt-4', 'openai', 'claude', 'gemini', 'ollama', 'qwen', '通义千问', 'llama', '文心一言', 'kimi'] },
+    { topic: '智能体', matches: ['agent', '智能体', '多智能体', 'multi-agent', 'opencode', 'autogen', 'crewai', 'dify', 'coze', '扣子'] },
+    { topic: 'AI 编程', matches: ['ai编程', 'aicoding', 'ai coding', '代码生成', 'cursor', 'copilot', 'v0', 'windsurf', 'claude code', 'trae', 'cline', 'roo code'] },
+    { topic: 'AIGC', matches: ['aigc', '生成式ai', 'stable diffusion', 'midjourney', 'comfyui', 'sora', 'flux', '文生图', '图生图', 'ai生图', 'ai绘画'] },
+    { topic: '自然语言处理', matches: ['nlp', '自然语言处理', 'embedding', '向量检索', 'rag', '知识库', 'rerank', '分词', 'semantic'] },
+
+    // 自动化与研发效率
+    { topic: '自动化', matches: ['自动化', 'automation', 'n8n', 'workflow', '工作流', 'mcp', '自动化运维', '自动化测试', '自动化脚本', '爬虫', 'playwright', 'puppeteer', 'selenium'] },
+    { topic: '效率工具', matches: ['效率工具', '生产力工具', 'notion', 'obsidian', 'workflow', '油猴脚本', 'chrome插件', '浏览器插件', '命令行工具', 'cli'] },
+
+    // 软件开发与编程
+    { topic: '程序员', matches: ['程序员', '开发者', '工程师', '开源', '代码', '编程', 'developer', 'coding', 'github', 'git'] },
+    { topic: '前端开发', matches: ['前端', 'javascript', 'typescript', 'vue', 'react', 'css', 'html', 'node.js', 'next.js', 'vite', 'tailwind', 'webpack', 'uniapp', 'electron'] },
+    { topic: '后端开发', matches: ['后端', 'java', 'springboot', 'spring boot', 'go', 'golang', 'python', 'mysql', 'redis', 'postgresql', 'mongodb', 'mybatis', 'fastapi', 'flask', 'django', 'eggjs', 'nest.js'] },
+    { topic: '软件架构', matches: ['架构', '架构设计', '微服务', '系统设计', '设计模式', '分布式', '高并发', '高可用', '领域驱动设计', 'ddd'] },
+    { topic: 'Docker', matches: ['docker', '容器', 'docker-compose', 'alpine', 'k8s', 'kubernetes', 'container', 'dockerfile'] },
+    { topic: 'DevOps', matches: ['devops', 'ci/cd', '持续集成', 'jenkins', 'github actions', 'linux', 'ubuntu', 'centos', 'nginx', '运维'] },
+    { topic: '数据库', matches: ['数据库', 'mysql', 'redis', 'elasticsearch', 'pgsql', 'mongodb', 'sql', 'orm', '向量数据库'] },
+
+    // 职场与设计
+    { topic: 'UI/UX 设计', matches: ['ui设计', 'ux设计', '交互设计', 'figma', '设计系统', '原型设计', '视觉设计', '排版设计'] },
+    { topic: '职场成长', matches: ['职场', '面试', '跳槽', '简历', '职业发展', '副业', '自由职业', '远程工作'] }
+  ];
+
+  // 抽取正文核心结构与高权重短语
+  const headings = [];
+  const boldTerms = [];
+  const inlineCodes = [];
+
+  const lines = (content || '').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('# ') || trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
+      headings.push(trimmed.replace(/^#+\s+/, '').trim());
+    }
+    const boldMatches = trimmed.match(/\*\*([^*]+)\*\*/g);
+    if (boldMatches) {
+      for (const bm of boldMatches) {
+        boldTerms.push(bm.replace(/\*\*/g, '').trim());
+      }
+    }
+    const codeMatches = trimmed.match(/`([^`]+)`/g);
+    if (codeMatches) {
+      for (const cm of codeMatches) {
+        inlineCodes.push(cm.replace(/`/g, '').trim());
+      }
+    }
+  }
+
+  // 加权打分：Title (权重 10) > 大纲 H1/H2 (权重 5) > 加粗/代码 (权重 3) > 全文
+  const titleLower = (title || '').toLowerCase();
+  const headingsText = headings.join(' ').toLowerCase();
+  const boldCodeText = (boldTerms.join(' ') + ' ' + inlineCodes.join(' ')).toLowerCase();
+  const fullText = (content || '').toLowerCase();
+
+  const scoredTopics = [];
+
+  for (const item of domainTopicBank) {
+    let score = 0;
+    for (const match of item.matches) {
+      const matchLower = match.toLowerCase();
+      if (titleLower.includes(matchLower)) {
+        score += 10;
+      }
+      if (headingsText.includes(matchLower)) {
+        score += 5;
+      }
+      if (boldCodeText.includes(matchLower)) {
+        score += 3;
+      }
+      if (score === 0 && fullText.includes(matchLower)) {
+        score += 1;
+      }
+    }
+
+    if (score > 0) {
+      scoredTopics.push({ topic: item.topic, score });
+    }
+  }
+
+  scoredTopics.sort((a, b) => b.score - a.score);
+  const matched = scoredTopics.map(s => s.topic);
+
+  // 动态抽取标题中的专有名词/短语实体（排除纯数字）
+  const cleanTitle = (title || '')
+    .replace(/[！!？?：:，,。._\-+=#*~`/\\]/g, ' ')
+    .replace(/(?:指南|怎么用|如何|快速|教程|实战|解析|避坑|小白|入门|大揭秘|全攻略|技巧|盘点)/g, ' ');
+  const titleWords = cleanTitle.split(/\s+/).filter(w => w.length >= 2 && w.length <= 10 && !/^\d+$/.test(w));
+  for (const w of titleWords) {
+    if (!matched.includes(w) && matched.length < 3) {
+      if (/[\u4e00-\u9fa5]{2,6}/.test(w) || /^[a-zA-Z0-9#+.-]{2,12}$/.test(w)) {
+        matched.push(w);
+      }
+    }
+  }
+
+  if (matched.length > 0) {
+    return [...new Set(matched)].slice(0, 3);
+  }
+
+  // 5. 兜底回退
+  return ['人工智能', '程序员'];
 }
 
 /**
@@ -412,6 +593,41 @@ export function markdownToHtml(md) {
       continue;
     }
 
+    // 表格处理
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      closeList();
+      const tableLines = [];
+      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+      i--; // 回退一行让外层循环递增正常
+
+      if (tableLines.length >= 2) {
+        const headerCells = tableLines[0].split('|').slice(1, -1).map(c => c.trim());
+        const isSeparator = /^\|?(\s*:?-+:?\s*\|?)+$/.test(tableLines[1]);
+        const startRow = isSeparator ? 2 : 1;
+
+        let tableHtml = '<table border="1"><thead><tr>';
+        for (const cell of headerCells) {
+          tableHtml += `<th>${formatInline(cell)}</th>`;
+        }
+        tableHtml += '</tr></thead><tbody>';
+
+        for (let r = startRow; r < tableLines.length; r++) {
+          const rowCells = tableLines[r].split('|').slice(1, -1).map(c => c.trim());
+          tableHtml += '<tr>';
+          for (const cell of rowCells) {
+            tableHtml += `<td>${formatInline(cell)}</td>`;
+          }
+          tableHtml += '</tr>';
+        }
+        tableHtml += '</tbody></table>';
+        htmlParts.push(tableHtml);
+        continue;
+      }
+    }
+
     // 分割线
     if (/^[-*_]{3,}$/.test(trimmed)) {
       closeList();
@@ -495,8 +711,9 @@ export function markdownToHtml(md) {
 /**
  * 解析 Markdown 及其关联资产
  * @param {string} filePath 
+ * @param {object} options 可选配置（如 { topics: ['自媒体', '微信公众号'] }）
  */
-export function parseArticle(filePath) {
+export function parseArticle(filePath, options = {}) {
   const absPath = path.resolve(filePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`文件不存在: ${filePath}`);
@@ -519,7 +736,7 @@ export function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const topics = extractTopics(content, title);
+  const topics = extractTopics(content, title, { markdownFilePath: absPath, ...options });
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免知乎编辑器标题与正文重复），保留其余部分
@@ -554,9 +771,10 @@ export function parseArticle(filePath) {
  * 全面解析 Markdown 文件及其关联资产（兼容易与其他 skill 统一调用的签名）
  * @param {string} filePath 
  * @param {string} author 
+ * @param {object} options 
  */
-export function parseAllAssets(filePath, author = 'undsky') {
-  const result = parseArticle(filePath);
+export function parseAllAssets(filePath, author = 'undsky', options = {}) {
+  const result = parseArticle(filePath, options);
   return {
     ...result,
     author
@@ -565,12 +783,25 @@ export function parseAllAssets(filePath, author = 'undsky') {
 
 // 命令行直接运行测试
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
-  const targetFile = process.argv[2];
+  const args = process.argv.slice(2);
+  let targetFile = null;
+  let cliTopics = null;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--topics' || arg === '-t') {
+      cliTopics = args[++i];
+    } else if (!arg.startsWith('-') && !targetFile) {
+      targetFile = arg;
+    }
+  }
+
   if (!targetFile) {
-    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径> [--topics "话题1,话题2"]');
     process.exit(1);
   }
-  const result = parseArticle(targetFile);
+
+  const result = parseArticle(targetFile, cliTopics ? { topics: cliTopics } : {});
   console.log(JSON.stringify({
     title: result.title,
     summary: result.summary,
