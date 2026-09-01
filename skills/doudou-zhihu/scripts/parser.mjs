@@ -532,7 +532,24 @@ export function markdownToHtml(md) {
   }
 
   function formatInline(text) {
-    let out = text
+    const codes = [];
+    let out = text.replace(/`([^`]+)`/g, (_, code) => {
+      codes.push(code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+      return `###CODE_PLACEHOLDER_${codes.length - 1}###`;
+    });
+
+    const links = [];
+    out = out.replace(/!\[(.*?)\]\((.*?)\)/g, (_, alt, src) => {
+      links.push(`<img src="${src}" alt="${alt}" />`);
+      return `###MEDIA_PLACEHOLDER_${links.length - 1}###`;
+    });
+
+    out = out.replace(/\[(.*?)\]\((.*?)\)/g, (_, label, href) => {
+      links.push(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+      return `###MEDIA_PLACEHOLDER_${links.length - 1}###`;
+    });
+
+    out = out
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
@@ -542,17 +559,14 @@ export function markdownToHtml(md) {
     out = out.replace(/__(.*?)__/g, '<strong>$1</strong>');
 
     // 斜体 *text* 或 _text_
-    out = out.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    out = out.replace(/_(.*?)_/g, '<em>$1</em>');
+    out = out.replace(/(?<!\w)\*(.*?)\*(?!\w)/g, '<em>$1</em>');
+    out = out.replace(/(?<!\w)_(.*?)_(?!\w)/g, '<em>$1</em>');
 
-    // 行内代码 `code`
-    out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // 还原 media
+    out = out.replace(/###MEDIA_PLACEHOLDER_(\d+)###/g, (_, idx) => links[Number(idx)]);
 
-    // 图片 ![alt](url)
-    out = out.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" />');
-
-    // 链接 [text](url)
-    out = out.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // 还原 code
+    out = out.replace(/###CODE_PLACEHOLDER_(\d+)###/g, (_, idx) => `<code>${codes[Number(idx)]}</code>`);
 
     return out;
   }
