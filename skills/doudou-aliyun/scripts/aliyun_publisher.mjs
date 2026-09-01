@@ -1,7 +1,7 @@
 import { parseArticle } from './parser.mjs';
 
 /**
- * 生成可直接在目标页面 (https://developer.aliyun.com/article/new) evaluate_script 执行的拟真发布 Payload 函数字符串
+ * 生成可直接在目标页面 (https://developer.aliyun.com/article/new) evaluate_script 执行的表单填充与拟真发布函数字符串
  * @param {string} markdownFilePath 
  * @returns {string} 可在目标页面执行的自包含异步 JS 代码
  */
@@ -45,19 +45,28 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  // 2. 模拟人工输入标题
+  // 2. 模拟人工输入标题（使用 React 原生 Setter 与校验消除红字错误）
   log('正在设置文章标题...');
   const titleInput = document.querySelector('input[placeholder*="标题"]');
   if (titleInput) {
     titleInput.focus();
     await randomDelay(300, 600);
-    titleInput.value = data.title;
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    if (nativeSetter) {
+      nativeSetter.call(titleInput, data.title);
+    } else {
+      titleInput.value = data.title;
+    }
     titleInput.dispatchEvent(new Event('input', { bubbles: true }));
     titleInput.dispatchEvent(new Event('change', { bubbles: true }));
-    titleInput.blur();
+    titleInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ' }));
+    titleInput.dispatchEvent(new Event('blur', { bubbles: true }));
   }
   if (instance.field) {
     instance.field.setValue('title', data.title);
+    if (typeof instance.field.validate === 'function') {
+      instance.field.validate(['title']);
+    }
   }
   await randomDelay(400, 800);
 
@@ -97,7 +106,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
   if (summaryEl) {
     summaryEl.focus();
     await randomDelay(200, 400);
-    summaryEl.value = data.summary;
+    const nativeTextareaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    if (nativeTextareaSetter) {
+      nativeTextareaSetter.call(summaryEl, data.summary);
+    } else {
+      summaryEl.value = data.summary;
+    }
     summaryEl.dispatchEvent(new Event('input', { bubbles: true }));
     summaryEl.dispatchEvent(new Event('change', { bubbles: true }));
     summaryEl.blur();
@@ -107,70 +121,35 @@ export function buildBrowserPublishScript(markdownFilePath) {
   }
   await randomDelay(500, 800);
 
-  // 6. 处理封面图上传
-  let coverUploaded = false;
-  let coverUrl = null;
-  if (data.cover && data.cover.type !== 'none') {
-    log('正在通过官方 OSS 通道上传并绑定封面图...');
-    try {
-      let file = null;
-      if (data.cover.base64) {
-        const byteCharacters = atob(data.cover.base64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: data.cover.mimeType || 'image/png' });
-        file = new File([blob], 'cover.png', { type: blob.type });
-      } else if (data.cover.url) {
-        const resp = await fetch(data.cover.url);
-        const blob = await resp.blob();
-        const mimeType = blob.type || 'image/jpeg';
-        const ext = mimeType.includes('png') ? 'png' : 'jpg';
-        file = new File([blob], 'cover.' + ext, { type: mimeType });
-      }
+  // 6. 检查封面图状态
+  const uploadItem = document.querySelector('.upload-item, [class*="upload-item"]');
+  const coverUploaded = !!(uploadItem || (instance.state?.fileList && instance.state.fileList.length > 0));
+  const coverUrl = instance.state?.fileList?.[0]?.imgURL || (uploadItem ? uploadItem.querySelector('img')?.src : null);
 
-      if (file && instance.uploadCoverImage) {
-        await new Promise((resolve) => {
-          const origSetState = instance.setState.bind(instance);
-          let resolved = false;
-          instance.setState = function(partialState, callback) {
-            origSetState(partialState, () => {
-              if (callback) callback();
-              if (partialState && partialState.fileList && partialState.fileList.length > 0) {
-                resolved = true;
-                coverUploaded = true;
-                coverUrl = partialState.fileList[0].imgURL;
-                resolve();
-              }
-            });
-          };
+  return {
+    success: true,
+    title: data.title,
+    summary: data.summary,
+    bodyLength: data.bodyContent.length,
+    cover: data.cover,
+    coverUploaded,
+    coverUrl,
+    logs
+  };
+})()`;
+}
 
-          instance.uploadCoverImage(file, 'coverImage');
+/**
+ * 生成保存草稿的独立异步 JS 代码
+ */
+export function buildSaveDraftScript() {
+  return `(async () => {
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-          setTimeout(() => {
-            if (!resolved) {
-              if (instance.state.fileList && instance.state.fileList.length > 0) {
-                coverUploaded = true;
-                coverUrl = instance.state.fileList[0].imgURL;
-              }
-              resolve();
-            }
-          }, 12000);
-        });
-      }
-    } catch (e) {
-      log('封面图上传出现异常: ' + e.message);
-    }
-  }
-  await randomDelay(600, 1000);
-
-  // 7. 拟真悬停并点击「存为草稿」
-  log('模拟鼠标悬停并点击「存为草稿」...');
   const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '存为草稿');
   if (!draftBtn) {
-    return { success: false, error: '未找到「存为草稿」按钮', logs };
+    return { success: false, error: '未找到「存为草稿」按钮' };
   }
 
   draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -179,22 +158,29 @@ export function buildBrowserPublishScript(markdownFilePath) {
   await randomDelay(400, 700);
 
   draftBtn.click();
-  log('已触发「存为草稿」点击');
 
-  // 8. 捕获反馈
-  await delay(2500);
+  await delay(3000);
   const toasts = Array.from(document.querySelectorAll('.next-message, .next-toast, .next-feedback')).map(t => t.innerText.trim()).filter(Boolean);
-  const statusTexts = Array.from(document.querySelectorAll('p, span, div')).map(el => el.innerText.trim()).filter(t => t.includes('保存了草稿'));
+  const statusTexts = Array.from(document.querySelectorAll('p, span, div')).map(el => el.innerText.trim()).filter(t => t.includes('保存了草稿') || t.includes('成功'));
+
+  const formEl = document.querySelector('form.public-article-form');
+  let fFiber = formEl ? formEl[Object.keys(formEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'))] : null;
+  let instance = null;
+  while (fFiber) {
+    if (fFiber.stateNode && typeof fFiber.stateNode === 'object' && fFiber.stateNode.handleSubmit) {
+      instance = fFiber.stateNode;
+      break;
+    }
+    fFiber = fFiber.return;
+  }
 
   return {
     success: true,
-    title: data.title,
-    summary: data.summary,
-    coverUploaded,
-    coverUrl,
+    draftTime: instance?.state?.draftTime,
+    editAid: instance?.state?.editAid,
+    fileList: instance?.state?.fileList,
     toasts,
-    statusTexts,
-    logs
+    statusTexts
   };
 })()`;
 }
