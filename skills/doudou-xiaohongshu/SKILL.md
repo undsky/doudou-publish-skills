@@ -1,6 +1,6 @@
 ---
 name: doudou-xiaohongshu
-description: "通过 chrome-devtools-mcp 实现小红书发布长文专栏与图文笔记到草稿箱功能。支持用户指定的 Markdown 文章及其同名资产目录，真实批量上传 3:4 高清归藏社交卡片（guizang_cards/editorial 或 swiss，01~05卡片集），双向同步 TipTap/ProseMirror 专属图片节点与富文本正文，自动完成标题（<=20字/<=64字）、描述话题（<=1000字）与一键排版，全流程模拟真实人类行为防风控，精准操作 Shadow DOM 下的「暂存离开」安全保存草稿。"
+description: "通过 chrome-devtools-mcp 实现小红书发布长文专栏与图文笔记到草稿箱功能。支持用户指定的 Markdown 文章及其同名资产目录，真实批量上传 3:4 高清小红书图文卡片（xhs_images/images，01~05卡片集），双向同步 TipTap/ProseMirror 专属图片节点与富文本正文，自动完成标题（<=20字/<=64字）、描述话题（<=1000字）与一键排版，全流程模拟真实人类行为防风控，精准操作 Shadow DOM 下的「暂存离开」安全保存草稿。"
 ---
 
 # 小红书自动化发布草稿技能规范 (doudou-xiaohongshu)
@@ -26,7 +26,7 @@ description: "通过 chrome-devtools-mcp 实现小红书发布长文专栏与图
 | **长文内容摘要** | `<= 60 字` | 提取首段精炼摘要 |
 | **图文作品描述** | `<= 1000 字` | 核心观点梳理 + 序号干货清单 + `#热门话题标签` |
 | **文章排版 HTML** | `path/to/article_name/` 结合 `_cdn.md` | 必须使用小红书 TipTap 专属 `data-dom-type="image"` 节点封装全部 CDN 配图，确保排版器完美解析多图 |
-| **图文社交卡片集** | `path/to/article_name/guizang_cards/editorial/` 或 `swiss/` | 遵循 `doudou-markdown-skill:L134-L160`，提取 `01-cover.png` ~ `05-summary.png` 高清 3:4 卡片（自动排除 `_yuantu.png`） |
+| **图文卡片集** | `path/to/article_name/xhs_images/images/` | 遵循 `doudou-markdown-skill`，提取 `01-cover.png` ~ `05-summary.png` 高清 3:4 卡片（自动排除 `_yuantu.png`） |
 
 ---
 
@@ -75,7 +75,7 @@ flowchart TD
     end
 
     subgraph 模式 B: 发布图文草稿 (target=image)
-        B1[导航至 target=image] --> B2[调用 upload_file 上传 3:4 归藏卡片集]
+        B1[导航至 target=image] --> B2[调用 upload_file 上传 3:4 小红书卡片集]
         B2 --> B3[进入编辑页填写标题 <= 20字]
         B3 --> B4[注入 1000字以内要点描述与话题标签]
         B4 --> B5[视口平滑滚动模拟人工检查]
@@ -94,5 +94,5 @@ flowchart TD
 
 以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
 
-- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、TipTap 专属图片节点 HTML 以及 3:4 归藏社媒卡片集。
+- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、TipTap 专属图片节点 HTML 以及 3:4 小红书图文卡片集。
 - [scripts/xhs_publisher.mjs](scripts/xhs_publisher.mjs)：长文与图文发布浏览器注入脚本生成器（涵盖 TipTap 状态同步、Shadow DOM 交互与防风控人机模拟）。

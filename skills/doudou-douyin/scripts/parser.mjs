@@ -390,7 +390,7 @@ export function resolveImagePostCards(markdownFilePath) {
 
   const candidateDirs = [
     path.join(articleDir, 'xhs_images', 'images'),
-    path.join(articleDir, 'guizang_cards')
+    path.join(articleDir, 'xhs_images')
   ];
 
   for (const targetDir of candidateDirs) {

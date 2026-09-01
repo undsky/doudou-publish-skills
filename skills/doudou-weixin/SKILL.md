@@ -28,7 +28,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
    - **文章封面图**（从 `doudou-markdown-skill:L94-L101` 与 `L213` 获取）：
      - 严格优先选用 **2.35:1 宽屏主封面**，且**必须优先选用 `_thumb` 缩略图**（如 `cover/images/cover-2.35x1_thumb.png`，或 `cdn_manifest.json` 中记录的 `thumb_path` / CDN 链接）；若无 `_thumb` 则降级选用 `cover-2.35x1.png`、`cover-16x9_thumb.png` 或 `cover-16x9.png`；
      - 自动展开图片选择弹窗（`.weui-desktop-dialog_img-picker`），将封面文件注入上传，选中刚上传的第一张图片，点击「下一步」进入裁切页面，点击「确认」完成封面绑定。
-   - **贴图卡片集**（从 `doudou-markdown-skill:L130-L167` 获取）：读取同名目录下 `xhs_images/images/`（或 `guizang_cards/`）的所有卡片图片（如 `01-cover.png`, `02-resources.png`, ...），排除 `*_yuantu.png` 原图，按序号升序批量上传至贴图选择器。
+   - **贴图卡片集**（从 `doudou-markdown-skill` 获取）：读取同名目录下 `xhs_images/images/`（或 `xhs_images/`）的所有卡片图片（如 `01-cover.png`, `02-resources.png`, ...），排除 `*_yuantu.png` 原图，按序号升序批量上传至贴图选择器。
    - **标题与摘要**：
      - 文章标题：64 字以内纯文本；贴图标题：20 字以内精炼文案。
      - 摘要：80~120 字纯文本（微信公众号限制 120 字以内）。
@@ -57,7 +57,7 @@ flowchart TD
 
     subgraph 模态二: 小绿书贴图草稿
         S2 --> B1[点击「贴图」打开贴图编辑器页面 createType=8]
-        B1 --> B2[批量上传 xhs_images / guizang_cards 卡片图片集]
+        B1 --> B2[批量上传 xhs_images 卡片图片集]
         B2 --> B3[拟真人机输入贴图标题 20字以内]
         B3 --> B4[拟真输入卡片描述正文与 #话题标签]
         B4 --> B5[平滑视口滚动检查卡片轮播]

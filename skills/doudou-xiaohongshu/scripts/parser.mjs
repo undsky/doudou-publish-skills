@@ -273,8 +273,8 @@ export function resolveArticleHtml(markdownFilePath) {
 }
 
 /**
- * 解析小红书图文卡片集（严格遵循 doudou-markdown-skill:L134-L160 规约）
- * 优先读取 guizang_cards/ (editorial / swiss) 3:4 卡片集，排除 _yuantu.png
+ * 解析小红书图文卡片集（严格遵循 doudou-markdown-skill 小红书图文卡片规约）
+ * 优先读取 xhs_images/images/ (或 xhs_images/) 3:4 卡片集，排除 _yuantu.png
  * @param {string} markdownFilePath 
  * @returns {Array<{ name: string, localPath: string, base64: string, mimeType: string }>}
  */
@@ -285,15 +285,11 @@ export function resolveImagePostCards(markdownFilePath) {
   const articleDir = path.join(dir, baseName);
 
   // 优先级顺序：
-  // 1. guizang_cards/editorial
-  // 2. guizang_cards/swiss
-  // 3. guizang_cards
-  // 4. xhs_images/images
+  // 1. xhs_images/images
+  // 2. xhs_images
   const candidateDirs = [
-    path.join(articleDir, 'guizang_cards', 'editorial'),
-    path.join(articleDir, 'guizang_cards', 'swiss'),
-    path.join(articleDir, 'guizang_cards'),
-    path.join(articleDir, 'xhs_images', 'images')
+    path.join(articleDir, 'xhs_images', 'images'),
+    path.join(articleDir, 'xhs_images')
   ];
 
   for (const targetDir of candidateDirs) {
