@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
  * 提取并清洗文章标题（抖音文章标题限制 30 字以内）
@@ -202,52 +203,49 @@ export function resolveArticleHtml(markdownFilePath) {
     }
   }
 
-  // 2. 将 Markdown 转换为 TipTap/ProseMirror 完美支持的标准 HTML（含全部配图与格式）
-  const lines = targetMarkdown.split('\n');
-  const htmlBlocks = [];
-  let isCode = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('```')) {
-      isCode = !isCode;
-      continue;
+  // 2. 将 Markdown 转换为 TipTap/ProseMirror 完美支持的标准 HTML（基于 marked）
+  const renderer = {
+    image({ href, title, text }) {
+      const alt = text || '';
+      return `<div class="image-wrapper"><img src="${href}" alt="${alt}"></div>\n`;
+    },
+    table({ header, rows }) {
+      let headerHtml = '';
+      if (header && header.length > 0) {
+        headerHtml = '<tr>\n' +
+          header.map(cell => `<th style="border: 1px solid #ddd; padding: 6px 10px;">${this.parser.parseInline(cell.tokens)}</th>\n`).join('') +
+          '</tr>\n';
+      }
+      let bodyHtml = '';
+      if (rows && rows.length > 0) {
+        bodyHtml = rows.map(row => {
+          const cellsHtml = row.map(cell => `<td style="border: 1px solid #ddd; padding: 6px 10px;">${this.parser.parseInline(cell.tokens)}</td>\n`).join('');
+          return `<tr>\n${cellsHtml}</tr>\n`;
+        }).join('');
+      }
+      return `<table style="width: 100%; border-collapse: collapse; margin: 12px 0;">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
+    code({ text, lang }) {
+      const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<pre><code>${escaped}</code></pre>\n`;
+    },
+    codespan({ text }) {
+      return `<code>${text}</code>`;
     }
-    if (isCode || !line || line.startsWith('---') || line.startsWith('<!--')) continue;
+  };
 
-    // 插图解析
-    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (imgMatch) {
-      const alt = imgMatch[1];
-      const src = imgMatch[2];
-      htmlBlocks.push(`<div class="image-wrapper"><img src="${src}" alt="${alt}"></div>`);
-      continue;
-    }
+  const customMarked = new Marked({
+    renderer,
+    gfm: true,
+    breaks: true
+  });
 
-    if (line.startsWith('# ')) {
-      htmlBlocks.push(`<h1>${line.replace(/^#\s+/, '')}</h1>`);
-    } else if (line.startsWith('## ')) {
-      htmlBlocks.push(`<h2>${line.replace(/^##\s+/, '')}</h2>`);
-    } else if (line.startsWith('### ')) {
-      htmlBlocks.push(`<h3>${line.replace(/^###\s+/, '')}</h3>`);
-    } else if (line.startsWith('>')) {
-      htmlBlocks.push(`<blockquote><p>${line.replace(/^>\s*/, '')}</p></blockquote>`);
-    } else if (line.startsWith('- ') || line.startsWith('• ')) {
-      const boldFormatted = line.replace(/^[-•]\s+/, '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>• ${boldFormatted}</p>`);
-    } else if (/^\d+\.\s+/.test(line)) {
-      const boldFormatted = line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>${boldFormatted}</p>`);
-    } else {
-      const boldFormatted = line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>${boldFormatted}</p>`);
-    }
-  }
+  const htmlContent = customMarked.parse(targetMarkdown);
 
   return {
     type: 'markdown_cdn_html',
     filePath: absPath,
-    htmlContent: htmlBlocks.join('')
+    htmlContent
   };
 }
 

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
  * 提取并清洗文章标题（百家号图文文章标题限制 2～64 字）
@@ -133,6 +134,96 @@ export function extractTags(content, title = '') {
 }
 
 /**
+ * 将 Markdown 转换为百家号富文本编辑器兼容的高质量语义 HTML（基于 marked）
+ * @param {string} markdown 
+ * @returns {string}
+ */
+export function markdownToSemanticHtml(markdown) {
+  let isFirstH1Skipped = false;
+
+  const renderer = {
+    // 首个 H1 自动跳过，后续 H1 映射为 H2，其余标题保留对应级别
+    heading({ tokens, depth }) {
+      const text = this.parser.parseInline(tokens);
+      if (depth === 1 && !isFirstH1Skipped) {
+        isFirstH1Skipped = true;
+        return '';
+      }
+      const tag = depth === 1 ? 'h2' : `h${depth}`;
+      return `<${tag}>${text}</${tag}>\n`;
+    },
+
+    // 表格定制渲染：带内联边框、表头背景和斑马纹
+    table({ header, rows }) {
+      let headerHtml = '';
+      if (header && header.length > 0) {
+        headerHtml = '<tr style="background: #f7f8fa;">\n' +
+          header.map(cell => {
+            const align = cell.align ? `text-align: ${cell.align};` : 'text-align: left;';
+            return `  <th style="border: 1px solid #e2e4e8; padding: 8px 12px; ${align} font-weight: 600;">${this.parser.parseInline(cell.tokens)}</th>\n`;
+          }).join('') +
+          '</tr>\n';
+      }
+
+      let bodyHtml = '';
+      if (rows && rows.length > 0) {
+        bodyHtml = rows.map((row, rIdx) => {
+          const bg = rIdx % 2 === 1 ? 'background: #fafbfc;' : 'background: #ffffff;';
+          const cellsHtml = row.map(cell => {
+            const align = cell.align ? `text-align: ${cell.align};` : 'text-align: left;';
+            return `  <td style="border: 1px solid #e2e4e8; padding: 8px 12px; ${align}">${this.parser.parseInline(cell.tokens)}</td>\n`;
+          }).join('');
+          return `<tr style="${bg}">\n${cellsHtml}</tr>\n`;
+        }).join('');
+      }
+
+      return `<table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; border: 1px solid #e2e4e8;">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
+
+    // 行内代码样式
+    codespan({ text }) {
+      return `<code style="background-color: #f2f3f5; padding: 2px 4px; border-radius: 3px; font-family: monospace;">${text}</code>`;
+    },
+
+    // 代码块
+    code({ text, lang }) {
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langClass}>${escaped}</code></pre>\n`;
+    },
+
+    // 图片居中与最大宽度
+    image({ href, title, text }) {
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<p style="text-align: center;"><img src="${href}" alt="${text}"${titleAttr} style="max-width: 100%; border-radius: 6px;" /></p>\n`;
+    },
+
+    // 链接
+    link({ href, title, tokens }) {
+      const text = this.parser.parseInline(tokens);
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<a href="${href}" target="_blank"${titleAttr}>${text}</a>`;
+    },
+
+    // 分割线
+    hr() {
+      return '<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />\n';
+    }
+  };
+
+  const markedInstance = new Marked({
+    renderer,
+    gfm: true,
+    breaks: true
+  });
+
+  return markedInstance.parse(markdown);
+}
+
+/**
  * 解析排版正文 HTML
  * 优先读取同名目录下 `[article_name]_cdn.md` 或结合 `cdn_manifest.json` 转换为百家号标准语义富文本 HTML
  * @param {string} markdownFilePath 
@@ -171,129 +262,22 @@ export function resolveArticleHtml(markdownFilePath) {
     }
   }
 
-  // 2. 将 Markdown 转换为百家号富文本编辑器兼容的标准语义 HTML
-  const lines = targetMarkdown.split('\n');
-  const htmlBlocks = [];
-  let isCodeBlock = false;
-  let codeLang = '';
-  let codeLines = [];
-  let isFirstH1Skipped = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-
-    // 代码块处理
-    if (trimmed.startsWith('```')) {
-      if (!isCodeBlock) {
-        isCodeBlock = true;
-        codeLang = trimmed.replace(/^```/, '').trim();
-        codeLines = [];
-      } else {
-        isCodeBlock = false;
-        const codeContent = codeLines.join('\n')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        htmlBlocks.push(`<pre><code class="language-${codeLang}">${codeContent}</code></pre>`);
-      }
-      continue;
-    }
-
-    if (isCodeBlock) {
-      codeLines.push(rawLine);
-      continue;
-    }
-
-    if (!trimmed || trimmed.startsWith('---') || trimmed.startsWith('<!--')) {
-      continue;
-    }
-
-    // 图片解析
-    const imgMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (imgMatch) {
-      const alt = imgMatch[1];
-      const src = imgMatch[2];
-      htmlBlocks.push(`<p><img src="${src}" alt="${alt}" /></p>`);
-      continue;
-    }
-
-    // 标题解析（首个 H1 自动跳过，因为已被作为文章大标题填写）
-    if (trimmed.startsWith('# ')) {
-      if (!isFirstH1Skipped) {
-        isFirstH1Skipped = true;
-        continue;
-      }
-      const titleText = trimmed.replace(/^#\s+/, '').replace(/[*_`~]/g, '');
-      htmlBlocks.push(`<h2>${titleText}</h2>`);
-      continue;
-    }
-
-    if (trimmed.startsWith('## ')) {
-      const titleText = trimmed.replace(/^##\s+/, '').replace(/[*_`~]/g, '');
-      htmlBlocks.push(`<h2>${titleText}</h2>`);
-      continue;
-    }
-
-    if (trimmed.startsWith('### ')) {
-      const titleText = trimmed.replace(/^###\s+/, '').replace(/[*_`~]/g, '');
-      htmlBlocks.push(`<h3>${titleText}</h3>`);
-      continue;
-    }
-
-    // 引用块
-    if (trimmed.startsWith('>')) {
-      const quoteText = trimmed
-        .replace(/^>\s*/, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '<a href="$2">$1</a>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>');
-      htmlBlocks.push(`<blockquote><p>${quoteText}</p></blockquote>`);
-      continue;
-    }
-
-    // 无序列表
-    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
-      const itemText = trimmed
-        .replace(/^[-•*]\s+/, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '<a href="$2">$1</a>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>');
-      htmlBlocks.push(`<p>• ${itemText}</p>`);
-      continue;
-    }
-
-    // 有序列表
-    if (/^\d+\.\s+/.test(trimmed)) {
-      const itemText = trimmed
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '<a href="$2">$1</a>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>');
-      htmlBlocks.push(`<p>${itemText}</p>`);
-      continue;
-    }
-
-    // 普通段落
-    const boldFormatted = trimmed
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-    htmlBlocks.push(`<p>${boldFormatted}</p>`);
-  }
+  // 2. 将 Markdown 转换为百家号富文本编辑器兼容的标准语义 HTML（基于 marked）
+  const htmlContent = markdownToSemanticHtml(targetMarkdown);
 
   return {
     type: 'markdown_semantic_html',
     filePath: absPath,
-    htmlContent: htmlBlocks.join('\n')
+    htmlContent
   };
 }
 
 /**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
  * 优先级：
- * 1. 同名目录 xhs_images/images/ 下第一张封面卡（01-cover.png）
+ * 1. 同名目录 cover/images/ 下的本地封面（cover-main-2.35x1.png / 16x9 / 1x1）
  * 2. cdn_manifest.json 中类型为 cover 的条目
- * 3. 同名目录 cover/images/ 下的本地封面（cover-main-2.35x1.png / 16x9 / 1x1）
+ * 3. 同名目录 xhs_images/images/ 下第一张封面卡（01-cover.png）
  * 4. 正文首图
  * @param {string} markdownFilePath 
  * @param {string} content 

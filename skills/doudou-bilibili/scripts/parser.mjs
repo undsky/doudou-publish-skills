@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
  * 提取 Markdown 标题（B站专栏标题上限50字，建议30字以内）
@@ -240,121 +241,62 @@ export function resolveCoverImage(markdownFilePath, content) {
 }
 
 /**
- * 将 Markdown 转换为适配 Bilibili TipTap/Sunflower 编辑器的 HTML 并提取所有需上传的图片
+ * 将 Markdown 转换为适配 Bilibili TipTap/Sunflower 编辑器的 HTML 并提取所有需上传的图片（基于 marked）
  * @param {string} markdown 
  * @param {string} baseDir 
  * @returns {{ html: string, images: Array<{ id: string, placeholder: string, alt: string, src: string, type: 'cdn'|'local', base64?: string, mimeType?: string }> }}
  */
 export function convertMarkdownToBilibiliHtml(markdown, baseDir) {
-  const lines = markdown.split('\n');
   const images = [];
   let imageCounter = 0;
 
-  const htmlChunks = [];
-  let inCodeBlock = false;
-  let codeLang = '';
-  let codeBuffer = [];
-  let inList = false;
-  let listType = 'ul'; // 'ul' or 'ol'
-  let inBlockquote = false;
-  let blockquoteBuffer = [];
+  const renderer = {
+    heading({ tokens, depth }) {
+      const text = this.parser.parseInline(tokens);
+      const level = Math.min(Math.max(depth, 2), 4);
+      return `<h${level} data-eva3-scoped=""><span data-eva3-scoped="">${text}</span></h${level}>\n`;
+    },
 
-  function flushList() {
-    if (inList) {
-      htmlChunks.push(`</${listType}>`);
-      inList = false;
-    }
-  }
-
-  function flushBlockquote() {
-    if (inBlockquote) {
-      const bqHtml = blockquoteBuffer.map(inlineFormat).join('<br>');
-      htmlChunks.push(`<blockquote class="eva3-blockquote" data-eva3-scoped=""><p data-eva3-scoped="">${bqHtml}</p></blockquote>`);
-      blockquoteBuffer = [];
-      inBlockquote = false;
-    }
-  }
-
-  function inlineFormat(text) {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-
-    // 1. 代码块处理
-    if (trimmed.startsWith('```')) {
-      flushList();
-      flushBlockquote();
-      if (!inCodeBlock) {
-        inCodeBlock = true;
-        codeLang = trimmed.replace(/^```/, '').trim();
-        codeBuffer = [];
-      } else {
-        inCodeBlock = false;
-        const codeText = codeBuffer.join('\n')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        htmlChunks.push(`<pre data-eva3-scoped=""><code>${codeText}</code></pre>`);
-        codeBuffer = [];
+    table({ header, rows }) {
+      let headerHtml = '';
+      if (header && header.length > 0) {
+        headerHtml = '<tr data-eva3-scoped="">\n' +
+          header.map(cell => {
+            const align = cell.align ? `style="text-align: ${cell.align};"` : '';
+            return `  <th data-eva3-scoped="" ${align}>${this.parser.parseInline(cell.tokens)}</th>\n`;
+          }).join('') +
+          '</tr>\n';
       }
-      continue;
-    }
 
-    if (inCodeBlock) {
-      codeBuffer.push(rawLine);
-      continue;
-    }
+      let bodyHtml = '';
+      if (rows && rows.length > 0) {
+        bodyHtml = rows.map(row => {
+          const cellsHtml = row.map(cell => {
+            const align = cell.align ? `style="text-align: ${cell.align};"` : '';
+            return `  <td data-eva3-scoped="" ${align}>${this.parser.parseInline(cell.tokens)}</td>\n`;
+          }).join('');
+          return `<tr data-eva3-scoped="">\n${cellsHtml}</tr>\n`;
+        }).join('');
+      }
 
-    // 2. 空行
-    if (!trimmed) {
-      flushList();
-      flushBlockquote();
-      continue;
-    }
+      return `<table data-eva3-scoped="" border="1">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
 
-    // 3. 引用块
-    if (trimmed.startsWith('>')) {
-      flushList();
-      inBlockquote = true;
-      blockquoteBuffer.push(trimmed.replace(/^>\s*/, ''));
-      continue;
-    } else {
-      flushBlockquote();
-    }
+    codespan({ text }) {
+      return `<code data-eva3-scoped="">${text}</code>`;
+    },
 
-    // 4. 标题 (H1-H6)
-    const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
-    if (headerMatch) {
-      flushList();
-      const level = Math.min(Math.max(headerMatch[1].length, 2), 4); // B站一般主要支持 H2, H3, H4
-      const text = inlineFormat(headerMatch[2]);
-      htmlChunks.push(`<h${level} data-eva3-scoped=""><span data-eva3-scoped="">${text}</span></h${level}>`);
-      continue;
-    }
+    code({ text, lang }) {
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `<pre data-eva3-scoped=""><code>${escaped}</code></pre>\n`;
+    },
 
-    // 5. 分割线
-    if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
-      flushList();
-      htmlChunks.push('<hr data-eva3-scoped="" />');
-      continue;
-    }
-
-    // 6. 图片识别与占位替换: ![alt](src)
-    const imgMatch = trimmed.match(/^!\[(.*?)\]\((.*?)\)$/);
-    if (imgMatch) {
-      flushList();
-      const alt = imgMatch[1] || '图片';
-      const imgSrc = imgMatch[2].trim();
+    image({ href, title, text }) {
+      const alt = text || '图片';
+      const imgSrc = href.trim();
       imageCounter++;
       const imageId = `bili_img_${imageCounter}`;
       const placeholder = `__BILI_IMG_PLACEHOLDER_${imageId}__`;
@@ -370,7 +312,6 @@ export function convertMarkdownToBilibiliHtml(markdown, baseDir) {
       if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://')) {
         imgInfo.type = 'cdn';
       } else {
-        // 本地图片
         const localImgPath = path.resolve(baseDir, imgSrc);
         if (fs.existsSync(localImgPath)) {
           const extName = path.extname(localImgPath).toLowerCase().replace('.', '');
@@ -384,50 +325,45 @@ export function convertMarkdownToBilibiliHtml(markdown, baseDir) {
       }
 
       images.push(imgInfo);
-      htmlChunks.push(placeholder);
-      continue;
+      return `${placeholder}\n`;
+    },
+
+    list({ ordered, items }) {
+      const tag = ordered ? 'ol' : 'ul';
+      const styleType = ordered ? 'decimal' : 'disc';
+      const body = items.map(item => `<li data-eva3-scoped=""><p data-eva3-scoped="">${this.parser.parseInline(item.tokens)}</p></li>\n`).join('');
+      return `<${tag} data-eva3-scoped="" level="1" list-style-type="${styleType}" style="list-style-type: ${styleType};">\n${body}</${tag}>\n`;
+    },
+
+    blockquote({ tokens }) {
+      const text = this.parser.parse(tokens);
+      return `<blockquote class="eva3-blockquote" data-eva3-scoped=""><p data-eva3-scoped="">${text}</p></blockquote>\n`;
+    },
+
+    paragraph({ tokens }) {
+      return `<p data-eva3-scoped="">${this.parser.parseInline(tokens)}</p>\n`;
+    },
+
+    link({ href, title, tokens }) {
+      const text = this.parser.parseInline(tokens);
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<a href="${href}" target="_blank"${titleAttr}>${text}</a>`;
+    },
+
+    hr() {
+      return '<hr data-eva3-scoped="" />\n';
     }
+  };
 
-    // 7. 无序列表
-    const ulMatch = trimmed.match(/^[-*+]\s+(.*)$/);
-    if (ulMatch) {
-      if (!inList || listType !== 'ul') {
-        flushList();
-        htmlChunks.push('<ul data-eva3-scoped="" level="1" list-style-type="disc" style="list-style-type: disc;">');
-        inList = true;
-        listType = 'ul';
-      }
-      const itemText = inlineFormat(ulMatch[1]);
-      htmlChunks.push(`<li data-eva3-scoped=""><p data-eva3-scoped="">${itemText}</p></li>`);
-      continue;
-    }
+  const customMarked = new Marked({
+    renderer,
+    gfm: true,
+    breaks: true
+  });
 
-    // 8. 有序列表
-    const olMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
-    if (olMatch) {
-      if (!inList || listType !== 'ol') {
-        flushList();
-        htmlChunks.push('<ol data-eva3-scoped="" level="1" list-style-type="decimal" style="list-style-type: decimal;">');
-        inList = true;
-        listType = 'ol';
-      }
-      const itemText = inlineFormat(olMatch[2]);
-      htmlChunks.push(`<li data-eva3-scoped=""><p data-eva3-scoped="">${itemText}</p></li>`);
-      continue;
-    }
-
-    flushList();
-
-    // 9. 普通段落
-    const pText = inlineFormat(trimmed);
-    htmlChunks.push(`<p data-eva3-scoped="">${pText}</p>`);
-  }
-
-  flushList();
-  flushBlockquote();
-
+  const html = customMarked.parse(markdown);
   return {
-    html: htmlChunks.join('\n'),
+    html,
     images
   };
 }

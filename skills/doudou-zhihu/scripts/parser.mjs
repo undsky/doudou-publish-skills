@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
  * 提取 Markdown 标题
@@ -511,215 +512,79 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
- * 将 Markdown 转换为知乎 Draft.js 编辑器剪贴板兼容的高质量 HTML
+ * 将 Markdown 转换为知乎 Draft.js 编辑器剪贴板兼容的高质量 HTML（基于 marked）
  * @param {string} md 
  * @returns {string} HTML 字符串
  */
 export function markdownToHtml(md) {
-  const lines = md.split('\n');
-  const htmlParts = [];
-  let inCodeBlock = false;
-  let codeBlockLang = '';
-  let codeBlockContent = [];
-  let inList = false;
-  let listType = 'ul';
+  const renderer = {
+    heading({ tokens, depth }) {
+      const text = this.parser.parseInline(tokens);
+      const tag = depth === 1 ? 'h2' : `h${depth}`;
+      return `<${tag}>${text}</${tag}>\n`;
+    },
 
-  function closeList() {
-    if (inList) {
-      htmlParts.push(`</${listType}>`);
-      inList = false;
-    }
-  }
-
-  function formatInline(text) {
-    const codes = [];
-    let out = text.replace(/`([^`]+)`/g, (_, code) => {
-      codes.push(code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
-      return `###CODE_PLACEHOLDER_${codes.length - 1}###`;
-    });
-
-    const links = [];
-    out = out.replace(/!\[(.*?)\]\((.*?)\)/g, (_, alt, src) => {
-      links.push(`<img src="${src}" alt="${alt}" />`);
-      return `###MEDIA_PLACEHOLDER_${links.length - 1}###`;
-    });
-
-    out = out.replace(/\[(.*?)\]\((.*?)\)/g, (_, label, href) => {
-      links.push(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
-      return `###MEDIA_PLACEHOLDER_${links.length - 1}###`;
-    });
-
-    out = out
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-
-    // 加粗 **text** 或 __text__
-    out = out.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    out = out.replace(/__(.*?)__/g, '<strong>$1</strong>');
-
-    // 斜体 *text* 或 _text_
-    out = out.replace(/(?<!\w)\*(.*?)\*(?!\w)/g, '<em>$1</em>');
-    out = out.replace(/(?<!\w)_(.*?)_(?!\w)/g, '<em>$1</em>');
-
-    // 还原 media
-    out = out.replace(/###MEDIA_PLACEHOLDER_(\d+)###/g, (_, idx) => links[Number(idx)]);
-
-    // 还原 code
-    out = out.replace(/###CODE_PLACEHOLDER_(\d+)###/g, (_, idx) => `<code>${codes[Number(idx)]}</code>`);
-
-    return out;
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-
-    // 1. 代码块处理
-    if (trimmed.startsWith('```')) {
-      if (inCodeBlock) {
-        closeList();
-        const codeText = codeBlockContent.join('\n')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        htmlParts.push(`<pre><code class="language-${codeBlockLang}">${codeText}</code></pre>`);
-        inCodeBlock = false;
-        codeBlockContent = [];
-        codeBlockLang = '';
-      } else {
-        closeList();
-        inCodeBlock = true;
-        codeBlockLang = trimmed.replace(/^```/, '').trim();
-        codeBlockContent = [];
+    table({ header, rows }) {
+      let headerHtml = '';
+      if (header && header.length > 0) {
+        headerHtml = '<tr>\n' +
+          header.map(cell => {
+            const align = cell.align ? `align="${cell.align}"` : '';
+            return `  <th ${align}>${this.parser.parseInline(cell.tokens)}</th>\n`;
+          }).join('') +
+          '</tr>\n';
       }
-      continue;
-    }
 
-    if (inCodeBlock) {
-      codeBlockContent.push(rawLine);
-      continue;
-    }
-
-    // 空行
-    if (!trimmed) {
-      closeList();
-      continue;
-    }
-
-    // 表格处理
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-      closeList();
-      const tableLines = [];
-      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
-        tableLines.push(lines[i].trim());
-        i++;
+      let bodyHtml = '';
+      if (rows && rows.length > 0) {
+        bodyHtml = rows.map(row => {
+          const cellsHtml = row.map(cell => {
+            const align = cell.align ? `align="${cell.align}"` : '';
+            return `  <td ${align}>${this.parser.parseInline(cell.tokens)}</td>\n`;
+          }).join('');
+          return `<tr>\n${cellsHtml}</tr>\n`;
+        }).join('');
       }
-      i--; // 回退一行让外层循环递增正常
 
-      if (tableLines.length >= 2) {
-        const headerCells = tableLines[0].split('|').slice(1, -1).map(c => c.trim());
-        const isSeparator = /^\|?(\s*:?-+:?\s*\|?)+$/.test(tableLines[1]);
-        const startRow = isSeparator ? 2 : 1;
+      return `<table border="1">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
 
-        let tableHtml = '<table border="1"><thead><tr>';
-        for (const cell of headerCells) {
-          tableHtml += `<th>${formatInline(cell)}</th>`;
-        }
-        tableHtml += '</tr></thead><tbody>';
+    codespan({ text }) {
+      return `<code>${text}</code>`;
+    },
 
-        for (let r = startRow; r < tableLines.length; r++) {
-          const rowCells = tableLines[r].split('|').slice(1, -1).map(c => c.trim());
-          tableHtml += '<tr>';
-          for (const cell of rowCells) {
-            tableHtml += `<td>${formatInline(cell)}</td>`;
-          }
-          tableHtml += '</tr>';
-        }
-        tableHtml += '</tbody></table>';
-        htmlParts.push(tableHtml);
-        continue;
-      }
+    code({ text, lang }) {
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langClass}>${escaped}</code></pre>\n`;
+    },
+
+    image({ href, title, text }) {
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<p><img src="${href}" alt="${text}"${titleAttr} /></p>\n`;
+    },
+
+    link({ href, title, tokens }) {
+      const text = this.parser.parseInline(tokens);
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
+    },
+
+    hr() {
+      return '<hr />\n';
     }
+  };
 
-    // 分割线
-    if (/^[-*_]{3,}$/.test(trimmed)) {
-      closeList();
-      htmlParts.push('<hr />');
-      continue;
-    }
+  const customMarked = new Marked({
+    renderer,
+    gfm: true,
+    breaks: true
+  });
 
-    // 标题 (知乎最高层级主要支持 H2, H3 等)
-    if (trimmed.startsWith('### ')) {
-      closeList();
-      htmlParts.push(`<h3>${formatInline(trimmed.replace(/^###\s+/, ''))}</h3>`);
-      continue;
-    }
-    if (trimmed.startsWith('## ')) {
-      closeList();
-      htmlParts.push(`<h2>${formatInline(trimmed.replace(/^##\s+/, ''))}</h2>`);
-      continue;
-    }
-    if (trimmed.startsWith('# ')) {
-      closeList();
-      htmlParts.push(`<h2>${formatInline(trimmed.replace(/^#\s+/, ''))}</h2>`);
-      continue;
-    }
-    if (trimmed.startsWith('#### ')) {
-      closeList();
-      htmlParts.push(`<h3>${formatInline(trimmed.replace(/^####\s+/, ''))}</h3>`);
-      continue;
-    }
-
-    // 引用块
-    if (trimmed.startsWith('>')) {
-      closeList();
-      const quoteText = formatInline(trimmed.replace(/^>\s*/, ''));
-      htmlParts.push(`<blockquote><p>${quoteText}</p></blockquote>`);
-      continue;
-    }
-
-    // 无序列表
-    if (/^[-*+]\s+/.test(trimmed)) {
-      if (!inList || listType !== 'ul') {
-        closeList();
-        htmlParts.push('<ul>');
-        inList = true;
-        listType = 'ul';
-      }
-      const itemText = formatInline(trimmed.replace(/^[-*+]\s+/, ''));
-      htmlParts.push(`<li>${itemText}</li>`);
-      continue;
-    }
-
-    // 有序列表
-    if (/^\d+\.\s+/.test(trimmed)) {
-      if (!inList || listType !== 'ol') {
-        closeList();
-        htmlParts.push('<ol>');
-        inList = true;
-        listType = 'ol';
-      }
-      const itemText = formatInline(trimmed.replace(/^\d+\.\s+/, ''));
-      htmlParts.push(`<li>${itemText}</li>`);
-      continue;
-    }
-
-    // 纯图片行
-    if (/^!\[(.*?)\]\((.*?)\)$/.test(trimmed)) {
-      closeList();
-      const match = trimmed.match(/^!\[(.*?)\]\((.*?)\)$/);
-      htmlParts.push(`<p><img src="${match[2]}" alt="${match[1]}" /></p>`);
-      continue;
-    }
-
-    // 普通段落
-    closeList();
-    htmlParts.push(`<p>${formatInline(trimmed)}</p>`);
-  }
-
-  closeList();
-  return htmlParts.join('\n');
+  return customMarked.parse(md);
 }
 
 /**

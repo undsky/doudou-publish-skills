@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
- * 提取并清洗文章标题（头条号文章标题限制 2～30 字）
+ * 提取并清洗文章标题（头条号图文文章标题限制 5～30 字）
  * @param {string} content 
  * @param {string} fallbackTitle 
  * @returns {string}
@@ -40,11 +41,11 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
     .replace(/^[#\s]+/, '')
     .trim();
 
-  // 头条号标题限制 2~30 个字
+  // 头条标题限制 5~30 个字（若超过 30 字则智能截断）
   if (cleanTitle.length > 30) {
     cleanTitle = cleanTitle.substring(0, 30);
-  } else if (cleanTitle.length < 2) {
-    cleanTitle = cleanTitle.padEnd(2, '！');
+  } else if (cleanTitle.length < 5) {
+    cleanTitle = cleanTitle.padEnd(5, '！');
   }
 
   return cleanTitle;
@@ -133,8 +134,91 @@ export function extractTags(content, title = '') {
 }
 
 /**
+ * 将 Markdown 转换为头条 ProseMirror 兼容的高质量语义 HTML（基于 marked）
+ * @param {string} markdown 
+ * @returns {string}
+ */
+export function markdownToSemanticHtml(markdown) {
+  let isFirstH1Skipped = false;
+
+  const renderer = {
+    heading({ tokens, depth }) {
+      const text = this.parser.parseInline(tokens);
+      if (depth === 1 && !isFirstH1Skipped) {
+        isFirstH1Skipped = true;
+        return '';
+      }
+      const tag = depth === 1 ? 'h2' : `h${depth}`;
+      return `<${tag}>${text}</${tag}>\n`;
+    },
+
+    table({ header, rows }) {
+      let headerHtml = '';
+      if (header && header.length > 0) {
+        headerHtml = '<tr style="background: #f7f8fa;">\n' +
+          header.map(cell => {
+            const align = cell.align ? `text-align: ${cell.align};` : 'text-align: left;';
+            return `  <th style="border: 1px solid #e2e4e8; padding: 8px 12px; ${align} font-weight: 600;">${this.parser.parseInline(cell.tokens)}</th>\n`;
+          }).join('') +
+          '</tr>\n';
+      }
+
+      let bodyHtml = '';
+      if (rows && rows.length > 0) {
+        bodyHtml = rows.map((row, rIdx) => {
+          const bg = rIdx % 2 === 1 ? 'background: #fafbfc;' : 'background: #ffffff;';
+          const cellsHtml = row.map(cell => {
+            const align = cell.align ? `text-align: ${cell.align};` : 'text-align: left;';
+            return `  <td style="border: 1px solid #e2e4e8; padding: 8px 12px; ${align}">${this.parser.parseInline(cell.tokens)}</td>\n`;
+          }).join('');
+          return `<tr style="${bg}">\n${cellsHtml}</tr>\n`;
+        }).join('');
+      }
+
+      return `<table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; border: 1px solid #e2e4e8;">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
+
+    codespan({ text }) {
+      return `<code style="background-color: #f2f3f5; padding: 2px 4px; border-radius: 3px; font-family: monospace;">${text}</code>`;
+    },
+
+    code({ text, lang }) {
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langClass}>${escaped}</code></pre>\n`;
+    },
+
+    image({ href, title, text }) {
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<p style="text-align: center;"><img src="${href}" alt="${text}"${titleAttr} style="max-width: 100%; border-radius: 6px;" /></p>\n`;
+    },
+
+    link({ href, title, tokens }) {
+      const text = this.parser.parseInline(tokens);
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<a href="${href}" target="_blank"${titleAttr}>${text}</a>`;
+    },
+
+    hr() {
+      return '<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />\n';
+    }
+  };
+
+  const markedInstance = new Marked({
+    renderer,
+    gfm: true,
+    breaks: true
+  });
+
+  return markedInstance.parse(markdown);
+}
+
+/**
  * 解析排版正文 HTML
- * 优先读取同名目录下 `[article_name]_cdn.md` 或结合 `cdn_manifest.json` 转换为支持 ByteDance Sylph / ProseMirror 的语义富文本 HTML
+ * 优先读取同名目录下 `[article_name]_cdn.md` 或结合 `cdn_manifest.json` 转换为头条标准语义富文本 HTML
  * @param {string} markdownFilePath 
  * @returns {{ type: string, filePath: string, htmlContent: string }}
  */
@@ -171,109 +255,13 @@ export function resolveArticleHtml(markdownFilePath) {
     }
   }
 
-  // 2. 将 Markdown 转换为头条 ProseMirror 完美兼容的标准语义 HTML
-  const lines = targetMarkdown.split('\n');
-  const htmlBlocks = [];
-  let isCodeBlock = false;
-  let codeLang = '';
-  let codeLines = [];
-  let isFirstH1Skipped = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-
-    // 代码块处理
-    if (trimmed.startsWith('```')) {
-      if (!isCodeBlock) {
-        isCodeBlock = true;
-        codeLang = trimmed.replace(/^```/, '').trim();
-        codeLines = [];
-      } else {
-        isCodeBlock = false;
-        const codeContent = codeLines.join('\n')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        htmlBlocks.push(`<pre><code class="language-${codeLang}">${codeContent}</code></pre>`);
-      }
-      continue;
-    }
-
-    if (isCodeBlock) {
-      codeLines.push(rawLine);
-      continue;
-    }
-
-    if (!trimmed || trimmed.startsWith('---') || trimmed.startsWith('<!--')) {
-      continue;
-    }
-
-    // 图片解析
-    const imgMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (imgMatch) {
-      const alt = imgMatch[1];
-      const src = imgMatch[2];
-      htmlBlocks.push(`<p><img src="${src}" alt="${alt}" /></p>`);
-      continue;
-    }
-
-    // 标题解析（首个 H1 自动跳过，因为已被作为文章大标题填写）
-    if (trimmed.startsWith('# ')) {
-      if (!isFirstH1Skipped) {
-        isFirstH1Skipped = true;
-        continue;
-      }
-      const titleText = trimmed.replace(/^#\s+/, '').replace(/[*_`~]/g, '');
-      htmlBlocks.push(`<h2>${titleText}</h2>`);
-      continue;
-    }
-
-    if (trimmed.startsWith('## ')) {
-      const titleText = trimmed.replace(/^##\s+/, '').replace(/[*_`~]/g, '');
-      htmlBlocks.push(`<h2>${titleText}</h2>`);
-      continue;
-    }
-
-    if (trimmed.startsWith('### ')) {
-      const titleText = trimmed.replace(/^###\s+/, '').replace(/[*_`~]/g, '');
-      htmlBlocks.push(`<h3>${titleText}</h3>`);
-      continue;
-    }
-
-    // 引用块
-    if (trimmed.startsWith('>')) {
-      const quoteText = trimmed.replace(/^>\s*/, '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<blockquote><p>${quoteText}</p></blockquote>`);
-      continue;
-    }
-
-    // 无序列表
-    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
-      const itemText = trimmed.replace(/^[-•*]\s+/, '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>• ${itemText}</p>`);
-      continue;
-    }
-
-    // 有序列表
-    if (/^\d+\.\s+/.test(trimmed)) {
-      const itemText = trimmed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>${itemText}</p>`);
-      continue;
-    }
-
-    // 普通段落
-    const boldFormatted = trimmed
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-    htmlBlocks.push(`<p>${boldFormatted}</p>`);
-  }
+  // 2. 将 Markdown 转换为头条 ProseMirror 兼容的标准语义 HTML
+  const htmlContent = markdownToSemanticHtml(targetMarkdown);
 
   return {
     type: 'markdown_semantic_html',
     filePath: absPath,
-    htmlContent: htmlBlocks.join('\n')
+    htmlContent
   };
 }
 
@@ -294,36 +282,41 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const baseName = path.basename(absPath, path.extname(absPath));
   const articleDir = path.join(dir, baseName);
 
-  // 1. 优先提取 xhs_images/images/ 下的第一张封面卡片（如 01-cover.png）
-  const xhsImagesDir = path.join(articleDir, 'xhs_images', 'images');
-  if (fs.existsSync(xhsImagesDir)) {
-    const allFiles = fs.readdirSync(xhsImagesDir)
-      .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  // 1. 优先读取 cover/images/ 下的本地封面
+  const coverImagesDir = path.join(articleDir, 'cover', 'images');
+  if (fs.existsSync(coverImagesDir)) {
+    const allFiles = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+    const candidates = [
+      allFiles.find(f => f.includes('2.35x1') || f.includes('2.35:1') || f.includes('cover-main')),
+      allFiles.find(f => f.includes('16x9') || f.includes('16:9')),
+      allFiles.find(f => f.includes('square-1x1') || f.includes('1x1')),
+      allFiles.find(f => f.includes('cover')),
+      allFiles[0]
+    ].filter(Boolean);
 
-    const coverCard = allFiles.find(f => f.includes('01-cover') || f.includes('cover') || f.startsWith('01')) || allFiles[0];
-
-    if (coverCard) {
-      const localPath = path.join(xhsImagesDir, coverCard);
+    if (candidates.length > 0) {
+      const selected = candidates[0];
+      const localPath = path.join(coverImagesDir, selected);
       const buf = fs.readFileSync(localPath);
-      const mimeType = coverCard.endsWith('.jpg') || coverCard.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      const mimeType = selected.endsWith('.jpg') || selected.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
       return {
         hasCover: true,
         localPath,
         base64: `data:${mimeType};base64,${buf.toString('base64')}`,
         mimeType,
-        fileName: coverCard
+        fileName: selected
       };
     }
   }
 
-  // 2. 备选：读取 cdn_manifest.json 中的封面条目
+  // 2. 备选：读取 cdn_manifest.json 中的封面条目（type 为 cover）
   const manifestPath = path.join(articleDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       if (Array.isArray(manifest.assets)) {
-        const coverItem = manifest.assets.find(f => f.type === 'cover' || f.slug?.includes('cover'));
+        const coverItem = manifest.assets.find(f => f.type === 'cover' && (f.slug?.includes('2.35x1') || f.slug?.includes('16x9') || f.slug?.includes('main'))) ||
+                          manifest.assets.find(f => f.type === 'cover');
         if (coverItem) {
           const localPath = coverItem.local_path ? path.resolve(articleDir, coverItem.local_path) : null;
           let base64 = null;
@@ -348,29 +341,25 @@ export function resolveCoverImage(markdownFilePath, content = '') {
     }
   }
 
-  // 3. 备选：读取 cover/images/ 下的本地封面
-  const coverImagesDir = path.join(articleDir, 'cover', 'images');
-  if (fs.existsSync(coverImagesDir)) {
-    const allFiles = fs.readdirSync(coverImagesDir).filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp'));
-    const candidates = [
-      allFiles.find(f => f.includes('2.35x1') && !f.includes('_yuantu')),
-      allFiles.find(f => f.includes('16x9') && !f.includes('_yuantu')),
-      allFiles.find(f => f.includes('square-1x1') && !f.includes('_yuantu')),
-      allFiles.find(f => !f.includes('_yuantu')),
-      allFiles[0]
-    ].filter(Boolean);
+  // 3. 备选：读取 xhs_images/images/ 下的第一张封面卡片（如 01-cover.png）
+  const xhsImagesDir = path.join(articleDir, 'xhs_images', 'images');
+  if (fs.existsSync(xhsImagesDir)) {
+    const allFiles = fs.readdirSync(xhsImagesDir)
+      .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
-    if (candidates.length > 0) {
-      const selected = candidates[0];
-      const localPath = path.join(coverImagesDir, selected);
+    const coverCard = allFiles.find(f => f.includes('01-cover') || f.includes('cover') || f.startsWith('01')) || allFiles[0];
+
+    if (coverCard) {
+      const localPath = path.join(xhsImagesDir, coverCard);
       const buf = fs.readFileSync(localPath);
-      const mimeType = selected.endsWith('.jpg') || selected.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      const mimeType = coverCard.endsWith('.jpg') || coverCard.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
       return {
         hasCover: true,
         localPath,
         base64: `data:${mimeType};base64,${buf.toString('base64')}`,
         mimeType,
-        fileName: selected
+        fileName: coverCard
       };
     }
   }

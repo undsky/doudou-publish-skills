@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
  * 提取并清洗 Markdown 标题（微信公众号限制 64 字以内）
@@ -188,18 +189,14 @@ export function resolveArticleHtml(markdownFilePath) {
     }
   }
 
-  // 2. 降级读取 Markdown 并包装基础 HTML
+  // 2. 降级：使用 marked 将 Markdown 转译为干净标准 HTML 并包裹微信公众号 section 容器
   const rawMarkdown = fs.readFileSync(absPath, 'utf-8');
-  const paragraphs = rawMarkdown
-    .split('\n\n')
-    .filter(p => p.trim().length > 0 && !p.trim().startsWith('#') && !p.trim().startsWith('```'))
-    .map(p => `<p style="margin: 10px 0; font-size: 16px; line-height: 1.8; color: #333;">${p.replace(/\n/g, '<br>')}</p>`)
-    .join('');
-
-  const fallbackHtml = `<section style="max-width: 677px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #374151; line-height: 1.75;">${paragraphs}</section>`;
+  const customMarked = new Marked({ gfm: true, breaks: true });
+  const parsedHtml = customMarked.parse(rawMarkdown);
+  const fallbackHtml = `<section style="max-width: 677px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #374151; line-height: 1.75; font-size: 16px;">\n${parsedHtml}\n</section>`;
 
   return {
-    type: 'markdown',
+    type: 'markdown_html',
     filePath: absPath,
     htmlContent: fallbackHtml
   };

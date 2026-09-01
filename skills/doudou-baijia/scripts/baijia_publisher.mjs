@@ -7,6 +7,8 @@
  * 4. 草稿安全隔离：严格限定为存草稿，捕获「内容已存入草稿」通知与 article_id，绝不触碰任何形式的公开发布。
  */
 
+import path from 'path';
+import fs from 'fs';
 import { parseAllAssets } from './parser.mjs';
 
 /**
