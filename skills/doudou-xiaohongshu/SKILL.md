@@ -43,7 +43,7 @@ description: "通过 chrome-devtools-mcp 实现小红书发布长文专栏与图
 </div>
 ```
 
-`scripts/parser.mjs` 中的 `resolveArticleHtml` 已全自动处理 Markdown 中所有的 `![alt](url)` 与 `<img ...>` 语法转换为上述标准节点。
+`scripts/parser.mjs` 中的 `resolveArticleHtml` 基于 `marked` 渲染，已全自动处理 Markdown 中所有的 `![alt](url)` 与 `<img ...>` 语法转换为上述标准节点，并完整支持标题、列表、表格、代码块、引用与行内样式（标题降级为 H2/H3，首个 H1 因已作为长文标题而跳过）。
 
 ---
 
@@ -95,4 +95,5 @@ flowchart TD
 以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
 
 - [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取长文/图文标题、摘要、话题、TipTap 专属图片节点 HTML 以及 3:4 小红书图文卡片集。
+- [scripts/marked.esm.js](scripts/marked.esm.js)：内置 `marked` v18 渲染引擎（零外部依赖），供 `parser.mjs` 将 Markdown 转换为 TipTap 兼容语义 HTML。
 - [scripts/xhs_publisher.mjs](scripts/xhs_publisher.mjs)：长文与图文发布浏览器注入脚本生成器（涵盖 TipTap 状态同步、Shadow DOM 交互与防风控人机模拟）。

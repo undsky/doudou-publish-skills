@@ -331,7 +331,22 @@ export function convertMarkdownToBilibiliHtml(markdown, baseDir) {
     list({ ordered, items }) {
       const tag = ordered ? 'ol' : 'ul';
       const styleType = ordered ? 'decimal' : 'disc';
-      const body = items.map(item => `<li data-eva3-scoped=""><p data-eva3-scoped="">${this.parser.parseInline(item.tokens)}</p></li>\n`).join('');
+      const body = items.map(item => {
+        // 紧凑列表项的首段是裸内联 token，需补 <p> 才符合 TipTap 结构；
+        // 其后可能跟嵌套列表/代码块等块级 token，必须走 parse 而非 parseInline
+        const splitAt = item.tokens.findIndex(t => t.type !== 'text' && t.type !== 'space');
+        const leading = splitAt === -1 ? item.tokens : item.tokens.slice(0, splitAt);
+        const rest = splitAt === -1 ? [] : item.tokens.slice(splitAt);
+
+        let content = '';
+        if (leading.length > 0) {
+          const inlineHtml = leading.map(t => t.tokens ? this.parser.parseInline(t.tokens) : (t.text || '')).join('');
+          content += `<p data-eva3-scoped="">${inlineHtml}</p>`;
+        }
+        if (rest.length > 0) content += this.parser.parse(rest);
+
+        return `<li data-eva3-scoped="">${content}</li>\n`;
+      }).join('');
       return `<${tag} data-eva3-scoped="" level="1" list-style-type="${styleType}" style="list-style-type: ${styleType};">\n${body}</${tag}>\n`;
     },
 

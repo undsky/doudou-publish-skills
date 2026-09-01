@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Marked } from './marked.esm.js';
 
 /**
  * 提取并清洗文章标题（小红书长文标题限制 64 字以内）
@@ -168,15 +169,30 @@ export function extractImagePostDescription(content, title = '', tags = []) {
 }
 
 /**
+ * 转义 HTML 属性与文本中的特殊字符
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
  * 生成符合小红书 TipTap/ProseMirror 规范的 Image 节点 HTML
- * @param {string} src 
- * @param {string} alt 
+ * @param {string} src
+ * @param {string} alt
  * @returns {string}
  */
 function formatXhsImageBlock(src, alt = '') {
   const imgData = [{ src, desc: alt || '', width: 600, height: 400 }];
-  const dataImgsAttr = JSON.stringify(imgData).replace(/"/g, '&quot;');
-  return `<div data-dom-type="image" data-imgs="${dataImgsAttr}" contenteditable="false"><div data-dom-type="img-wrapper" class="img-wrapper" style="width: 100%; height: 400px; display: flex; justify-content: center;"><img data-dom-type="img" class="image" src="${src}" style="width: 600px; min-height: 400px;">${alt ? `<span data-dom-type="desc" class="desc">${alt}</span>` : ''}</div></div>`;
+  const dataImgsAttr = JSON.stringify(imgData).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const safeSrc = escapeHtml(src);
+  const safeAlt = escapeHtml(alt);
+  return `<div data-dom-type="image" data-imgs="${dataImgsAttr}" contenteditable="false"><div data-dom-type="img-wrapper" class="img-wrapper" style="width: 100%; height: 400px; display: flex; justify-content: center;"><img data-dom-type="img" class="image" src="${safeSrc}" style="width: 600px; min-height: 400px;">${alt ? `<span data-dom-type="desc" class="desc">${safeAlt}</span>` : ''}</div></div>`;
 }
 
 /**
@@ -213,62 +229,89 @@ export function resolveArticleHtml(markdownFilePath) {
     }
   }
 
-  // 转为 TipTap 支持的语义化 HTML 标签及专属 image 节点
-  const lines = targetMarkdown.split('\n');
-  const htmlBlocks = [];
-  let isCode = false;
+  // 转为 TipTap 支持的语义化 HTML 标签及专属 image 节点（基于 marked）
+  let isFirstH1Skipped = false;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('```')) {
-      isCode = !isCode;
-      continue;
-    }
-    if (isCode || !line || line.startsWith('---') || line.startsWith('<!--')) continue;
+  const renderer = {
+    heading({ tokens, depth }) {
+      const text = this.parser.parseInline(tokens);
+      // 首个 H1 已作为长文标题单独填写，正文内跳过避免重复
+      if (depth === 1 && !isFirstH1Skipped) {
+        isFirstH1Skipped = true;
+        return '';
+      }
+      // 小红书编辑器仅支持 H2/H3 两级标题
+      const level = Math.min(Math.max(depth, 2), 3);
+      return `<h${level}>${text}</h${level}>\n`;
+    },
 
-    // 插图解析：Markdown 图片语法 ![alt](src)
-    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (imgMatch) {
-      const alt = imgMatch[1];
-      const src = imgMatch[2];
-      htmlBlocks.push(formatXhsImageBlock(src, alt));
-      continue;
-    }
+    image({ href, text }) {
+      return formatXhsImageBlock(href, text || '');
+    },
 
-    // 插图解析：HTML img 标签
-    const htmlImgMatch = line.match(/<img[^>]+src=["']([^"']+)["'][^>]*alt=["']?([^"'>]*)["']?[^>]*>/i);
-    if (htmlImgMatch) {
-      const src = htmlImgMatch[1];
-      const alt = htmlImgMatch[2] || '';
-      htmlBlocks.push(formatXhsImageBlock(src, alt));
-      continue;
-    }
+    // 独占段落的图片需脱离 <p> 包裹，否则 TipTap 无法识别专属 image 节点
+    // 连续多行图片在 breaks: true 下会落入同一段落（image + br + image），一并解包
+    paragraph({ tokens }) {
+      const isImageOnly = tokens.some(t => t.type === 'image') && tokens.every(
+        t => t.type === 'image' || t.type === 'br' || (t.type === 'text' && !t.text.trim())
+      );
+      if (isImageOnly) {
+        return tokens.filter(t => t.type === 'image').map(t => formatXhsImageBlock(t.href, t.text || '')).join('');
+      }
+      return `<p>${this.parser.parseInline(tokens)}</p>\n`;
+    },
 
-    if (line.startsWith('# ')) {
-      // 首行 H1 已作为标题输入，正文内若有 H1 降为 H2
-      htmlBlocks.push(`<h2>${line.replace(/^#\s+/, '')}</h2>`);
-    } else if (line.startsWith('## ')) {
-      htmlBlocks.push(`<h2>${line.replace(/^##\s+/, '')}</h2>`);
-    } else if (line.startsWith('### ')) {
-      htmlBlocks.push(`<h3>${line.replace(/^###\s+/, '')}</h3>`);
-    } else if (line.startsWith('>')) {
-      htmlBlocks.push(`<blockquote><p>${line.replace(/^>\s*/, '')}</p></blockquote>`);
-    } else if (line.startsWith('- ') || line.startsWith('• ')) {
-      const boldFormatted = line.replace(/^[-•]\s+/, '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>• ${boldFormatted}</p>`);
-    } else if (/^\d+\.\s+/.test(line)) {
-      const boldFormatted = line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>${boldFormatted}</p>`);
-    } else {
-      const boldFormatted = line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      htmlBlocks.push(`<p>${boldFormatted}</p>`);
+    // 原生 HTML：剔除注释，并将 <img> 标签转为专属 image 节点
+    html({ text }) {
+      const stripped = text.replace(/<!--[\s\S]*?-->/g, '');
+      if (!stripped.trim()) return '';
+      if (/<img\b/i.test(stripped)) {
+        return stripped.replace(/<img\b[^>]*>/gi, (tag) => {
+          const src = tag.match(/\ssrc=["']([^"']+)["']/i)?.[1];
+          const alt = tag.match(/\salt=["']([^"']*)["']/i)?.[1] || '';
+          return src ? formatXhsImageBlock(src, alt) : '';
+        });
+      }
+      return stripped;
+    },
+    table({ header, rows }) {
+      let headerHtml = '';
+      if (header && header.length > 0) {
+        headerHtml = '<tr>\n' +
+          header.map(cell => `<th style="border: 1px solid #e5e5e5; padding: 6px 10px;">${this.parser.parseInline(cell.tokens)}</th>\n`).join('') +
+          '</tr>\n';
+      }
+      let bodyHtml = '';
+      if (rows && rows.length > 0) {
+        bodyHtml = rows.map(row => {
+          const cellsHtml = row.map(cell => `<td style="border: 1px solid #e5e5e5; padding: 6px 10px;">${this.parser.parseInline(cell.tokens)}</td>\n`).join('');
+          return `<tr>\n${cellsHtml}</tr>\n`;
+        }).join('');
+      }
+      return `<table style="width: 100%; border-collapse: collapse; margin: 12px 0;">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
+
+    code({ text, lang }) {
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<pre><code${langClass}>${escaped}</code></pre>\n`;
+    },
+
+    codespan({ text }) {
+      return `<code>${text}</code>`;
     }
-  }
+  };
+
+  const customMarked = new Marked({
+    renderer,
+    gfm: true,
+    breaks: true
+  });
 
   return {
     type: 'markdown_cdn_html',
     filePath: absPath,
-    htmlContent: htmlBlocks.join('')
+    htmlContent: customMarked.parse(targetMarkdown)
   };
 }
 
