@@ -183,7 +183,7 @@ if (formInstance && formInstance.field) {
 {
   "pageId": 16,
   "uid": "3_230",
-  "filePaths": ["E:\\me\\undsky\\mds\\AICoding\\claw163\\cover\\images\\cover.png"]
+  "filePaths": ["path/to/article_name/cover/images/cover.png"]
 }
 ```
 3. 等待 2~3 秒，浏览器将自动完成官方 OSS 签名上传与封面缩略图绑定（状态更新为 `重新上传`）。
