@@ -99,16 +99,6 @@ export function inferCategory(content, title = '') {
 }
 
 /**
- * 提取技术标签（不再做关键词规则映射）
- * @param {string} content
- * @param {string} title
- * @returns {string[]}
- */
-export function extractTags(_content, _title = '') {
-  return [];
-}
-
-/**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
  * @param {string} markdownFilePath 
  * @param {string} content 
@@ -250,7 +240,7 @@ export function parseArticle(filePath) {
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
   const category = inferCategory(content, title);
-  const tags = extractTags(content, title);
+  const tags = [];
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免掘金编辑器标题与正文重复），保留其余部分

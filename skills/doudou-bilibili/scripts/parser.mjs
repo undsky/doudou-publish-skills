@@ -79,16 +79,6 @@ export function extractSummary(content) {
 }
 
 /**
- * 提取话题标签（不再做关键词规则映射）
- * @param {string} content
- * @param {string} title
- * @returns {string[]}
- */
-export function extractTopics(_content, _title = '') {
-  return [];
-}
-
-/**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
  * @param {string} markdownFilePath 
  * @param {string} content 
@@ -384,7 +374,7 @@ export async function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const topics = extractTopics(content, title);
+  const topics = [];
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 若封面是远程 URL 且无 Base64，Node 端预拉取

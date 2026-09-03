@@ -97,16 +97,6 @@ export function extractArticleSummary(content) {
 }
 
 /**
- * 提取话题标签（不再做关键词规则映射）
- * @param {string} content
- * @param {string} title
- * @returns {string[]}
- */
-export function extractTags(_content, _title = '') {
-  return [];
-}
-
-/**
  * 将 Markdown 转换为企鹅号 ExEditor 兼容的高质量语义 HTML（基于 marked）
  * @param {string} markdown 
  * @returns {string}
@@ -465,7 +455,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const articleTitle = extractArticleTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  const tags = extractTags(rawContent, articleTitle);
+  const tags = [];
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
   const articleImages = extractArticleImages(absPath, rawContent);

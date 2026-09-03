@@ -70,18 +70,6 @@ export function extractSummary(content) {
 
 
 /**
- * 提取技术标签（不再从 FrontMatter / 环境变量 / 元数据抽取）
- * @param {string} content
- * @param {string} title
- * @param {string} filePath
- * @param {object} options
- * @returns {string[]}
- */
-export function extractTags(_content, _title = '', _filePath = '', _options = {}) {
-  return [];
-}
-
-/**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
  * @param {string} markdownFilePath 
  * @param {string} content 
@@ -222,7 +210,7 @@ export function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const tags = extractTags(content, title, absPath);
+  const tags = [];
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免 CSDN 编辑器标题与正文重复）

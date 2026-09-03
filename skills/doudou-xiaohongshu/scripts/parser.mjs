@@ -83,16 +83,6 @@ export function extractArticleSummary(content) {
 }
 
 /**
- * 提取话题标签（不再做关键词规则映射）
- * @param {string} content
- * @param {string} title
- * @returns {string[]}
- */
-export function extractTags(_content, _title = '') {
-  return [];
-}
-
-/**
  * 提炼小红书图文专属描述（要点梳理 + 热门话题标签，限制 1000 字以内）
  * @param {string} content 
  * @param {string} title 
@@ -197,7 +187,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const imagePostTitle = extractImagePostTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  const tags = extractTags(rawContent, imagePostTitle);
+  const tags = [];
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const imageCards = resolveImagePostCards(absPath);
 

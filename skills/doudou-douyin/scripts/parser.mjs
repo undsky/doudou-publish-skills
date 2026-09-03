@@ -84,16 +84,6 @@ export function extractArticleSummary(content) {
 }
 
 /**
- * 提取话题标签（不再做关键词规则映射）
- * @param {string} content
- * @param {string} title
- * @returns {string[]}
- */
-export function extractTags(_content, _title = '') {
-  return [];
-}
-
-/**
  * 提炼图文专属描述正文（要点梳理 + 话题标签，抖音限制 1000 字以内）
  * @param {string} content 
  * @param {string} title 
@@ -406,7 +396,7 @@ export function parseAllAssets(markdownFilePath, author = '豆豆') {
   const articleTitle = extractArticleTitle(rawContent);
   const imagePostTitle = extractImagePostTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  const tags = extractTags(rawContent, articleTitle);
+  const tags = [];
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);

@@ -72,16 +72,6 @@ export function extractSummary(content) {
 }
 
 /**
- * 提取技术标签（不再做关键词规则映射）
- * @param {string} content
- * @param {string} title
- * @returns {string[]}
- */
-export function extractTags(_content, _title = '') {
-  return [];
-}
-
-/**
  * 提炼贴图/小绿书专属描述正文（要点提取 + 话题标签，1000 字以内）
  * @param {string} content 
  * @param {string} title 
@@ -322,7 +312,7 @@ export function parseAllAssets(markdownFilePath, author = '豆豆') {
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const title = extractTitle(rawContent);
   const summary = extractSummary(rawContent);
-  const tags = extractTags(rawContent, title);
+  const tags = [];
   const stickerDesc = extractStickerDescription(rawContent, title, tags);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);

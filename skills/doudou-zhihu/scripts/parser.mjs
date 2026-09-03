@@ -70,17 +70,6 @@ export function extractSummary(content) {
 }
 
 /**
- * 提取话题标签（不再从 FrontMatter / 环境变量 / 元数据抽取）
- * @param {string} content
- * @param {string} title
- * @param {object} options
- * @returns {string[]}
- */
-export function extractTopics(_content, _title = '', _options = {}) {
-  return [];
-}
-
-/**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
  * 优先级：
  * 1. 同名目录 cdn_manifest.json 中类型为 cover 的条目（优先 2.35:1 宽屏主封面、16:9 封面、1:1 方形封面，存在本地文件时优先读取 base64）
@@ -406,7 +395,7 @@ export function parseArticle(filePath, options = {}) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const topics = extractTopics(content, title, { markdownFilePath: absPath, ...options });
+  const topics = [];
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免知乎编辑器标题与正文重复），保留其余部分
@@ -434,20 +423,6 @@ export function parseArticle(filePath, options = {}) {
     bodyContent,
     htmlContent,
     rawContent
-  };
-}
-
-/**
- * 全面解析 Markdown 文件及其关联资产（兼容易与其他 skill 统一调用的签名）
- * @param {string} filePath 
- * @param {string} author 
- * @param {object} options 
- */
-export function parseAllAssets(filePath, author = 'undsky', options = {}) {
-  const result = parseArticle(filePath, options);
-  return {
-    ...result,
-    author
   };
 }
 

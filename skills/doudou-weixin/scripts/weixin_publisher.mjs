@@ -227,25 +227,6 @@ export function buildArticleBrowserScript(meta) {
 }
 
 /**
- * 生成在贴图编辑器页面（createType=8）准备上传组件的脚本
- * @returns {string}
- */
-export function buildStickerPrepareScript() {
-  return `() => {
-    const fileInput = document.querySelector('.image-selector input[type="file"]') || document.querySelector('input[type="file"]');
-    if (fileInput) {
-      fileInput.style.display = 'block';
-      fileInput.style.visibility = 'visible';
-      fileInput.style.width = '100px';
-      fileInput.style.height = '40px';
-      fileInput.id = 'js_sticker_upload_input';
-      return { ok: true, id: fileInput.id };
-    }
-    return { ok: false };
-  };`;
-}
-
-/**
  * 生成在贴图编辑器页面（createType=8）输入文案并保存草稿的脚本
  * @param {object} meta 
  * @returns {string}
