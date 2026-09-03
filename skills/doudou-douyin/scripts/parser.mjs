@@ -14,17 +14,17 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
     const trimmed = line.trim();
     if (trimmed.startsWith('# ')) {
       const clean = trimmed.replace(/^#\s+/, '').replace(/[*_`~]/g, '').trim();
-      return clean.length > 30 ? clean.substring(0, 28) + '...' : clean;
+      return clean.length > 30 ? clean.substring(0, 27) + '...' : clean;
     }
   }
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.length > 0 && !trimmed.startsWith('---') && !trimmed.startsWith('<!--')) {
       const clean = trimmed.replace(/^[#\s*`~]+/, '').trim();
-      return clean.length > 30 ? clean.substring(0, 28) + '...' : clean;
+      return clean.length > 30 ? clean.substring(0, 27) + '...' : clean;
     }
   }
-  return fallbackTitle.length > 30 ? fallbackTitle.substring(0, 28) + '...' : fallbackTitle;
+  return fallbackTitle.length > 30 ? fallbackTitle.substring(0, 27) + '...' : fallbackTitle;
 }
 
 /**
@@ -35,7 +35,7 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
  */
 export function extractImagePostTitle(content, fallbackTitle = '未命名图文') {
   const title = extractArticleTitle(content, fallbackTitle);
-  return title.length > 20 ? title.substring(0, 18) + '...' : title;
+  return title.length > 20 ? title.substring(0, 17) + '...' : title;
 }
 
 /**
@@ -78,7 +78,7 @@ export function extractArticleSummary(content) {
     summary = '深度解析核心技术与工程实践落地';
   }
   if (summary.length > 30) {
-    summary = summary.substring(0, 28) + '...';
+    summary = summary.substring(0, 27) + '...';
   }
   return summary;
 }
