@@ -69,42 +69,50 @@ export function extractSummary(content) {
 }
 
 /**
- * 智能提取 1~5 个文章标签或自定义关键词
+ * 解析 Markdown 文件的 YAML FrontMatter
  * @param {string} content 
- * @param {string} title 
- * @returns {string[]}
+ * @returns {Record<string, any>|null}
  */
-export function extractTags(content, title = '') {
-  const keywordsMap = [
-    { tag: 'AI编程', matches: ['ai编程', 'ai coding', '大模型编程', '代码生成', 'opencode'] },
-    { tag: '人工智能', matches: ['ai', '人工智能', '大模型', 'llm', 'deepseek', 'gpt', '智能体', 'agent'] },
-    { tag: '智能体', matches: ['agent', '智能体', '特工', '多智能体', 'multi-agent'] },
-    { tag: 'Docker', matches: ['docker', '容器', 'docker-compose', 'alpine', '镜像'] },
-    { tag: '微服务', matches: ['微服务', '架构', '架构设计', '契约', '工业化'] },
-    { tag: 'Node.js', matches: ['node.js', 'nodejs', 'javascript', 'typescript', 'npm'] },
-    { tag: 'Python', matches: ['python', 'pip', 'python3'] },
-    { tag: '前端开发', matches: ['前端', 'react', 'vue', 'html', 'css', 'javascript'] },
-    { tag: '后端开发', matches: ['后端', '服务端', 'api', 'http', 'server'] },
-    { tag: '自动化', matches: ['自动化', 'automation', 'n8n', 'workflow', '工作流', 'mcp'] },
-    { tag: '云原生', matches: ['云原生', '云计算', 'serverless', 'k8s', 'kubernetes'] }
-  ];
+export function extractFrontmatter(content) {
+  if (!content || !content.startsWith('---')) return null;
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  const fmBlock = match[1];
+  const data = {};
+  
+  const lines = fmBlock.split('\n');
+  let currentKey = null;
+  let currentArray = null;
 
-  const fullText = (title + ' ' + content).toLowerCase();
-  const matchedTags = [];
+  for (let line of lines) {
+    line = line.trim();
+    if (!line || line.startsWith('#')) continue;
 
-  for (const item of keywordsMap) {
-    if (item.matches.some(m => fullText.includes(m))) {
-      matchedTags.push(item.tag);
+    if (line.startsWith('- ') && currentKey) {
+      if (!currentArray) {
+        currentArray = [];
+        data[currentKey] = currentArray;
+      }
+      currentArray.push(line.replace(/^- \s*/, '').replace(/^['"]|['"]$/g, '').trim());
+      continue;
     }
-    if (matchedTags.length >= 5) break;
-  }
 
-  if (matchedTags.length === 0) {
-    matchedTags.push('前沿技术', '开发实践');
+    const colonIdx = line.indexOf(':');
+    if (colonIdx > 0) {
+      currentKey = line.slice(0, colonIdx).trim();
+      currentArray = null;
+      let val = line.slice(colonIdx + 1).trim();
+      if (val.startsWith('[') && val.endsWith(']')) {
+        data[currentKey] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+      } else if (val) {
+        data[currentKey] = val.replace(/^['"]|['"]$/g, '');
+      }
+    }
   }
-
-  return matchedTags;
+  return data;
 }
+
+
 
 /**
  * 解析封面图资产（遵循 doudou-markdown-skill 规约）
@@ -124,11 +132,12 @@ export function resolveCoverImage(markdownFilePath, content) {
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(manifest.assets)) {
-        // 优先 2.35:1 或 16:9 或包含 main 的封面
-        const coverAssets = manifest.assets.filter(a => a.type === 'cover');
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.slug?.includes('main')) 
-          || coverAssets.find(a => a.aspect_ratio === '16:9' || a.slug?.includes('16x9'))
+      const items = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
+      if (items.length > 0) {
+        // 优先 2.35:1 或 16:9 或包含 cover 的项
+        const coverAssets = items.filter(a => a.type === 'cover' || a.local_path?.includes('cover') || a.original_name?.includes('cover'));
+        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.local_path?.includes('2.35') || a.original_name?.includes('2.35') || a.slug?.includes('main') || a.local_path?.includes('main')) 
+          || coverAssets.find(a => a.aspect_ratio === '16:9' || a.slug?.includes('16x9') || a.local_path?.includes('16x9') || a.original_name?.includes('16x9'))
           || coverAssets[0];
         
         if (mainCover && mainCover.cdn_url) {
@@ -201,8 +210,9 @@ export function resolveCoverImage(markdownFilePath, content) {
 /**
  * 解析 Markdown 及其关联资产
  * @param {string} filePath 
+ * @param {object} options
  */
-export function parseArticle(filePath) {
+export function parseArticle(filePath, options = {}) {
   const absPath = path.resolve(filePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`文件不存在: ${filePath}`);
@@ -225,7 +235,6 @@ export function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const tags = extractTags(content, title);
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免腾讯云编辑器标题重复），保留其余部分
@@ -240,7 +249,6 @@ export function parseArticle(filePath) {
     stem,
     title,
     summary,
-    tags,
     cover,
     isCdnVersion,
     bodyContent,
@@ -259,7 +267,6 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
   console.log(JSON.stringify({
     title: result.title,
     summary: result.summary,
-    tags: result.tags,
     cover: {
       type: result.cover.type,
       url: result.cover.url,

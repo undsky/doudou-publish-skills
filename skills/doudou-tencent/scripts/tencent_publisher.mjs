@@ -4,19 +4,19 @@ import { parseArticle } from './parser.mjs';
 /**
  * 生成可直接在目标页面 (https://cloud.tencent.com/developer/article/write-new) evaluate_script 执行的拟真发布 Payload 函数字符串
  * @param {string} markdownFilePath 
+ * @param {object} options
  * @returns {string} 可在目标页面执行的自包含异步 JS 代码
  */
-export function buildBrowserPublishScript(markdownFilePath) {
-  const articleData = parseArticle(markdownFilePath);
+export function buildBrowserPublishScript(markdownFilePath, options = {}) {
+  const articleData = parseArticle(markdownFilePath, options);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
     summary: articleData.summary,
-    tags: articleData.tags,
     bodyContent: articleData.bodyContent,
     cover: articleData.cover
   });
 
-  return `(async () => {
+  return `async () => {
   const data = ${jsonPayload};
   const logs = [];
   function log(msg) {
@@ -124,18 +124,20 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   // 5. 点击「去发布」打开发布设置抽屉
   log('模拟点击「去发布」打开发布设置抽屉...');
-  const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('去发布'));
-  if (publishBtn) {
-    publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-    await randomDelay(300, 600);
-    publishBtn.click();
+  let drawer = document.querySelector('.editor-publish-drawer');
+  if (!drawer) {
+    const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('去发布'));
+    if (publishBtn) {
+      publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      await randomDelay(300, 600);
+      publishBtn.click();
+    }
+    await randomDelay(800, 1400);
+    drawer = document.querySelector('.editor-publish-drawer');
   }
-  await randomDelay(800, 1400);
 
-  // 检查抽屉是否已展开
-  const drawer = document.querySelector('.editor-publish-drawer');
   if (!drawer) {
     log('警告: 未找到展开的发布抽屉，尝试直接在顶栏保存草稿');
   }
@@ -150,45 +152,24 @@ export function buildBrowserPublishScript(markdownFilePath) {
     drawerFiber = df;
   }
 
-  // 6. 设置文章来源 (原创)、标签与自定义关键词
+  // 6. 设置文章来源 (原创)（标签与关键词留给用户自行填写）
   if (drawer) {
-    log('正在配置文章来源与技术标签...');
-    if (drawerFiber && drawerFiber.memoizedProps && typeof drawerFiber.memoizedProps.onFieldChange === 'function') {
-      drawerFiber.memoizedProps.onFieldChange('sourceType', 0); // 0 为原创
-      if (Array.isArray(data.tags) && data.tags.length > 0) {
-        drawerFiber.memoizedProps.onFieldChange('longtailTag', data.tags);
+    log('正在配置文章来源 (原创)...');
+    
+    // 模拟点击并选中「原创」单选框 (value 为 1)
+    const originalRadioLabel = Array.from(drawer.querySelectorAll('label.t-radio, .t-radio')).find(l => l.innerText.includes('原创'));
+    if (originalRadioLabel) {
+      originalRadioLabel.click();
+      const input = originalRadioLabel.querySelector('input');
+      if (input) {
+        input.checked = true;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
 
-    // 模拟在自定义关键词输入框中逐个输入标签
-    const tagInputs = Array.from(drawer.querySelectorAll('.cdc-tags-input__input'));
-    if (tagInputs.length >= 2 && Array.isArray(data.tags)) {
-      const customTagInput = tagInputs[1]; // 第二个为自定义关键词
-      const customFiberKey = Object.keys(customTagInput).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-      const cFiber = customTagInput[customFiberKey];
-
-      for (const tag of data.tags.slice(0, 5)) {
-        customTagInput.focus();
-        await randomDelay(150, 300);
-        if (cFiber && cFiber.memoizedProps) {
-          if (typeof cFiber.memoizedProps.onChange === 'function') {
-            cFiber.memoizedProps.onChange({ target: { value: tag }, currentTarget: { value: tag } });
-          }
-          if (typeof cFiber.memoizedProps.onKeyDown === 'function') {
-            cFiber.memoizedProps.onKeyDown({
-              key: 'Enter',
-              keyCode: 13,
-              which: 13,
-              code: 'Enter',
-              target: customTagInput,
-              currentTarget: customTagInput,
-              preventDefault: () => {},
-              stopPropagation: () => {}
-            });
-          }
-        }
-        await randomDelay(200, 400);
-      }
+    if (drawerFiber && drawerFiber.memoizedProps && typeof drawerFiber.memoizedProps.onFieldChange === 'function') {
+      drawerFiber.memoizedProps.onFieldChange('sourceType', 1); // 1 为原创 (2 为转载, 3 为翻译)
     }
     await randomDelay(400, 700);
 
@@ -274,6 +255,19 @@ export function buildBrowserPublishScript(markdownFilePath) {
           break;
         }
       }
+
+      // 若出现裁剪确认弹窗，模拟确认
+      const cropConfirmBtns = Array.from(document.querySelectorAll('.t-dialog button, .cdc-modal button, .t-popup button, button')).filter(b => {
+        const text = b.innerText.trim();
+        return text === '确定' || text === '确认' || text === '完成' || text === '裁剪并使用';
+      });
+      if (cropConfirmBtns.length > 0) {
+        log('检测到裁剪确认按钮，模拟点击确认...');
+        const targetCropBtn = cropConfirmBtns[cropConfirmBtns.length - 1];
+        targetCropBtn.click();
+        await randomDelay(500, 1000);
+      }
+
       await randomDelay(500, 1000);
     }
   }
@@ -288,17 +282,17 @@ export function buildBrowserPublishScript(markdownFilePath) {
     draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '存草稿');
   }
 
-  if (!draftBtn) {
-    return { success: false, error: '未找到「存草稿」按钮', logs };
+  if (draftBtn) {
+    draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    await randomDelay(400, 700);
+    draftBtn.click();
+    log('已触发「存草稿」点击');
+  } else if (drawerFiber && typeof drawerFiber.memoizedProps?.onSaveDraftArticle === 'function') {
+    log('未在 DOM 中找到「存草稿」按钮，直接通过 React onSaveDraftArticle 触发保存');
+    await drawerFiber.memoizedProps.onSaveDraftArticle();
   }
-
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await randomDelay(400, 700);
-
-  draftBtn.click();
-  log('已触发「存草稿」点击');
 
   // 10. 轮询等待网络请求与状态保存反馈（最高等待 8 秒）
   let isSuccess = false;
@@ -319,7 +313,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
     statusTexts = Array.from(document.querySelectorAll('span, p, div'))
       .map(el => el.innerText.trim())
-      .filter(t => t.includes('保存到草稿') || t.includes('保存了草稿'));
+      .filter(t => t.includes('保存到草稿') || t.includes('保存了草稿') || t.includes('保存成功'));
 
     if (draftId || statusTexts.length > 0 || toasts.some(t => t.includes('成功') || t.includes('草稿'))) {
       isSuccess = true;
@@ -335,14 +329,13 @@ export function buildBrowserPublishScript(markdownFilePath) {
     url: currentUrl,
     title: data.title,
     summary: data.summary,
-    tags: data.tags,
     coverType: data.cover ? data.cover.type : 'none',
     coverUrl: data.cover ? data.cover.url : null,
     toasts,
     statusTexts: statusTexts.slice(0, 5),
     logs
   };
-})()`;
+};`;
 }
 
 // 命令行直接运行测试与生成

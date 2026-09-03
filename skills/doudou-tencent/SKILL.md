@@ -1,13 +1,13 @@
 ---
 name: doudou-tencent
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到腾讯云开发者社区草稿箱（https://cloud.tencent.com/developer/article/write-new）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容 doudou-markdown 产物同名目录与 cdn_manifest.json）、Cherry Markdown 注入、标签与摘要抽取、Cropper 封面绑定以及草稿保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到腾讯云开发者社区草稿箱（https://cloud.tencent.com/developer/article/write-new）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容 doudou-markdown 产物同名目录与 cdn_manifest.json）、Cherry Markdown 注入、原创来源与摘要抽取、Cropper 封面绑定以及草稿保存状态验证（文章标签与自定义关键词留空供用户手动填写）。
 ---
 
 # 腾讯云开发者社区文章自动发布到草稿技能 (doudou-tencent)
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件发布至**腾讯云开发者社区（https://cloud.tencent.com/developer/article/write-new ）的草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、视口平滑滚动及悬停交互，避免被平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、技术标签、CDN 版 Markdown 正文以及宽屏封面图。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、视口平滑滚动及悬停交互，避免被平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、CDN 版 Markdown 正文以及宽屏封面图（文章标签与自定义关键词由用户自行在界面中填写）。
 
 ---
 
@@ -28,7 +28,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
      3. 再次从 Markdown 正文中提取第一张图片链接或本地路径；
      4. 若均无则跳过封面设置。
    - **摘要**：提炼 80~180 字纯文本摘要（腾讯云限制 200 字以内）。
-   - **标签**：从文章标题与正文关键词中提炼 1~5 个技术标签（如 `AI编程`, `智能体`, `Docker`, `微服务` 等）。
+   - **标签与关键词**：不自动填充，留由用户自行按需在发布抽屉中添加。
 
 ---
 
@@ -43,7 +43,7 @@ flowchart TD
     S2 --> S3[步骤 3: 注入 Markdown 并触发 Cherry 渲染]
     S3 --> S4[步骤 4: 模拟自然视口滚动检查排版]
     S4 --> S5[步骤 5: 点击「去发布」打开发布设置抽屉]
-    S5 --> S6[步骤 6: 拟真配置文章来源、标签与摘要]
+    S5 --> S6[步骤 6: 拟真配置文章来源与摘要]
     S6 --> S7[步骤 7: 注入文章封面并激活 Cropper 绑定]
     S7 --> S8[步骤 8: 拟真悬停并点击「存草稿」]
     S8 --> S9[步骤 9: 捕获保存反馈并截屏存证]
@@ -58,7 +58,6 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
 - `summary`: 80~180 字纯文本摘要
-- `tags`: 1~5 个文章技术标签
 - `bodyContent`: 过滤掉首行重复 H1 后的 Markdown 正文（优先使用 `_cdn.md`）
 - `cover`: 封面图信息（CDN URL 或 Local Base64）
 
@@ -138,12 +137,12 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 
 ---
 
-### 步骤 6：拟真配置文章来源、标签与摘要
+### 步骤 6：拟真配置文章来源与摘要
 
 在展开的发布抽屉中：
-1. **文章来源**：设置 `sourceType: 0`（原创）。
-2. **技术标签**：在自定义关键词输入框（`.cdc-tags-input__input`）中逐个输入标签并触发 `Enter` 创建，同时同步 React `longtailTag`。
-3. **文章摘要**：聚焦 `.editor-publish-drawer__textarea-main` 填入摘要文本并触发 React `userSummary` 状态同步。
+1. **文章来源**：设置 `sourceType: 1`（原创），派发 DOM 点击并同步 React 状态。
+2. **文章摘要**：聚焦 `.editor-publish-drawer__textarea-main` 填入摘要文本并触发 React `userSummary` 状态同步。
+3. **技术标签与自定义关键词**：不自动填充，留由用户自行按需在发布抽屉中配置。
 4. 随机停顿 400ms~800ms。
 
 ---
