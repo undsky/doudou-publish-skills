@@ -2,7 +2,8 @@ import path from 'node:path';
 import { parseArticle, FORUM_BOARDS } from './parser.mjs';
 
 /**
- * 生成可直接在目标页面 (https://linux.sb/topic_edit?fid=4) evaluate_script 执行的拟真发布 Payload 函数字符串
+ * 生成可直接在目标页面 (https://linux.sb/topic_edit?fid=4) evaluate_script 执行的拟真表单填充 Payload 函数字符串
+ * 【核心铁律】本流程仅负责自动填入标题、版块、Markdown正文及实时预览校验，严禁自动触发保存提交！
  * @param {string} markdownFilePath 
  * @param {{ defaultFid?: string, fid?: string, preferCdn?: boolean }} options 
  * @returns {string} 可在目标页面执行的自包含异步 JS 代码
@@ -31,7 +32,7 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  log('开始执行 Linux.sb (烧饼社区) 文章拟真填充流程...');
+  log('开始执行 Linux.sb (烧饼社区) 文章拟真填充流程（不触发自动保存）...');
 
   // 1. 检查页面和登录状态
   const formEl = document.querySelector('form[action*="topic_edit"]') || document.querySelector('form[method="post"]');
@@ -143,7 +144,7 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
     await randomDelay(300, 500);
   }
 
-  log('Linux.sb 文章内容与版块填充完毕，已就绪可提交。');
+  log('Linux.sb 文章内容与版块填充完毕，已就绪，保持编辑态供用户人工审查与手动保存。');
 
   return {
     success: true,
@@ -154,55 +155,7 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
     contentLength: data.bodyContent.length,
     cover: data.cover,
     previewVerified,
-    logs
-  };
-})()`;
-}
-
-/**
- * 生成点击提交发布（或保存）按钮的自包含代码
- * @returns {string}
- */
-export function buildSubmitTopicScript() {
-  return `(async () => {
-  const logs = [];
-  function log(msg) {
-    logs.push("[" + new Date().toLocaleTimeString() + "] " + msg);
-  }
-
-  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
-
-  log('定位发布/保存按钮...');
-  const form = document.querySelector('form[action*="topic_edit"]') || document.querySelector('form[method="post"]');
-  const submitBtn = form ? form.querySelector('button[type="submit"]') : null;
-
-  if (!submitBtn) {
-    return {
-      success: false,
-      error: '未能找到发帖提交按钮 (button[type="submit"])',
-      logs
-    };
-  }
-
-  log('滚动至提交按钮并拟真悬停...');
-  submitBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await randomDelay(400, 700);
-
-  submitBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  submitBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await randomDelay(400, 800);
-
-  log('触发点击提交发帖...');
-  submitBtn.click();
-
-  // 等待提交响应或跳转
-  await randomDelay(2000, 3000);
-
-  return {
-    success: true,
-    submitted: true,
-    currentUrl: window.location.href,
+    readyToPublishManually: true,
     logs
   };
 })()`;

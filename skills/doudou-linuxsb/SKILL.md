@@ -1,29 +1,34 @@
 ---
 name: doudou-linuxsb
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到烧饼社区发帖/草稿箱（https://linux.sb/topic_edit?fid=4）。支持真实人工行为模拟、防风控时延与事件派发、社区规范发帖弹窗自动确认、智能版块选择（技术交流/资源分享/福利放送等）、CDN 正文自动替换、NB-Editor Markdown 注入与实时预览渲染、以及发帖与草稿保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入烧饼社区发帖页（https://linux.sb/topic_edit?fid=4）。支持真实人工行为模拟、防风控时延与事件派发、社区规范发帖弹窗自动确认、智能版块选择（技术交流/资源分享/福利放送等）、CDN 正文自动替换、NB-Editor Markdown 注入与实时预览渲染、以及填入就绪状态截屏存证（严禁自动触发保存，由用户人工核验后手动提交）。
 ---
 
 # 烧饼社区文章自动发布技能 (doudou-linuxsb)
 
-本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件发布至**烧饼社区（https://linux.sb/topic_edit?fid=4 ）**。
+本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件内容自动填入**烧饼社区（https://linux.sb/topic_edit?fid=4 ）**。
 
 技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、社区发帖规范弹窗自动处理、视口平滑滚动及 NB-Editor Markdown 渲染，避免被平台拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、CDN 版 Markdown 正文及智能推荐版块。
+
+> [!IMPORTANT]
+> **【核心铁律】严禁自动点击「保存」发布！**
+> 烧饼社区发帖页面的「保存」按钮点击后会**直接公开发布新主题**（平台无独立后台草稿箱）。因此，本技能在完成标题输入、版块选择、Markdown 正文注入及实时预览校验后，**必须立即停止，不得调用或触发保存/提交点击**。由用户在浏览器中做最后人工审查并由用户手动点击「保存」。
 
 ---
 
 ## 核心规约与防风控原则
 
-1. **社区规范弹窗自动响应**：
+1. **绝对禁止自动触发保存**：
+   - 自动流程在完成正文注入与预览校验后立即截屏并向用户汇报，**严禁触发 `button[type="submit"]` 或「保存」按钮的点击事件**。
+2. **社区规范弹窗自动响应**：
    - 首次或每次进入发帖页面时，平台常弹出《社区发帖规范》（`.posting-notice-backdrop`）阻断视口，技能需自动识别并拟真悬停点击「我已阅读并确认」（`.posting-notice-confirm`）清除遮罩。
-2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
-   - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 400~1000ms、点击前 300~700ms），严禁毫秒级机械化并发。
+3. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+   - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 400~1000ms），严禁毫秒级机械化并发。
    - **真实事件完整性**：对于标题输入与正文填充，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，确保表单状态与 NB-Editor 内部状态完全同步。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
-   - **拟真悬停与点击**：点击提交按钮前先将视口平滑滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~600ms 后再触发 `click`。
-3. **版块智能推断与匹配**：
-   - 默认发布至 `fid=4`（技术交流）；
+4. **版块智能推断与匹配**：
+   - 默认推荐 `fid=4`（技术交流）；
    - 根据文章标题、正文关键词与路径特征智能推荐匹配版块（如资源分享 `fid=3`、福利放送 `fid=2`、求助问答 `fid=5`、深度思考 `fid=7`、我要推广 `fid=8`、社区治理 `fid=6`、大禹治水 `fid=10`）。
-4. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+5. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **图片**：优先使用 CDN 公开链接，确保图片在社区中完美显示。
 
@@ -47,7 +52,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
 
 ## 自动化执行全流程
 
-当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/txtcheck.md`）时，依次执行以下 8 个阶段：
+当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/txtcheck.md`）时，依次执行以下 7 个阶段：
 
 ```mermaid
 flowchart TD
@@ -57,8 +62,7 @@ flowchart TD
     S3 --> S4[步骤 4: 拟真人机输入文章标题]
     S4 --> S5[步骤 5: 注入 Markdown 正文并同步 NB-Editor]
     S5 --> S6[步骤 6: 模拟自然视口滚动并触发实时预览]
-    S6 --> S7[步骤 7: 拟真悬停并点击「保存/提交」]
-    S7 --> S8[步骤 8: 捕获提交反馈并截屏存证]
+    S6 --> S7[步骤 7: 截取填入就绪状态存证并提醒用户手动保存]
 ```
 
 ### 步骤 0：解析 Markdown 资产与推断版块
@@ -181,26 +185,11 @@ if (textarea) {
 
 ---
 
-### 步骤 7：拟真悬停并点击「保存/提交」
+### 步骤 7：截取填入就绪状态存证并提醒用户手动保存
 
-1. 寻找提交按钮：
-   `const submitBtn = document.querySelector('form[action*="topic_edit"] button[type="submit"]') || document.querySelector('form button[type="submit"]');`
-2. 将视口平滑滚动至按钮完全可见：
-   `submitBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });`
-3. 模拟鼠标悬停（Hover）派发事件：
-   `submitBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));`
-   `submitBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));`
-4. 拟真停顿 400ms~800ms。
-5. 触发点击提交：
-   `submitBtn.click();`
-
----
-
-### 步骤 8：捕获提交反馈并截屏存证
-
-1. 等待 2~3 秒，检测页面跳转或成功反馈。
-2. 调用 `take_screenshot` 保存当前页面截图作为存证（如 `publishes/screenshots/linuxsb.png`）。
-3. 输出结构化结果报告（文章标题、发布版块、字符数、URL 存证等）。
+1. **绝对不点击「保存」按钮**。
+2. 调用 `take_screenshot` 保存当前表单已填充就绪的页面截图作为存证（如 `mds/<分类>/<文件名>/linuxsb_ready_screenshot.png`）。
+3. 输出结构化结果报告（文章标题、发布版块、字符数、图片数等），提示用户可在浏览器中直接审查内容并手动点击「保存」完成发帖。
 
 ---
 
@@ -212,7 +201,6 @@ if (textarea) {
 | **发帖规范遮罩阻断** | 页面存在 `.posting-notice-backdrop` 无法交互 | 自动寻找 `.posting-notice-confirm` 派发拟真点击关闭遮罩。 |
 | **Markdown 渲染异常** | 预览内容为空或报错 | 校验 Markdown 内容，确保特殊符号与换行转义正确。 |
 | **版块选择无效** | `forum_id` 未更新 | 派发原生 `change` 和 `input` 事件以激活浏览器表单监听。 |
-| **防重复提交拦截** | 保存按钮处于 disabled 或 loading | 确保每次点击间隔大于 3 秒，不连续连击。 |
 
 ---
 
@@ -221,7 +209,7 @@ if (textarea) {
 以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
 
 - `scripts/parser.mjs`：解析 Markdown，提取标题、版块、摘要与正文。
-- `scripts/linuxsb_publisher.mjs`：浏览器注入脚本生成器（NB-Editor 状态同步、防风控人机模拟与提交）。
+- `scripts/linuxsb_publisher.mjs`：浏览器注入脚本生成器（NB-Editor 状态同步、防风控人机模拟与预览）。
 
 ### 1. 运行 Node.js 脚本测试解析
 ```bash
@@ -230,16 +218,12 @@ node scripts/parser.mjs <Markdown文件路径> [fid]
 
 ### 2. 在 Agent 中配合 `chrome-devtools-mcp` 调用
 ```javascript
-import { buildBrowserPublishScript, buildSubmitTopicScript } from './scripts/linuxsb_publisher.mjs';
+import { buildBrowserPublishScript } from './scripts/linuxsb_publisher.mjs';
 
 // 1. 生成并执行表单填充代码（标题、版块、Markdown 正文、预览）
 const fillCode = buildBrowserPublishScript(markdownFilePath, { fid: '4' });
 const fillResult = await evaluate_script({ pageId, function: fillCode });
 
-// 2. 模拟点击提交发布
-const submitCode = buildSubmitTopicScript();
-const submitResult = await evaluate_script({ pageId, function: submitCode });
-
-// 3. 截屏存证
+// 2. 截屏存证（不触发保存，保留表单状态供用户人工检查）
 await take_screenshot({ pageId });
 ```
