@@ -193,7 +193,7 @@ export function markdownToSemanticHtml(markdown) {
 
     image({ href, title, text }) {
       const titleAttr = title ? ` title="${title}"` : '';
-      return `<p style="text-align: center;"><img src="${href}" alt="${text}"${titleAttr} style="max-width: 100%; border-radius: 6px;" /></p>\n`;
+      return `<img src="${href}" alt="${text}"${titleAttr} style="max-width: 100%; border-radius: 6px;" />`;
     },
 
     link({ href, title, tokens }) {

@@ -7,6 +7,7 @@
  * 4. 草稿安全隔离：严格限定为草稿保存，捕获「草稿已保存」状态，绝不触碰任何形式的发布操作。
  */
 
+import path from 'node:path';
 import { parseAllAssets } from './parser.mjs';
 
 /**
@@ -160,6 +161,9 @@ export function buildPublishBrowserScript(meta) {
 
       const coverAddBtn = document.querySelector('.article-cover-add') || document.querySelector('.article-cover-img-replace');
       if (coverAddBtn) {
+        await simulateClick(coverAddBtn);
+        await sleep(800);
+
         // 若抽屉默认展示正文图片，自动点击「上传图片」Tab
         const uploadTab = Array.from(document.querySelectorAll('.byte-drawer .byte-tabs-header-title')).find(t => (t.innerText || '').trim() === '上传图片');
         if (uploadTab) {
