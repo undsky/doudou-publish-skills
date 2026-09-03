@@ -214,6 +214,10 @@ export function parseArticle(filePath) {
     bodyContent = bodyContent.substring(firstLine.length).trim();
   }
 
+  // 移除底部引用链接区块（阿里云防引流风控）
+  const refLinkPattern = /### 引用链接[\s\S]*$/;
+  bodyContent = bodyContent.replace(refLinkPattern, '').trim();
+
   return {
     filePath: absPath,
     stem,

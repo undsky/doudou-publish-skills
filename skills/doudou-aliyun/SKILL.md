@@ -55,7 +55,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
 - `summary`: 100~250 字纯文本摘要
-- `bodyContent`: 过滤掉首行重复 H1 后的 Markdown 正文（优先使用 `_cdn.md`）
+- `bodyContent`: 过滤掉首行重复 H1 后的 Markdown 正文（优先使用 `_cdn.md`），**自动移除底部"### 引用链接"区块以符合阿里云防引流风控规约**
 - `cover`: 封面图信息（本地绝对路径 `localPath` 或网络 URL）
 
 ---
