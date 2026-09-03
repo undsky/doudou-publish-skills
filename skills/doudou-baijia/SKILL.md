@@ -7,7 +7,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文章及其衍生资产安全发布至**百家号创作者平台（https://baijiahao.baidu.com/builder/rc/edit?type=news&is_from_cms=1 ）的图文草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、百家号 UEditor / Lexical 富文本双向状态同步、视口平滑滚动排版审阅及弹窗式封面真实上传与裁切确认，避免被平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、标签、带 CDN 高清配图的排版正文以及单图/宽屏封面。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、百家号 UEditor / Lexical 富文本双向状态同步、视口平滑滚动排版审阅及弹窗式封面真实上传与裁切确认，避免被平台风控拦截。自动提取文章标题、摘要、标签、带 CDN 高清配图的排版正文以及单图/宽屏封面。
 
 ---
 
@@ -23,10 +23,10 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
    - **拟真悬停与点击**：点击元素前先将其 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 悬停后再触发 `click`。
 3. **正文内容忠实度保障 (Content Fidelity)**：
    - 注入正文必须直接来自 `parser.mjs` / `resolveArticleHtml` 转换的完整语义 HTML，100% 保留文章中的所有小标题、对比表格、代码块、引用块、有序/无序列表以及末尾的「引用链接」模块，**严禁模型二次脑补、扩写或擅自修改正文结构**。
-4. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+4. **资产自动解析优先级**：
    - **文章标题**：限制 2～64 字以内（百家号官方限制 2~64 字），自动清洗 Markdown 符号（`#`、`**` 等）并智能截断。
    - **文章正文**：优先读取同名目录下 `[article_name]_cdn.md`（或依据 `cdn_manifest.json` 将本地图片无缝替换为 Cloudflare R2 公开 CDN 链接），转换为带有高清配图的标准语义 HTML。
-   - **文章封面**（严格遵循 `doudou-markdown-skill` 中 `baoyu-cover-image` 规约）：
+   - **文章封面**（严格遵循 `baoyu-cover-image` 规约）：
      1. 优先读取同名目录下 `cover/images/` 的本地封面（优先 `cover-main-2.35x1.png` 宽屏主封面、`cover-16x9.png`、`cover-square-1x1.png`）；
      2. 其次读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 条目；
      3. 再次读取同名目录下 `xhs_images/images/` 下第 1 张封面卡片（如 `01-cover.png`）；

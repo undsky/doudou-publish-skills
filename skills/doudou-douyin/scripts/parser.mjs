@@ -131,7 +131,7 @@ export function extractImagePostDescription(content, title = '', tags = []) {
 }
 
 /**
- * 解析排版后的正文 HTML（遵循 doudou-markdown-skill 与 gzh-design 规范）
+ * 解析排版后的正文 HTML（遵循 gzh-design 规范）
  * 优先读取同名目录下干净的 `[article_name]_排版_[theme].html`
  * @param {string} markdownFilePath 
  * @returns {{ type: 'gzh_html'|'markdown', htmlContent: string }}
@@ -227,7 +227,7 @@ function getPngDimensions(filePath) {
 }
 
 /**
- * 解析封面图资产（优先遵循 doudou-markdown-skill:L131-L133 图文卡片的第一张封面卡，如 xhs_images/images/01-cover.png）
+ * 解析封面图资产（优先图文卡片的第一张封面卡，如 xhs_images/images/01-cover.png）
  * 严格确保分辨率满足抖音 >= 500px 校验
  * @param {string} markdownFilePath 
  * @param {string} content 
@@ -340,7 +340,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
- * 解析图文卡片图片集（遵循 doudou-markdown-skill:L128-L133 小红书/微信/抖音图文卡片规约）
+ * 解析图文卡片图片集（小红书/微信/抖音图文卡片）
  * @param {string} markdownFilePath 
  * @returns {Array<{ name: string, localPath: string, base64: string, mimeType: string }>}
  */

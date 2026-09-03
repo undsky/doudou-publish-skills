@@ -1,13 +1,13 @@
 ---
 name: doudou-zhihu
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到知乎专栏草稿箱（https://zhuanlan.zhihu.com/write）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容 doudou-markdown 产物同名目录与 cdn_manifest.json）、知乎 Draft.js 剪贴板富文本注入、官方 UploadPicture 通道封面上传、知乎高频话题搜索匹配以及草稿自动保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到知乎专栏草稿箱（https://zhuanlan.zhihu.com/write）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、知乎 Draft.js 剪贴板富文本注入、官方 UploadPicture 通道封面上传、知乎高频话题搜索匹配以及草稿自动保存状态验证。
 ---
 
 # 知乎专栏文章自动发布到草稿技能 (doudou-zhihu)
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文件发布至**知乎专栏创作者编辑器（https://zhuanlan.zhihu.com/write ）的草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被知乎平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、知乎官方话题、CDN 版 Markdown 正文以及宽屏封面图。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被知乎平台风控拦截。自动提取文章标题、摘要、知乎官方话题、CDN 版 Markdown 正文以及宽屏封面图。
 
 ---
 
@@ -21,7 +21,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
    - **真实事件完整性**：对于表单输入，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并使用 React 原生 Property Setter 同步受控组件状态。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~500ms 后再触发 `click`。
-3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+3. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的条目（优先 2.35:1 宽屏主封面、16:9 封面、1:1 方形封面，本地文件存在时优先读取 Base64 免疫浏览器跨域）；

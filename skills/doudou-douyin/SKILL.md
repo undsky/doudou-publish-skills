@@ -16,7 +16,7 @@ description: "通过 chrome-devtools-mcp 实现抖音发布文章、图文到草
 
 ---
 
-## 🎨 资产规范与路径映射（遵循 doudou-markdown-skill）
+## 🎨 资产规范与路径映射
 
 | 资产类型 | 规范路径 / 规则 | 说明 |
 | :--- | :--- | :--- |

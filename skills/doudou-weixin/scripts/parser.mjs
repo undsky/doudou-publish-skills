@@ -120,7 +120,7 @@ export function extractStickerDescription(content, title = '', tags = []) {
 }
 
 /**
- * 解析排版后的正文 HTML（遵循 doudou-markdown-skill 与 gzh-design 规范）
+ * 解析排版后的正文 HTML（遵循 gzh-design 规范）
  * 优先读取同名目录下干净的 `[article_name]_排版_[theme].html`
  * @param {string} markdownFilePath 
  * @returns {{ type: 'gzh_html'|'markdown', htmlContent: string }}
@@ -167,7 +167,7 @@ export function resolveArticleHtml(markdownFilePath) {
 }
 
 /**
- * 解析封面图资产（遵循 doudou-markdown-skill:L94-L101 与 L213 规约）
+ * 解析封面图资产
  * 严格优先选用 2.35:1 宽屏主封面，且优先选择 _thumb 缩略图
  * @param {string} markdownFilePath 
  * @param {string} content 
@@ -257,7 +257,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
- * 解析贴图卡片图片集（遵循 doudou-markdown-skill 小红书/微信图文卡片规约）
+ * 解析贴图卡片图片集（小红书/微信图文卡片）
  * @param {string} markdownFilePath 
  * @returns {Array<{ name: string, localPath: string, base64: string, mimeType: string }>}
  */

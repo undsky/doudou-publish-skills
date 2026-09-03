@@ -68,7 +68,7 @@ export function extractSummary(content) {
   return summary || '本文分享了深度技术实践与架构解析，欢迎阅读与交流。';
 }
 
-/** * 解析封面图资产（遵循 doudou-markdown-skill 规约）
+/** * 解析封面图资产
  * @param {string} markdownFilePath 
  * @param {string} content 
  * @returns {{ type: 'cdn'|'local'|'none', url?: string, localPath?: string, base64?: string, mimeType?: string }}

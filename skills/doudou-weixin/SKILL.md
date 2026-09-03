@@ -1,13 +1,13 @@
 ---
 name: doudou-weixin
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动发布到微信公众平台草稿箱（https://mp.weixin.qq.com）。支持「图文文章」与「小绿书贴图」双创作模态、真实人机行为模拟（防风控随机时延、ProseMirror 富文本粘贴解析、平滑滚动与拟真悬停）、资产智能解析（兼容 doudou-markdown 产物同名目录、排版 HTML、封面图、小红书图文卡片）以及草稿保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动发布到微信公众平台草稿箱（https://mp.weixin.qq.com）。支持「图文文章」与「小绿书贴图」双创作模态、真实人机行为模拟（防风控随机时延、ProseMirror 富文本粘贴解析、平滑滚动与拟真悬停）、资产智能解析（兼容产物同名目录、排版 HTML、封面图、小红书图文卡片）以及草稿保存状态验证。
 ---
 
 # 微信公众平台文章与贴图自动发布到草稿技能 (doudou-weixin)
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文章及其衍生资产发布至**微信公众平台（https://mp.weixin.qq.com ）的草稿箱**。
 
-技能原生支持**「图文文章 (Article)」**与**「图文贴图 (Sticker)」**双模态创作发布，严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、ProseMirror 原生富文本解析、视口平滑滚动及悬停交互，避免被微信平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、作者、摘要、排版 HTML 正文、宽屏封面图以及小红书/微信图文卡片集。
+技能原生支持**「图文文章 (Article)」**与**「图文贴图 (Sticker)」**双模态创作发布，严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、ProseMirror 原生富文本解析、视口平滑滚动及悬停交互，避免被微信平台风控拦截。自动提取文章标题、作者、摘要、排版 HTML 正文、宽屏封面图以及小红书/微信图文卡片集。
 
 ---
 
@@ -21,14 +21,14 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
    - **ProseMirror 原生富文本注入**：通过派发带有 `text/html` 的 `ClipboardEvent('paste')`，利用微信编辑器官方 DOMParser 解析并渲染复杂排版，保证样式与结构 100% 官方兼容。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 400~600ms 后再触发 `click`。
-3. **资产自动解析与获取规范**（严格遵循 `doudou-markdown-skill` 规约）：
-   - **文章正文 HTML**（从 `doudou-markdown-skill:L116-L128` 获取）：
+3. **资产自动解析与获取规范**：
+   - **文章正文 HTML**：
      - 必须优先读取同名目录下由 `gzh-design` 生成的**纯排版正文 HTML**：`path/to/article_name/article_name_排版_主题(ID).html`（绝对不要使用带复制工具栏的 `_预览.html`）；
      - 注入时先全选清空 ProseMirror 编辑器，派发带有 `text/html` 的 `paste` 事件（辅以 `document.execCommand('insertHTML', false, html)` 保底并同步 `input` 事件），确保主题配色、标题组件、引言卡片、阴影圆角等样式 100% 完整保留。
-   - **文章封面图**（从 `doudou-markdown-skill:L94-L101` 与 `L213` 获取）：
+   - **文章封面图**：
      - 严格优先选用 **2.35:1 宽屏主封面**，且**必须优先选用 `_thumb` 缩略图**（如 `cover/images/cover-2.35x1_thumb.png`，或 `cdn_manifest.json` 中记录的 `thumb_path` / CDN 链接）；若无 `_thumb` 则降级选用 `cover-2.35x1.png`、`cover-16x9_thumb.png` 或 `cover-16x9.png`；
      - 自动展开图片选择弹窗（`.weui-desktop-dialog_img-picker`），将封面文件注入上传，选中刚上传的第一张图片，点击「下一步」进入裁切页面，点击「确认」完成封面绑定。
-   - **贴图卡片集**（从 `doudou-markdown-skill` 获取）：读取同名目录下 `xhs_images/images/`（或 `xhs_images/`）的所有卡片图片（如 `01-cover.png`, `02-resources.png`, ...），排除 `*_yuantu.png` 原图，按序号升序批量上传至贴图选择器。
+   - **贴图卡片集**：读取同名目录下 `xhs_images/images/`（或 `xhs_images/`）的所有卡片图片（如 `01-cover.png`, `02-resources.png`, ...），排除 `*_yuantu.png` 原图，按序号升序批量上传至贴图选择器。
    - **标题与摘要**：
      - 文章标题：64 字以内纯文本；贴图标题：20 字以内精炼文案。
      - 摘要：80~120 字纯文本（微信公众号限制 120 字以内）。

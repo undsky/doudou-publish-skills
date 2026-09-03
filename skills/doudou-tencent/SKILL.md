@@ -1,13 +1,13 @@
 ---
 name: doudou-tencent
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到腾讯云开发者社区草稿箱（https://cloud.tencent.com/developer/article/write-new）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容 doudou-markdown 产物同名目录与 cdn_manifest.json）、Cherry Markdown 注入、原创来源与摘要抽取、Cropper 封面绑定以及草稿保存状态验证（文章标签与自定义关键词留空供用户手动填写）。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到腾讯云开发者社区草稿箱（https://cloud.tencent.com/developer/article/write-new）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、Cherry Markdown 注入、原创来源与摘要抽取、Cropper 封面绑定以及草稿保存状态验证（文章标签与自定义关键词留空供用户手动填写）。
 ---
 
 # 腾讯云开发者社区文章自动发布到草稿技能 (doudou-tencent)
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件发布至**腾讯云开发者社区（https://cloud.tencent.com/developer/article/write-new ）的草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、视口平滑滚动及悬停交互，避免被平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、CDN 版 Markdown 正文以及宽屏封面图（文章标签与自定义关键词由用户自行在界面中填写）。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、视口平滑滚动及悬停交互，避免被平台风控拦截。自动提取文章标题、摘要、CDN 版 Markdown 正文以及宽屏封面图（文章标签与自定义关键词由用户自行在界面中填写）。
 
 ---
 
@@ -20,7 +20,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
    - **真实事件完整性**：对于表单与文本输入，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并重置 React `_valueTracker` 与同步 React Fiber State。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 400~700ms 后再触发 `click`。
-3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+3. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 链接（优先 2.35:1 / 16:9 宽屏主封面）；

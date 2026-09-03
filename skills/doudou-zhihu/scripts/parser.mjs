@@ -70,7 +70,7 @@ export function extractSummary(content) {
 }
 
 /**
- * 解析封面图资产（遵循 doudou-markdown-skill 规约）
+ * 解析封面图资产
  * 优先级：
  * 1. 同名目录 cdn_manifest.json 中类型为 cover 的条目（优先 2.35:1 宽屏主封面、16:9 封面、1:1 方形封面，存在本地文件时优先读取 base64）
  * 2. 同名目录 cover/images/ 下的本地封面（cover-main-2.35x1.png / 16x9 / 1x1）

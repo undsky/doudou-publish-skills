@@ -7,7 +7,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文章及其衍生资产安全发布至**头条号创作者平台（https://mp.toutiao.com/profile_v4/graphic/publish ）的草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、ByteDance Sylph / ProseMirror 富文本双向同步、视口平滑滚动审阅及抽屉式封面真实上传，避免被平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、标签、带 CDN 高清配图的排版正文以及宽屏封面图。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、ByteDance Sylph / ProseMirror 富文本双向同步、视口平滑滚动审阅及抽屉式封面真实上传，避免被平台风控拦截。自动提取文章标题、摘要、标签、带 CDN 高清配图的排版正文以及宽屏封面图。
 
 ---
 
@@ -21,7 +21,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
    - **ProseMirror / Sylph 富文本注入**：利用 React Fiber 上的 Editor 实例（`reactEditor.pasteContent`）及标准 `ClipboardEvent('paste')` 注入内容，完整保留标题、代码块、加粗、引用、列表及 CDN 配图。
    - **平滑视口滚动**：模拟人类自上而下的视觉审阅，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击元素前先将其 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 悬停后再触发 `click`。
-3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+3. **资产自动解析优先级**：
    - **文章标题**：限制 2～30 字以内，自动清洗 Markdown 符号（`#`、`**` 等）并智能截断。
    - **文章正文**：优先读取同名目录下 `[article_name]_cdn.md`（或依据 `cdn_manifest.json` 将本地图片无缝替换为 Cloudflare R2 公开 CDN 链接），转换为带有高清配图的标准语义 HTML。
    - **文章封面**：

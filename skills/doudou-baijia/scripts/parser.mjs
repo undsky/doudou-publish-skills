@@ -242,7 +242,7 @@ export function resolveArticleHtml(markdownFilePath) {
 }
 
 /**
- * 解析封面图资产（遵循 doudou-markdown-skill 规约）
+ * 解析封面图资产
  * 优先级：
  * 1. 同名目录 cover/images/ 下的本地封面（cover-main-2.35x1.png / 16x9 / 1x1）
  * 2. cdn_manifest.json 中类型为 cover 的条目

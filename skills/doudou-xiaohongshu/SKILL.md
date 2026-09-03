@@ -15,7 +15,7 @@ description: "通过 chrome-devtools-mcp 实现小红书自动发布图文笔记
 
 ---
 
-## 🎨 资产规范与路径映射（遵循 doudou-markdown-skill）
+## 🎨 资产规范与路径映射
 
 | 资产类型 | 规范路径 / 规则 | 说明 |
 | :--- | :--- | :--- |

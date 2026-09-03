@@ -130,7 +130,7 @@ export function extractImagePostDescription(content, title = '', tags = []) {
 }
 
 /**
- * 解析小红书图文卡片集（严格遵循 doudou-markdown-skill 小红书图文卡片规约）
+ * 解析小红书图文卡片集
  * 优先读取 xhs_images/images/ (或 xhs_images/) 3:4 卡片集，排除 _yuantu.png
  * @param {string} markdownFilePath 
  * @returns {Array<{ name: string, localPath: string, mimeType: string }>}

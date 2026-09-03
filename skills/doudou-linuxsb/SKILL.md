@@ -7,7 +7,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件内容自动填入**烧饼社区（https://linux.sb/topic_edit?fid=4 ）**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、社区发帖规范弹窗自动处理、视口平滑滚动及 NB-Editor Markdown 渲染，避免被平台拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、CDN 版 Markdown 正文及智能推荐版块。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、社区发帖规范弹窗自动处理、视口平滑滚动及 NB-Editor Markdown 渲染，避免被平台拦截。自动提取文章标题、摘要、CDN 版 Markdown 正文及智能推荐版块。
 
 > [!IMPORTANT]
 > **【核心铁律】严禁自动点击「保存」发布！**
@@ -28,7 +28,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 4. **版块智能推断与匹配**：
    - 默认推荐 `fid=4`（技术交流）；
    - 根据文章标题、正文关键词与路径特征智能推荐匹配版块（如资源分享 `fid=3`、福利放送 `fid=2`、求助问答 `fid=5`、深度思考 `fid=7`、我要推广 `fid=8`、社区治理 `fid=6`、大禹治水 `fid=10`）。
-5. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+5. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **图片**：优先使用 CDN 公开链接，确保图片在社区中完美显示。
 

@@ -1,13 +1,13 @@
 ---
 name: doudou-csdn
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到 CSDN 博客草稿箱（https://editor.csdn.net/md）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容 doudou-markdown 产物同名目录与 cdn_manifest.json）、原生 Markdown 文件流与 DOM 注入、分类专栏勾选、Mark-Selection 技术标签匹配、官方 CoverImage 封面绑定以及草稿保存状态存证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到 CSDN 博客草稿箱（https://editor.csdn.net/md）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、原生 Markdown 文件流与 DOM 注入、分类专栏勾选、Mark-Selection 技术标签匹配、官方 CoverImage 封面绑定以及草稿保存状态存证。
 ---
 
 # CSDN 博客文章自动发布到草稿技能 (doudou-csdn)
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文件发布至 **CSDN 博客创作者编辑器（https://editor.csdn.net/md ）的草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、分类专栏、技术标签、CDN 版 Markdown 正文以及宽屏封面图。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被平台风控拦截。自动提取文章标题、摘要、分类专栏、技术标签、CDN 版 Markdown 正文以及宽屏封面图。
 
 ---
 
@@ -20,7 +20,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
    - **真实事件完整性**：对于表单与文本输入，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并同步 Element-UI 与 Vue 组件实例数据。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~500ms 后再触发 `click`。
-3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+3. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 链接（优先 2.35:1 / 16:9 / 1:1 封面）；

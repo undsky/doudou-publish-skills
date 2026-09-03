@@ -229,7 +229,7 @@ export function resolveArticleHtml(markdownFilePath) {
 }
 
 /**
- * 智能获取封面图资产（严格遵循 doudou-markdown-skill 规约）
+ * 智能获取封面图资产
  * 优先级：
  * 1. 同名目录 xhs_images/images/ 下第一张封面卡（01-cover.png）
  * 2. cdn_manifest.json 中类型为 cover 的条目

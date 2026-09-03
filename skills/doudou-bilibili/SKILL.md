@@ -1,13 +1,13 @@
 ---
 name: doudou-bilibili
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到哔哩哔哩（B站）专栏草稿箱（https://member.bilibili.com/platform/upload/text/new-edit）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容 doudou-markdown 产物同名目录与 cdn_manifest.json）、TipTap/Sunflower 富文本渲染、B站官方 BFS 图床转存与裁切、原创声明配置以及草稿保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到哔哩哔哩（B站）专栏草稿箱（https://member.bilibili.com/platform/upload/text/new-edit）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、TipTap/Sunflower 富文本渲染、B站官方 BFS 图床转存与裁切、原创声明配置以及草稿保存状态验证。
 ---
 
 # 哔哩哔哩专栏文章自动发布到草稿技能 (doudou-bilibili)
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文件发布至**哔哩哔哩创作中心专栏编辑器（https://member.bilibili.com/platform/upload/text/new-edit ）的草稿箱**。
 
-技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被 B 站平台风控拦截。同时与 `doudou-markdown-skill` 资产体系无缝集成，自动提取文章标题、摘要、话题、正文语义化结构、16:9/2.35:1 封面图，并自动通过 B 站官方 BFS 接口转存正文配图，彻底规避外链图片风控拦截。
+技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被 B 站平台风控拦截。自动提取文章标题、摘要、话题、正文语义化结构、16:9/2.35:1 封面图，并自动通过 B 站官方 BFS 接口转存正文配图，彻底规避外链图片风控拦截。
 
 ---
 
@@ -20,7 +20,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
    - **真实事件完整性**：对于标题输入与表单开关，依次派发 `focus`、`keydown`、`input`、`change`、`blur`，并同步 ProseMirror / TipTap 编辑器状态。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~500ms 后再触发 `click`。
-3. **资产自动解析优先级**（参考 `doudou-markdown-skill` 规约）：
+3. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已图床化的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的资产（优先 16:9 / 2.35:1 / 1:1 封面）；

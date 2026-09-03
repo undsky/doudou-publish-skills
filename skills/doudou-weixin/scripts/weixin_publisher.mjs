@@ -4,9 +4,8 @@ import { parseAllAssets } from './parser.mjs';
 
 /**
  * 生成在文章编辑器页面（pageId）执行的自包含脚本
- * 严格遵循 doudou-markdown-skill 规约：
- * 1. 从 doudou-markdown-skill:L116-L128 获取纯排版 HTML 并完整保留样式注入；
- * 2. 从 doudou-markdown-skill:L94-L101 获取 2.35:1 宽屏主封面并自动上传、裁切绑定为封面；
+ * 1. 获取纯排版 HTML 并完整保留样式注入；
+ * 2. 获取 2.35:1 宽屏主封面并自动上传、裁切绑定为封面；
  * 3. 严格遵循真实人机交互与防风控规约，仅保存草稿。
  * @param {object} meta 
  * @returns {string}
@@ -70,7 +69,7 @@ export function buildArticleBrowserScript(meta) {
   }
   await sleep(500);
 
-  // 4. 拟真注入纯排版 HTML 正文（严格遵循 gzh-design 与 doudou-markdown-skill 规范）
+  // 4. 拟真注入纯排版 HTML 正文（严格遵循 gzh-design 规范）
   const bodyPm = document.querySelector('.rich_media_content .ProseMirror') || Array.from(document.querySelectorAll('.ProseMirror')).find(el => !el.closest('.title-editor__input'));
   if (bodyPm) {
     bodyPm.focus();
@@ -113,7 +112,7 @@ export function buildArticleBrowserScript(meta) {
   }
   await sleep(800);
 
-  // 5. 自动上传与绑定 2.35:1 宽屏主封面（遵循 doudou-markdown-skill:L94-L101）
+  // 5. 自动上传与绑定 2.35:1 宽屏主封面
   if (meta.hasCover && meta.coverBase64) {
     try {
       console.log('[doudou-weixin] 开始上传并设置文章主封面...');
