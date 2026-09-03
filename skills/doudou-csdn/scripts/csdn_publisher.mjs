@@ -18,7 +18,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     stem: articleData.stem
   });
 
-  return `(async () => {
+  return `async () => {
   const data = ${jsonPayload};
   const logs = [];
   function log(msg) {
@@ -294,7 +294,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     savedAt: new Date().toISOString(),
     logs
   };
-})()`;
+};`;
 }
 
 // 命令行直接测试执行
