@@ -7,8 +7,8 @@
  * 4. 草稿安全隔离：严格限定为存草稿，捕获「内容已存入草稿」通知与 article_id，绝不触碰任何形式的公开发布。
  */
 
-import path from 'path';
-import fs from 'fs';
+import path from 'node:path';
+import fs from 'node:fs';
 import { parseAllAssets } from './parser.mjs';
 
 /**
@@ -65,7 +65,6 @@ export function buildPublishBrowserScript(meta) {
 
   // 1. 拟真人机输入文章标题（适配百家号 Lexical & UEditor 状态绑定）
   log('正在拟真输入文章标题: ' + meta.title);
-  const titleBox = document.querySelector('[data-testid="news-title-input"] [contenteditable="true"], .client_components_titleInput [contenteditable="true"]');
   
   // 1.1 优先通过百家号全局 API 绑定标题
   if (typeof window.editor?.__bjh_news_setTitle === 'function') {
@@ -78,12 +77,22 @@ export function buildPublishBrowserScript(meta) {
   }
 
   // 1.2 模拟 DOM 焦点与事件派发
+  const titleBox = document.querySelector('[data-testid="news-title-input"] [contenteditable="true"], .client_components_titleInput [contenteditable="true"], [data-testid="news-title-input"] textarea, .client_components_titleInput textarea');
   if (titleBox) {
     titleBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await sleep(200);
     titleBox.focus();
     titleBox.dispatchEvent(new Event('focus', { bubbles: true }));
-    await sleep(200);
+    await sleep(150);
+
+    if (titleBox.tagName === 'TEXTAREA' || titleBox.tagName === 'INPUT') {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      if (setter) setter.call(titleBox, meta.title);
+      else titleBox.value = meta.title;
+    } else if (titleBox.getAttribute('contenteditable') === 'true') {
+      titleBox.innerText = meta.title;
+    }
+
     titleBox.dispatchEvent(new Event('input', { bubbles: true }));
     titleBox.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(150);
@@ -91,11 +100,11 @@ export function buildPublishBrowserScript(meta) {
     titleBox.dispatchEvent(new Event('blur', { bubbles: true }));
     log('文章标题 DOM 事件派发完成');
   } else {
-    log('提示: 未找到独立标题 contenteditable 元素，使用编辑器内嵌标题');
+    log('提示: 未找到独立标题输入框，已通过编辑器 API 绑定');
   }
   await sleep(400);
 
-  // 2. 注入百家号 UEditor 富文本正文（完整内容）
+  // 2. 注入百家号 UEditor 富文本正文（100% 原始解析内容）
   log('正在注入文章完整正文与排版内容（字符数: ' + meta.htmlContent.length + '）...');
   if (window.editor && typeof window.editor.setContent === 'function') {
     window.editor.setContent(meta.htmlContent);
@@ -161,10 +170,10 @@ export function buildPublishBrowserScript(meta) {
         } catch (err) {}
       }
       coverSlot.click();
-      await sleep(1000);
+      await sleep(1200);
 
       // 检查是否需要上传本地封面
-      const uploadInput = document.querySelector('input[name="media"][type="file"], input[type="file"][accept*="image"]');
+      const uploadInput = document.querySelector('.cheetah-modal input[name="media"][type="file"], input[name="media"][type="file"], input[type="file"][accept*="image"]');
       if (meta.coverBase64 && uploadInput) {
         try {
           const file = makeFileFromBase64(meta.coverBase64, meta.coverFileName);
@@ -215,7 +224,7 @@ export function buildPublishBrowserScript(meta) {
       }
 
       // 验证封面是否呈现在插槽中
-      const coverImg = document.querySelector('.FeEditorApp-_93c3fe2a3121c388-item img, [class*="cover"] img');
+      const coverImg = document.querySelector('.FeEditorApp-_73a3a52aab7e3a36-coverImg, .FeEditorApp-_93c3fe2a3121c388-item img, [class*="cover"] img');
       if (coverImg) {
         coverUploaded = true;
         log('封面图片已成功渲染在封面插槽中: ' + coverImg.src.substring(0, 60));
@@ -235,6 +244,11 @@ export function buildPublishBrowserScript(meta) {
   const draftBtn = Array.from(document.querySelectorAll('button, .cheetah-btn')).find(b => (b.innerText || '').trim() === '存草稿');
   
   if (draftBtn) {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    await sleep(400);
+    draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(300);
+
     const draftProps = getProps(draftBtn);
     if (draftProps && typeof draftProps.onClick === 'function') {
       try {
@@ -282,7 +296,7 @@ export function buildPublishBrowserScript(meta) {
     contentLength: window.editor ? window.editor.getContentLength() : 0,
     logs
   };
-}`;
+};`;
 }
 
 // 命令行直接测试支持

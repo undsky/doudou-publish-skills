@@ -97,7 +97,7 @@ export function extractArticleSummary(content) {
 }
 
 /**
- * 智能提取话题标签（最多 5 个）
+ * 智能提取话题标签（最多 4 个）
  * @param {string} content 
  * @param {string} title 
  * @returns {string[]}
@@ -142,7 +142,7 @@ export function markdownToSemanticHtml(markdown) {
   let isFirstH1Skipped = false;
 
   const renderer = {
-    // 首个 H1 自动跳过，后续 H1 映射为 H2，其余标题保留对应级别
+    // 首个 H1 自动跳过（作为文章大标题），后续 H1 映射为 H2，其余标题保留对应级别
     heading({ tokens, depth }) {
       const text = this.parser.parseInline(tokens);
       if (depth === 1 && !isFirstH1Skipped) {
@@ -178,6 +178,12 @@ export function markdownToSemanticHtml(markdown) {
       }
 
       return `<table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; border: 1px solid #e2e4e8;">\n<thead>\n${headerHtml}</thead>\n<tbody>\n${bodyHtml}</tbody>\n</table>\n`;
+    },
+
+    // 引用块
+    blockquote({ tokens }) {
+      const body = this.parser.parse(tokens);
+      return `<blockquote style="border-left: 4px solid #3b82f6; padding: 10px 16px; margin: 16px 0; background: #f8fafc; color: #475569; border-radius: 0 4px 4px 0;">\n${body}</blockquote>\n`;
     },
 
     // 行内代码样式
