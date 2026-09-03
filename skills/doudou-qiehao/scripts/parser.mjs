@@ -381,6 +381,103 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
+ * 提取正文中所有图片资产并转为本地 Base64 / 文件信息
+ * @param {string} markdownFilePath 
+ * @param {string} content 
+ * @returns {Array<{ alt: string, src: string, localPath?: string, base64?: string, fileName?: string }>}
+ */
+export function extractArticleImages(markdownFilePath, content = '') {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const baseName = path.basename(absPath, path.extname(absPath));
+  const articleDir = path.join(dir, baseName);
+
+  const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  const images = [];
+  let match;
+
+  // 读取 cdn_manifest.json (如果有)
+  let manifestAssets = [];
+  const manifestPath = path.join(articleDir, 'cdn_manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      if (Array.isArray(manifest.assets)) manifestAssets = manifest.assets;
+    } catch(e) {}
+  }
+
+  // 收集同名目录下所有可用图片
+  const localImageFiles = [];
+  const collectFiles = (sub) => {
+    const subDir = path.join(articleDir, sub);
+    if (fs.existsSync(subDir)) {
+      const fsList = fs.readdirSync(subDir).filter(f => !f.includes('_yuantu') && /\.(png|jpe?g|webp|gif)$/i.test(f));
+      for (const f of fsList) localImageFiles.push(path.join(subDir, f));
+    }
+  };
+  collectFiles('illustrations/images');
+  collectFiles('illustrations');
+  collectFiles('cover/images');
+  collectFiles('cover');
+  collectFiles('imgs');
+  collectFiles('xhs_images/images');
+  collectFiles('');
+
+  let imgIndex = 0;
+  while ((match = imgRegex.exec(content)) !== null) {
+    const alt = match[1];
+    const src = match[2];
+    let localPath = null;
+    let fileName = path.basename(src.split('?')[0]) || `img_${imgIndex + 1}.png`;
+    if (!fileName.includes('.')) fileName += '.png';
+
+    // 1. 从 manifest 查找
+    const manifestItem = manifestAssets.find(a => a.cdn_url === src || a.local_path === src || path.basename(a.local_path || '') === fileName);
+    if (manifestItem && manifestItem.local_path) {
+      const cand = path.resolve(articleDir, manifestItem.local_path);
+      if (fs.existsSync(cand)) localPath = cand;
+    }
+
+    // 2. 本地文件直接匹配
+    if (!localPath && fs.existsSync(src)) {
+      localPath = path.resolve(src);
+    }
+
+    // 3. 从收集的本地列表中按文件名匹配
+    if (!localPath) {
+      const matched = localImageFiles.find(f => path.basename(f) === fileName);
+      if (matched) localPath = matched;
+    }
+
+    // 4. 按顺序回退匹配
+    if (!localPath && localImageFiles[imgIndex]) {
+      localPath = localImageFiles[imgIndex];
+    }
+
+    let base64 = null;
+    let mimeType = fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+    if (localPath && fs.existsSync(localPath)) {
+      const buf = fs.readFileSync(localPath);
+      mimeType = localPath.endsWith('.jpg') || localPath.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      base64 = `data:${mimeType};base64,${buf.toString('base64')}`;
+      fileName = path.basename(localPath);
+    }
+
+    images.push({
+      alt,
+      src,
+      localPath,
+      base64,
+      fileName,
+      mimeType
+    });
+    imgIndex++;
+  }
+
+  return images;
+}
+
+/**
  * 全面解析 Markdown 文件及其关联资产
  * @param {string} markdownFilePath 
  * @param {string} author 
@@ -398,6 +495,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const tags = extractTags(rawContent, articleTitle);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
+  const articleImages = extractArticleImages(absPath, rawContent);
 
   return {
     markdownFilePath: absPath,
@@ -406,7 +504,8 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
     articleSummary,
     tags,
     articleHtml,
-    cover
+    cover,
+    articleImages
   };
 }
 

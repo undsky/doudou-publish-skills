@@ -92,11 +92,12 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ---
 
-### 步骤 3：注入企鹅号 ProseMirror 富文本正文
+### 步骤 3：转存正文配图并注入 ProseMirror 富文本正文
 
-1. 解析 HTML 结构：调用 `window.ExEditor.sliceFromHTML(meta.htmlContent)`；
-2. 调度事务注入：调用 `window.ExEditor.view.dispatch(tr)` 注入带有 CDN 图片和代码块的标准富文本；
-3. 随机停顿 600ms~1000ms 让 ProseMirror 完成节点渲染、字数统计与图片块组件化。
+1. **官方图床转存（防外链失效）**：遍历文章所有配图，通过触发官方上传通道注入真实 `File` 对象，自动获取腾讯官方内部图床链接（`https://inews.gtimg.com/...` / `https://image.om.qq.com/...`），并将正文 HTML 中的图片链接全部替换为官方内部链接，彻底规避因外部 CDN 防护拦截腾讯后台爬虫导致的草稿保存失败与再次编辑图片丢失。
+2. **解析 HTML 结构**：调用 `window.ExEditor.sliceFromHTML(finalInewsHtml)`；
+3. **调度事务注入**：调用 `window.ExEditor.view.dispatch(tr)` 注入带有官方高清配图和代码块的标准富文本；
+4. **状态同步等待**：停顿 600ms~1000ms 让 ProseMirror 完成节点渲染、字数统计与图片块组件化。
 
 ---
 

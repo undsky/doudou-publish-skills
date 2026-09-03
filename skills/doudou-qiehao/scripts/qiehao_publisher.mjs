@@ -24,8 +24,9 @@ export function buildPublishBrowserScript(meta) {
     category: ${JSON.stringify(meta.category || '科技')},
     tags: ${JSON.stringify(meta.tags || [])},
     htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
+    articleImages: ${JSON.stringify(meta.articleImages || [])},
     coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
-    coverCdnUrl: ${JSON.stringify(meta.cover?.cdnUrl || '')},
+    coverCdnUrl: ${JSON.stringify(meta.cover?.cdnUrl || meta.cover?.url || '')},
     coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
   };
 
@@ -113,14 +114,106 @@ export function buildPublishBrowserScript(meta) {
   log('✅ 文章标题输入完成');
   await sleep(400);
 
-  // 3. 注入 ExEditor (ProseMirror) 富文本正文
-  log('📄 正在注入富文本正文 (' + meta.htmlContent.length + ' 字符)...');
+  // 3. 将正文配图转存至腾讯官方图床（避免外链导致草稿保存失败与图片丢失）
+  let finalHtml = meta.htmlContent;
+  if (Array.isArray(meta.articleImages) && meta.articleImages.length > 0) {
+    log('🖼️ 正在检查并转存 ' + meta.articleImages.length + ' 张正文配图至腾讯官方图床...');
+    for (let i = 0; i < meta.articleImages.length; i++) {
+      const item = meta.articleImages[i];
+      let b64 = item.base64;
+      if (!b64 && item.src && item.src.startsWith('data:')) {
+        b64 = item.src;
+      }
+      
+      if (b64) {
+        try {
+          // 打开插入图片弹窗
+          let dialog = document.querySelector('.omui-dialog');
+          if (!dialog) {
+            const imgBtn = document.querySelector('exeditor-toolbar-button[data-toolbar-item-of="imagePlugin"]');
+            if (imgBtn) {
+              imgBtn.click();
+              await sleep(400);
+            }
+          }
+          
+          // 切换到本地上传
+          const tabs = Array.from(document.querySelectorAll('.omui-tab__label, .omui-tabs__item, .tab-item, span'));
+          const localTab = tabs.find(t => t.innerText?.trim() === '本地上传');
+          if (localTab) {
+            localTab.click();
+            await sleep(300);
+          }
+          
+          const fileInput = document.querySelector('.omui-dialog input[type="file"], input[type="file"]');
+          if (fileInput) {
+            if (b64.includes(',')) b64 = b64.split(',')[1];
+            const byteCharacters = atob(b64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let j = 0; j < byteCharacters.length; j++) {
+              byteNumbers[j] = byteCharacters.charCodeAt(j);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const mimeType = item.fileName?.endsWith('.jpg') || item.fileName?.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+            const blob = new Blob([byteArray], { type: mimeType });
+            const file = new File([blob], item.fileName || \`img_\${i+1}.png\`, { type: mimeType });
+            
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            fileInput.files = dt.files;
+            
+            const fileHandlers = getReactHandler(fileInput);
+            if (fileHandlers && typeof fileHandlers.onChange === 'function') {
+              fileHandlers.onChange({
+                target: fileInput,
+                currentTarget: fileInput,
+                preventDefault() {},
+                stopPropagation() {},
+                persist() {},
+                nativeEvent: new Event('change')
+              });
+            }
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // 轮询等待获取腾讯官方图床 inews 链接
+            let inewsUrl = null;
+            for (let r = 0; r < 25; r++) {
+              await sleep(500);
+              const dialogImgs = Array.from(document.querySelectorAll('.omui-dialog img.omui-upload-image-item-thumb, .omui-dialog img'));
+              const match = dialogImgs.find(img => img.src && (img.src.includes('inews.gtimg.com') || img.src.includes('image.om.qq.com')));
+              if (match) {
+                inewsUrl = match.src;
+                break;
+              }
+            }
+            
+            if (inewsUrl) {
+              log('✅ [' + (i+1) + '/' + meta.articleImages.length + '] 已转存至腾讯图床: ' + inewsUrl);
+              finalHtml = finalHtml.replaceAll(item.src, inewsUrl);
+            }
+            
+            // 关闭弹窗
+            const cancelBtn = Array.from(document.querySelectorAll('.omui-dialog button, button')).find(b => b.innerText?.trim() === '取消');
+            const closeBtn = document.querySelector('.omui-dialog-close');
+            if (cancelBtn) cancelBtn.click();
+            else if (closeBtn) closeBtn.click();
+            await sleep(300);
+          }
+        } catch (e) {
+          log('⚠️ 配图转存提示: ' + e.message);
+        }
+      }
+    }
+  }
+
+  // 4. 注入 ExEditor (ProseMirror) 富文本正文
+  log('📄 正在注入富文本正文 (' + finalHtml.length + ' 字符)...');
   try {
     const view = window.ExEditor.view;
-    const slice = window.ExEditor.sliceFromHTML(meta.htmlContent);
+    const slice = window.ExEditor.sliceFromHTML(finalHtml);
     const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, slice.content);
     view.dispatch(tr);
-    log('✅ 已通过 ExEditor ProseMirror 引擎注入正文与高清配图');
+    log('✅ 已通过 ExEditor ProseMirror 引擎注入正文与官方图床配图');
   } catch (e) {
     log('⚠️ ExEditor 注入异常: ' + e.message);
   }
@@ -174,7 +267,11 @@ export function buildPublishBrowserScript(meta) {
 
           if (!file && meta.coverBase64) {
             // Base64 转 File
-            const byteCharacters = atob(meta.coverBase64);
+            let b64 = meta.coverBase64;
+            if (b64.includes(',')) {
+              b64 = b64.split(',')[1];
+            }
+            const byteCharacters = atob(b64);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
               byteNumbers[i] = byteCharacters.charCodeAt(i);
