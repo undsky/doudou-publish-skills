@@ -369,10 +369,9 @@ export function markdownToHtml(md) {
 
 /**
  * 解析 Markdown 及其关联资产
- * @param {string} filePath 
- * @param {object} options 可选配置（如 { topics: ['自媒体', '微信公众号'] }）
+ * @param {string} filePath
  */
-export function parseArticle(filePath, options = {}) {
+export function parseArticle(filePath) {
   const absPath = path.resolve(filePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`文件不存在: ${filePath}`);
@@ -428,25 +427,13 @@ export function parseArticle(filePath, options = {}) {
 
 // 命令行直接运行测试
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
-  const args = process.argv.slice(2);
-  let targetFile = null;
-  let cliTopics = null;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--topics' || arg === '-t') {
-      cliTopics = args[++i];
-    } else if (!arg.startsWith('-') && !targetFile) {
-      targetFile = arg;
-    }
-  }
-
+  const targetFile = process.argv[2];
   if (!targetFile) {
-    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径> [--topics "话题1,话题2"]');
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
     process.exit(1);
   }
 
-  const result = parseArticle(targetFile, cliTopics ? { topics: cliTopics } : {});
+  const result = parseArticle(targetFile);
   console.log(JSON.stringify({
     title: result.title,
     summary: result.summary,

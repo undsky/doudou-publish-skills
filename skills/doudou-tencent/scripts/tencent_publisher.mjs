@@ -3,12 +3,11 @@ import { parseArticle } from './parser.mjs';
 
 /**
  * 生成可直接在目标页面 (https://cloud.tencent.com/developer/article/write-new) evaluate_script 执行的拟真发布 Payload 函数字符串
- * @param {string} markdownFilePath 
- * @param {object} options
+ * @param {string} markdownFilePath
  * @returns {string} 可在目标页面执行的自包含异步 JS 代码
  */
-export function buildBrowserPublishScript(markdownFilePath, options = {}) {
-  const articleData = parseArticle(markdownFilePath, options);
+export function buildBrowserPublishScript(markdownFilePath) {
+  const articleData = parseArticle(markdownFilePath);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
     summary: articleData.summary,

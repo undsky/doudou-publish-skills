@@ -162,10 +162,9 @@ export function resolveCoverImage(markdownFilePath, content) {
 
 /**
  * 解析 Markdown 及其关联资产
- * @param {string} filePath 
- * @param {object} options
+ * @param {string} filePath
  */
-export function parseArticle(filePath, options = {}) {
+export function parseArticle(filePath) {
   const absPath = path.resolve(filePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`文件不存在: ${filePath}`);
