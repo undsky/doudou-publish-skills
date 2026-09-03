@@ -68,54 +68,7 @@ export function extractSummary(content) {
   return summary || '本文分享了深度技术实践与架构解析，欢迎阅读与交流。';
 }
 
-/**
- * 解析 Markdown 文件的 YAML FrontMatter
- * @param {string} content 
- * @returns {Record<string, any>|null}
- */
-export function extractFrontmatter(content) {
-  if (!content || !content.startsWith('---')) return null;
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return null;
-  const fmBlock = match[1];
-  const data = {};
-  
-  const lines = fmBlock.split('\n');
-  let currentKey = null;
-  let currentArray = null;
-
-  for (let line of lines) {
-    line = line.trim();
-    if (!line || line.startsWith('#')) continue;
-
-    if (line.startsWith('- ') && currentKey) {
-      if (!currentArray) {
-        currentArray = [];
-        data[currentKey] = currentArray;
-      }
-      currentArray.push(line.replace(/^- \s*/, '').replace(/^['"]|['"]$/g, '').trim());
-      continue;
-    }
-
-    const colonIdx = line.indexOf(':');
-    if (colonIdx > 0) {
-      currentKey = line.slice(0, colonIdx).trim();
-      currentArray = null;
-      let val = line.slice(colonIdx + 1).trim();
-      if (val.startsWith('[') && val.endsWith(']')) {
-        data[currentKey] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-      } else if (val) {
-        data[currentKey] = val.replace(/^['"]|['"]$/g, '');
-      }
-    }
-  }
-  return data;
-}
-
-
-
-/**
- * 解析封面图资产（遵循 doudou-markdown-skill 规约）
+/** * 解析封面图资产（遵循 doudou-markdown-skill 规约）
  * @param {string} markdownFilePath 
  * @param {string} content 
  * @returns {{ type: 'cdn'|'local'|'none', url?: string, localPath?: string, base64?: string, mimeType?: string }}

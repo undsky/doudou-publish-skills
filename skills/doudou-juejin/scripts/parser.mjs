@@ -99,45 +99,13 @@ export function inferCategory(content, title = '') {
 }
 
 /**
- * 智能提取 1~3 个技术标签关键词（用于掘金标签搜索匹配）
- * @param {string} content 
- * @param {string} title 
+ * 提取技术标签（不再做关键词规则映射）
+ * @param {string} content
+ * @param {string} title
  * @returns {string[]}
  */
-export function extractTags(content, title = '') {
-  const keywordsMap = [
-    { tag: 'AI编程', matches: ['ai编程', 'aicoding', 'ai coding', '代码生成', 'opencode'] },
-    { tag: '人工智能', matches: ['ai', '人工智能', '大模型', 'llm', 'deepseek', 'gpt', 'openai'] },
-    { tag: '智能体', matches: ['agent', '智能体', '多智能体', 'multi-agent'] },
-    { tag: 'AIGC', matches: ['aigc', '生成式ai', 'stable diffusion', 'midjourney'] },
-    { tag: 'Cursor', matches: ['cursor', 'cursor ai'] },
-    { tag: 'LangChain', matches: ['langchain', 'langgraph'] },
-    { tag: 'Docker', matches: ['docker', '容器', 'docker-compose', 'alpine'] },
-    { tag: 'Node.js', matches: ['node.js', 'nodejs', 'javascript', 'typescript', 'npm'] },
-    { tag: 'Python', matches: ['python', 'pip', 'python3'] },
-    { tag: '前端', matches: ['前端', 'react', 'vue', 'html', 'css'] },
-    { tag: '后端', matches: ['后端', '服务端', 'api', 'http', 'server'] },
-    { tag: '架构', matches: ['架构', '架构设计', '微服务', '工业化'] },
-    { tag: '自动化', matches: ['自动化', 'automation', 'n8n', 'workflow', 'mcp'] }
-  ];
-
-  const fullText = (title + ' ' + content).toLowerCase();
-  const matchedTags = [];
-
-  for (const item of keywordsMap) {
-    if (item.matches.some(m => fullText.includes(m))) {
-      if (!matchedTags.includes(item.tag)) {
-        matchedTags.push(item.tag);
-      }
-    }
-    if (matchedTags.length >= 3) break;
-  }
-
-  if (matchedTags.length === 0) {
-    matchedTags.push('人工智能', '架构');
-  }
-
-  return matchedTags;
+export function extractTags(_content, _title = '') {
+  return [];
 }
 
 /**

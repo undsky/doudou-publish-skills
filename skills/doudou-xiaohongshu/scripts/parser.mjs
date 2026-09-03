@@ -83,38 +83,13 @@ export function extractArticleSummary(content) {
 }
 
 /**
- * 智能提取小红书热门话题标签（最多 5 个）
- * @param {string} content 
- * @param {string} title 
+ * 提取话题标签（不再做关键词规则映射）
+ * @param {string} content
+ * @param {string} title
  * @returns {string[]}
  */
-export function extractTags(content, title = '') {
-  const keywordsMap = [
-    { tag: 'AI编程', matches: ['ai编程', 'aicoding', 'ai coding', '代码生成', 'opencode', 'cursor', 'copilot'] },
-    { tag: '智能体', matches: ['agent', '智能体', '多智能体', 'multi-agent', 'ddagent'] },
-    { tag: '公众号运营', matches: ['公众号', '微信', '运营规范', '敏感词', '发文', '违规', '排版'] },
-    { tag: '程序员日常', matches: ['程序员', '开发者', '技术', '编程', '代码', '后端', '前端', '架构'] },
-    { tag: '效率工具', matches: ['ide', 'vscode', 'n8n', 'devtools', 'mcp', '自动化', '工具箱', '效率'] },
-    { tag: '干货分享', matches: ['干货', '指南', '实战', '避坑', '教程', '分享'] }
-  ];
-
-  const fullText = (title + ' ' + content).toLowerCase();
-  const matchedTags = [];
-
-  for (const item of keywordsMap) {
-    if (item.matches.some(m => fullText.includes(m))) {
-      if (!matchedTags.includes(item.tag)) {
-        matchedTags.push(item.tag);
-      }
-    }
-    if (matchedTags.length >= 4) break;
-  }
-
-  if (matchedTags.length === 0) {
-    matchedTags.push('效率工具', 'AI编程', '干货分享');
-  }
-
-  return matchedTags;
+export function extractTags(_content, _title = '') {
+  return [];
 }
 
 /**

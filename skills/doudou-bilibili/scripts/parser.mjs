@@ -79,39 +79,13 @@ export function extractSummary(content) {
 }
 
 /**
- * 提取话题标签关键词
- * @param {string} content 
- * @param {string} title 
+ * 提取话题标签（不再做关键词规则映射）
+ * @param {string} content
+ * @param {string} title
  * @returns {string[]}
  */
-export function extractTopics(content, title = '') {
-  const keywordsMap = [
-    { topic: 'AI编程', matches: ['ai编程', 'aicoding', 'ai coding', '代码生成', 'opencode', 'cursor', 'antigravity', 'vibe coding'] },
-    { topic: '人工智能', matches: ['ai', '人工智能', '大模型', 'llm', 'deepseek', 'gpt', 'openai'] },
-    { topic: '程序员', matches: ['程序员', '开发', '代码', '架构', '技术', '后端', '前端'] },
-    { topic: 'SpringBoot', matches: ['springboot', 'spring boot', 'spring', 'java', 'ruoyi', '若依'] },
-    { topic: '独立开发', matches: ['独立开发', '全栈', '出海', '商业化', '产品'] },
-    { topic: 'Docker', matches: ['docker', '容器', 'docker-compose', 'k8s'] },
-    { topic: '开发工具', matches: ['ide', 'vscode', 'idea', 'jetbrains', 'devtools', '效率工具'] }
-  ];
-
-  const fullText = (title + ' ' + content).toLowerCase();
-  const matched = [];
-
-  for (const item of keywordsMap) {
-    if (item.matches.some(m => fullText.includes(m))) {
-      if (!matched.includes(item.topic)) {
-        matched.push(item.topic);
-      }
-    }
-    if (matched.length >= 3) break;
-  }
-
-  if (matched.length === 0) {
-    matched.push('程序员', 'AI编程');
-  }
-
-  return matched;
+export function extractTopics(_content, _title = '') {
+  return [];
 }
 
 /**

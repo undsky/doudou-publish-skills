@@ -72,39 +72,13 @@ export function extractSummary(content) {
 }
 
 /**
- * 智能提取技术标签
- * @param {string} content 
- * @param {string} title 
+ * 提取技术标签（不再做关键词规则映射）
+ * @param {string} content
+ * @param {string} title
  * @returns {string[]}
  */
-export function extractTags(content, title = '') {
-  const keywordsMap = [
-    { tag: 'AI编程', matches: ['ai编程', 'aicoding', 'ai coding', '代码生成', 'opencode'] },
-    { tag: '智能体', matches: ['agent', '智能体', '多智能体', 'multi-agent'] },
-    { tag: '人工智能', matches: ['ai', '人工智能', '大模型', 'llm', 'deepseek', 'gpt', 'openai'] },
-    { tag: 'Docker', matches: ['docker', '容器', 'docker-compose', 'alpine'] },
-    { tag: '架构设计', matches: ['架构', '架构设计', '微服务', '工业化', '封装'] },
-    { tag: '开发工具', matches: ['ide', 'vscode', 'n8n', 'devtools', 'mcp', '自动化', 'workflow'] },
-    { tag: '全栈开发', matches: ['node', 'python', 'javascript', 'vue', 'react', '后端', '前端'] }
-  ];
-
-  const fullText = (title + ' ' + content).toLowerCase();
-  const matchedTags = [];
-
-  for (const item of keywordsMap) {
-    if (item.matches.some(m => fullText.includes(m))) {
-      if (!matchedTags.includes(item.tag)) {
-        matchedTags.push(item.tag);
-      }
-    }
-    if (matchedTags.length >= 4) break;
-  }
-
-  if (matchedTags.length === 0) {
-    matchedTags.push('AI编程', '智能体', '架构设计');
-  }
-
-  return matchedTags;
+export function extractTags(_content, _title = '') {
+  return [];
 }
 
 /**
