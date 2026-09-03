@@ -162,9 +162,9 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 
 若存在封面图资产（CDN URL 或本地 Base64）：
 1. 在浏览器端将图片转换为 `File` 对象（`new File([blob], 'cover.png', { type: blob.type })`）；
-2. 获取面板内的封面上传组件 `uploaderVue`；
-3. 调用官方上传方法 `uploaderVue.onFileSelected({ target: { files: [file] } })`；
-4. 监听 `uploaderVue.updating` 状态并确认封面已上传至字节跳动 TOS 且绑定至草稿；
+2. 优先调用 Markdown 编辑器实例的官方上传通道 `editorVue.uploadImages([file])` 将图片上传至字节跳动 TOS，获取官方专属图床链接（形如 `https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/...`）；
+3. 将返回的官方 TOS 链接绑定至 `panelVue.post.cover_image` 与草稿数据 `parentVue.draft.cover_image`，并派发 `uploaderVue.$emit('changeCover', tosUrl)` 同步触发发布面板缩略图渲染；
+4. 若 `editorVue.uploadImages` 不可用，自动降级调用 `uploaderVue.onFileSelected({ target: { files: [file] } })`；
 5. 随机停顿 600ms~1000ms。
 
 ---

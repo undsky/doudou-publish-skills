@@ -159,7 +159,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     let coverUploaded = false;
     let coverUrl = null;
     if (data.cover && data.cover.type !== 'none') {
-      log('正在通过官方通道上传封面图...');
+      log('正在通过掘金官方 TOS 通道上传封面图...');
       try {
         let file = null;
         if (data.cover.base64) {
@@ -172,35 +172,66 @@ export function buildBrowserPublishScript(markdownFilePath) {
           const blob = new Blob([byteArray], { type: data.cover.mimeType || 'image/png' });
           file = new File([blob], 'cover.png', { type: blob.type });
         } else if (data.cover.url) {
-          const resp = await fetch(data.cover.url);
-          const blob = await resp.blob();
-          const mimeType = blob.type || 'image/jpeg';
-          const ext = mimeType.includes('png') ? 'png' : 'jpg';
-          file = new File([blob], 'cover.' + ext, { type: mimeType });
+          try {
+            const resp = await fetch(data.cover.url);
+            const blob = await resp.blob();
+            const mimeType = blob.type || 'image/jpeg';
+            const ext = mimeType.includes('png') ? 'png' : 'jpg';
+            file = new File([blob], 'cover.' + ext, { type: mimeType });
+          } catch (fetchErr) {
+            log('拉取网络封面图异常 (可能受CORS限制): ' + fetchErr.message);
+          }
         }
 
         const fileInput = panel.querySelector('.coverselector_container input[type="file"]');
         const uploaderVue = fileInput ? (fileInput.__vue__ || fileInput.parentElement?.__vue__) : null;
 
-        if (file && uploaderVue && typeof uploaderVue.onFileSelected === 'function') {
-          uploaderVue.onFileSelected({ target: { files: [file] } });
-          
-          // 等待上传完成
-          let waitTime = 0;
-          while (waitTime < 10000) {
-            await delay(500);
-            waitTime += 500;
-            if (!uploaderVue.updating && panelVue.post?.cover_image) {
-              coverUploaded = true;
-              coverUrl = panelVue.post.cover_image;
-              break;
+        if (file) {
+          let tosUrl = null;
+          // 优先调用 editorVue.uploadImages([file]) 直接获取官方 TOS 链接
+          if (editorVue && typeof editorVue.uploadImages === 'function') {
+            try {
+              const uploadRes = await editorVue.uploadImages([file]);
+              if (Array.isArray(uploadRes) && uploadRes[0]?.url) {
+                tosUrl = uploadRes[0].url;
+              }
+            } catch (err) {
+              log('editorVue.uploadImages 异常: ' + err.message);
             }
           }
-          if (panelVue.post?.cover_image) {
-            coverUploaded = true;
-            coverUrl = panelVue.post.cover_image;
+
+          // 降级调用 uploaderVue.onFileSelected
+          if (!tosUrl && uploaderVue && typeof uploaderVue.onFileSelected === 'function') {
+            try {
+              uploaderVue.onFileSelected({ target: { files: [file] } });
+              let waitTime = 0;
+              while (waitTime < 10000) {
+                await delay(500);
+                waitTime += 500;
+                if (!uploaderVue.updating && panelVue.post?.cover_image) {
+                  tosUrl = panelVue.post.cover_image;
+                  break;
+                }
+              }
+            } catch (err) {
+              log('uploaderVue.onFileSelected 异常: ' + err.message);
+            }
           }
-          log('封面图上传结果: ' + (coverUploaded ? '成功' : '完成'));
+
+          if (tosUrl) {
+            if (panelVue.post) {
+              panelVue.post.cover_image = tosUrl;
+            }
+            if (parentVue.draft) {
+              parentVue.draft.cover_image = tosUrl;
+            }
+            if (uploaderVue) {
+              uploaderVue.$emit('changeCover', tosUrl);
+            }
+            coverUploaded = true;
+            coverUrl = tosUrl;
+            log('封面图已成功上传至掘金官方 TOS 并完成绑定: ' + tosUrl);
+          }
         }
       } catch (e) {
         log('封面图处理异常: ' + e.message);
