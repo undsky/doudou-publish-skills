@@ -344,6 +344,150 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
+ * 提取并清洗头条视频标题（严格限制 30 字以内，最少 5 字）
+ * @param {string} content 
+ * @param {string} fallbackTitle 
+ * @param {string} manifestTitle 
+ * @returns {string}
+ */
+export function extractVideoTitle(content, fallbackTitle = '未命名视频', manifestTitle = '') {
+  let target = manifestTitle || extractArticleTitle(content, fallbackTitle);
+  let cleanTitle = target.replace(/[【】《》「」：:，,。！!？?]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanTitle.length > 30) {
+    cleanTitle = cleanTitle.substring(0, 29) + '…';
+    if (cleanTitle.length > 30) cleanTitle = cleanTitle.substring(0, 30);
+  } else if (cleanTitle.length < 5) {
+    cleanTitle = cleanTitle.padEnd(5, '！');
+  }
+  return cleanTitle;
+}
+
+/**
+ * 提炼头条视频专属描述/简介（多行结构化干货要点，限制 1000 字以内）
+ * @param {string} content 
+ * @param {string} title 
+ * @param {string[]} tags 
+ * @returns {string}
+ */
+export function extractVideoDescription(content, title = '', tags = []) {
+  const lines = content.split('\n');
+  const points = [];
+  let isCodeBlock = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      isCodeBlock = !isCodeBlock;
+      continue;
+    }
+    if (isCodeBlock || !trimmed) continue;
+
+    if (trimmed.startsWith('- ') || trimmed.startsWith('1. ') || trimmed.startsWith('2. ') || trimmed.startsWith('3. ') || trimmed.startsWith('4. ')) {
+      const clean = trimmed
+        .replace(/^[-*\d.]+\s+/, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[*_`~]/g, '')
+        .trim();
+      if (clean.length > 6 && clean.length < 80) {
+        points.push(clean);
+      }
+    }
+    if (points.length >= 5) break;
+  }
+
+  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t}#`).join(' ') : '';
+  const summary = extractArticleSummary(content);
+
+  let desc = `💡 ${summary}\n\n🔥 核心要点干货整理：\n`;
+  if (points.length > 0) {
+    desc += points.map((p, idx) => `0${idx + 1} ${p}`).join('\n') + '\n\n';
+  } else {
+    desc += `01 工业级标准封装实践\n02 清晰接口契约与分层设计\n03 自动化守门与高质量交付\n\n`;
+  }
+  desc += `✨ 欢迎关注交流与探讨！`;
+  if (tagString) {
+    desc += `\n\n${tagString}`;
+  }
+
+  return desc.length > 950 ? desc.substring(0, 940) + '...' : desc;
+}
+
+/**
+ * 解析视频资产（从文章同名目录下的 video/ 目录寻找 .mp4 视频产物）
+ * 优先匹配 video_manifest.json 中输出的成片（排除 _nobgm.mp4），或选取第一个可用的 .mp4
+ * @param {string} markdownFilePath 
+ * @returns {{ hasVideo: boolean, videoPath?: string, fileName?: string, sizeBytes?: number, durationSeconds?: number, manifestTitle?: string }}
+ */
+export function resolveVideoAsset(markdownFilePath) {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const baseName = path.basename(absPath, path.extname(absPath));
+  const articleDir = path.join(dir, baseName);
+
+  // 1. 优先扫描 articleDir/video/
+  const videoDir = path.join(articleDir, 'video');
+  if (fs.existsSync(videoDir) && fs.statSync(videoDir).isDirectory()) {
+    // 优先读取 video_manifest.json
+    const manifestPath = path.join(videoDir, 'video_manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        const manifestTitle = manifest.article?.title || manifest.video?.title;
+        if (manifest.video?.outputs && Array.isArray(manifest.video.outputs)) {
+          const primary = manifest.video.outputs.find(o => o.bgm !== false && o.file?.endsWith('.mp4')) || manifest.video.outputs[0];
+          if (primary && primary.file) {
+            const p = path.join(videoDir, primary.file);
+            if (fs.existsSync(p)) {
+              const stat = fs.statSync(p);
+              return {
+                hasVideo: true,
+                videoPath: p,
+                fileName: primary.file,
+                sizeBytes: stat.size,
+                durationSeconds: manifest.video.duration_seconds || 0,
+                manifestTitle
+              };
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const files = fs.readdirSync(videoDir).filter(f => f.endsWith('.mp4'));
+    const chosen = files.find(f => !f.includes('nobgm') && !f.includes('_temp')) || files[0];
+    if (chosen) {
+      const p = path.join(videoDir, chosen);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: chosen,
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  // 2. 备选扫描 articleDir/ 下直接存在的 .mp4
+  if (fs.existsSync(articleDir) && fs.statSync(articleDir).isDirectory()) {
+    const files = fs.readdirSync(articleDir).filter(f => f.endsWith('.mp4'));
+    if (files.length > 0) {
+      const p = path.join(articleDir, files[0]);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: files[0],
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  return { hasVideo: false };
+}
+
+/**
  * 全面解析 Markdown 文件及其关联资产
  * @param {string} markdownFilePath 
  * @param {string} author 
@@ -362,6 +506,11 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
 
+  // 视频资产解析
+  const video = resolveVideoAsset(absPath);
+  const videoTitle = extractVideoTitle(rawContent, '未命名视频', video.manifestTitle);
+  const videoDesc = extractVideoDescription(rawContent, videoTitle, tags);
+
   return {
     markdownFilePath: absPath,
     articleTitle,
@@ -369,7 +518,10 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
     articleSummary,
     tags,
     articleHtml,
-    cover
+    cover,
+    videoTitle,
+    videoDesc,
+    video
   };
 }
 
@@ -392,6 +544,11 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     articleHtmlLength: result.articleHtml.htmlContent.length,
     hasCover: result.cover.hasCover,
     coverFile: result.cover.fileName,
-    coverLocalPath: result.cover.localPath
+    coverLocalPath: result.cover.localPath,
+    videoTitle: result.videoTitle,
+    videoDescLength: result.videoDesc?.length,
+    hasVideo: result.video?.hasVideo,
+    videoPath: result.video?.videoPath,
+    videoSize: result.video?.sizeBytes
   }, null, 2));
 }
