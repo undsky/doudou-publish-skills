@@ -44,7 +44,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 flowchart TD
     S0[步骤 0: 解析 Markdown 衍生资产与封面/排版] --> S1[步骤 1: 打开微信公众平台并进入草稿箱]
     S1 --> S2[步骤 2: 点击「新的创作」下拉菜单]
-    
+
     subgraph 模态一: 图文文章草稿
         S2 --> A1[点击「文章」打开图文编辑器页面]
         A1 --> A2[拟真人机输入标题、作者与摘要]
@@ -71,12 +71,15 @@ flowchart TD
 ### 步骤 0：解析 Markdown 资产与贴图
 
 运行辅助解析脚本提取文章与贴图的完整元数据（脚本路径相对本技能目录，即 `SKILL.md` 所在目录）：
+
 ```bash
 node scripts/parser.mjs <Markdown文件绝对路径>
 ```
+
 输出包含：
+
 - `title`: 清洗后的文章标题（64 字以内）
-- `author`: 作者名称（默认“豆豆”）
+- `author`: 作者名称（默认“undsky”）
 - `summary`: 80~120 字精炼纯文本摘要
 - `tags`: 核心话题标签列表
 - `stickerDesc`: 包含要点总结与 `#标签` 的贴图描述文案
@@ -101,6 +104,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 ### 步骤 2：触发「新的创作」
 
 在草稿箱页面中：
+
 1. 定位绿色「新的创作」按钮（`.weui-desktop-btn_primary`，文字为“新的创作”）；
 2. 派发点击事件展开下拉创作菜单（包含「文章」、「选择已有内容」、「贴图」、「视频」、「播客」等选项）。
 
@@ -142,13 +146,13 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ## 异常与风控处理
 
-| 异常场景 | 表现特征 | 应对与恢复策略 |
-| :--- | :--- | :--- |
-| **未登录 / 登录态过期** | 跳转至二维码登录页或未找到菜单 | 立即停止自动化输入，向用户发送提示，等待用户在浏览器中扫码登录后再继续。 |
-| **ProseMirror 粘贴受限** | ClipboardEvent 未被拦截或正文为空 | 自动降级为直接替换 `bodyPm.innerHTML` 并派发 `input` 事件，确保内容不丢失。 |
-| **封面上传/拖拽超时** | 封面区域未识别 drop 事件 | 降级跳过封面注入，在最终报告中标记封面待手动绑定，不阻塞草稿主体的保存。 |
-| **贴图卡片缺失** | 未检测到 `xhs_images/images` 目录 | 自动降级为纯文本贴图或仅执行文章草稿发布，在报告中清晰提示。 |
-| **防重复保存拦截** | 保存按钮处于 loading 或 disabled 状态 | 每次保存操作之间间隔至少 3 秒，避免高频连击。 |
+| 异常场景                 | 表现特征                              | 应对与恢复策略                                                              |
+| :----------------------- | :------------------------------------ | :-------------------------------------------------------------------------- |
+| **未登录 / 登录态过期**  | 跳转至二维码登录页或未找到菜单        | 立即停止自动化输入，向用户发送提示，等待用户在浏览器中扫码登录后再继续。    |
+| **ProseMirror 粘贴受限** | ClipboardEvent 未被拦截或正文为空     | 自动降级为直接替换 `bodyPm.innerHTML` 并派发 `input` 事件，确保内容不丢失。 |
+| **封面上传/拖拽超时**    | 封面区域未识别 drop 事件              | 降级跳过封面注入，在最终报告中标记封面待手动绑定，不阻塞草稿主体的保存。    |
+| **贴图卡片缺失**         | 未检测到 `xhs_images/images` 目录     | 自动降级为纯文本贴图或仅执行文章草稿发布，在报告中清晰提示。                |
+| **防重复保存拦截**       | 保存按钮处于 loading 或 disabled 状态 | 每次保存操作之间间隔至少 3 秒，避免高频连击。                               |
 
 ---
 
@@ -160,15 +164,20 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 - `scripts/weixin_publisher.mjs`：文章与贴图发布浏览器注入脚本生成器（编辑器状态同步与防风控人机模拟）。
 
 1. **直接运行 Node.js 脚本测试资产解析与代码生成**：
+
 ```bash
 node scripts/parser.mjs <Markdown文件路径>
 node scripts/weixin_publisher.mjs <Markdown文件路径>
 ```
 
 2. **在 Agent 中配合 `chrome-devtools-mcp` 全流程调用**：
+
 ```javascript
-import { parseAllAssets } from './scripts/parser.mjs';
-import { buildArticleBrowserScript, buildStickerBrowserScript } from './scripts/weixin_publisher.mjs';
+import { parseAllAssets } from "./scripts/parser.mjs";
+import {
+  buildArticleBrowserScript,
+  buildStickerBrowserScript,
+} from "./scripts/weixin_publisher.mjs";
 
 // 1. 解析目标 Markdown
 const meta = parseAllAssets(markdownFilePath);
@@ -177,13 +186,13 @@ const meta = parseAllAssets(markdownFilePath);
 const articleCode = buildArticleBrowserScript(meta);
 const articleResult = await evaluate_script({
   pageId: articlePageId,
-  function: articleCode
+  function: articleCode,
 });
 
 // 3. 在贴图页执行发布
 const stickerCode = buildStickerBrowserScript(meta);
 const stickerResult = await evaluate_script({
   pageId: stickerPageId,
-  function: stickerCode
+  function: stickerCode,
 });
 ```

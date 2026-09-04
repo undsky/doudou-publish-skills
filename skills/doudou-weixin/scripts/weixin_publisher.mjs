@@ -233,7 +233,7 @@ export function buildArticleBrowserScript(meta) {
 export function buildStickerBrowserScript(meta) {
   const payload = {
     title: meta.title.length > 20 ? meta.title.substring(0, 18) + '...' : meta.title,
-    author: meta.author || '豆豆',
+    author: meta.author || 'undsky',
     description: meta.stickerDesc,
     stickerCount: meta.stickerImages ? meta.stickerImages.length : 0
   };

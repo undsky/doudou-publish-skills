@@ -566,7 +566,7 @@ export function buildFillVideoFormBrowserScript(meta) {
   // 顺带点击推荐标签
   const recTags = Array.from(document.querySelectorAll('.label-item, .rec-tag, [class*="recommend"] span, [class*="tag-item"]')).filter(el => {
     const text = el.innerText.trim();
-    return text === '豆豆' || text === '人工智能' || text === '生活记录' || text === '开源先锋计划';
+    return text === 'undsky' || text === '人工智能' || text === '生活记录' || text === '开源先锋计划';
   }).slice(0, 2);
   for (const rt of recTags) {
     try {

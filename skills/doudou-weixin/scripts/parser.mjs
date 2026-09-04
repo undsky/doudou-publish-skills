@@ -303,7 +303,7 @@ export function resolveStickerImages(markdownFilePath) {
  * @param {string} author 
  * @returns {object}
  */
-export function parseAllAssets(markdownFilePath, author = '豆豆') {
+export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const absPath = path.resolve(markdownFilePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`找不到指定的 Markdown 文件: ${absPath}`);
