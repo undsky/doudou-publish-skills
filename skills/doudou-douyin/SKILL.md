@@ -45,6 +45,7 @@ description: "通过 chrome-devtools-mcp 实现抖音发布视频、文章、图
 4. **原生事件与状态双向同步**：文本输入必须派发 `input` 与 `change` 事件；富文本调用 TipTap/Slate/Selection 状态同步；话题标签保持精准绑定。
 5. **真实鼠标交互**：点击操作前先将元素 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 再执行 `click`。
 6. **确定性草稿保存与存证**：全流程终点统一点击「**暂存离开**」（严禁误触直接「发布」），并在完成暂存后截取存证图片（`douyin_video_draft_proof.png` / `douyin_image_draft_proof.png` / `douyin_draft_proof.png`）。
+7. **发布完成后保留页面（严禁自动关闭）**：暂存与截屏存证完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
 
 ---
 
