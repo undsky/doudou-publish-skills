@@ -3,6 +3,7 @@
  * 涵盖：
  * 1. 发布文章：TipTap/ProseMirror 纯排版 HTML 正文双向同步、文章头图与封面设置真实上传、确定性弹窗点击、React Fiber 话题同步、防风控人机交互与草稿暂存
  * 2. 发布图文：真实 5 张卡片本地文件批量上传、异步 CDN 上传等待轮询（防图片丢失）、20 字标题与 1000 字话题描述填充、防风控人机交互与草稿暂存
+ * 3. 发布视频：本地 MP4 视频真实上传、异步上传就绪轮询、30 字标题与 1000 字简介话题填充、智能抽帧封面确认、防风控人机交互与草稿暂存
  */
 
 /**
@@ -319,3 +320,133 @@ export function buildImagePostEditorScript(meta) {
   };
 })()`;
 }
+
+/**
+ * 构建视频发布（视频编辑表单）浏览器注入脚本
+ * 包含上传成功轮询等待、标题注入、描述及话题标签注入、横竖封面处理与暂存草稿
+ * @param {object} meta
+ * @returns {string}
+ */
+export function buildVideoPostEditorScript(meta) {
+  return `(async () => {
+  const meta = {
+    title: ${JSON.stringify(meta.videoTitle || meta.articleTitle)},
+    author: ${JSON.stringify(meta.author)},
+    description: ${JSON.stringify(meta.videoDesc || meta.imagePostDesc)},
+    tags: ${JSON.stringify(meta.tags || [])}
+  };
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
+
+  console.log('[doudou-douyin] 开始轮询等待视频上传完成...');
+
+  // 1. 轮询等待视频上传完成（最长等待 120 秒）
+  let uploadFinished = false;
+  for (let i = 0; i < 120; i++) {
+    const successEl = Array.from(document.querySelectorAll('*')).find(el => el.innerText?.trim() === '上传成功');
+    const uploadText = Array.from(document.querySelectorAll('*')).find(el => el.innerText?.includes('已上传：') || el.innerText?.includes('当前速度：'));
+    const reuploadBtn = Array.from(document.querySelectorAll('*')).find(el => el.innerText?.trim() === '重新上传');
+
+    if (successEl || (reuploadBtn && !uploadText)) {
+      uploadFinished = true;
+      console.log(\`[doudou-douyin] 视频上传完成，耗时 \${i + 1} 秒\`);
+      break;
+    }
+    await sleep(1000);
+  }
+
+  if (!uploadFinished) {
+    console.warn('[doudou-douyin] 视频上传超时或仍在后台处理，继续执行表单填写...');
+  }
+  await sleep(600);
+
+  // 2. 填写作品标题（严格限制 <= 30 字）
+  const cleanTitle = meta.title.length > 30 ? meta.title.substring(0, 27) + '...' : meta.title;
+  const titleInput = document.querySelector('input[placeholder*="填写作品标题"]') || document.querySelector('input[placeholder*="标题"]');
+  if (titleInput) {
+    titleInput.focus();
+    await sleep(250);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    if (setter) {
+      setter.call(titleInput, cleanTitle);
+    } else {
+      titleInput.value = cleanTitle;
+    }
+    titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+    titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+    titleInput.blur();
+  }
+  await sleep(400);
+
+  // 3. 填写作品简介与话题标签（严格限制 <= 1000 字）
+  const cleanDesc = meta.description.length > 1000 ? meta.description.substring(0, 990) + '...' : meta.description;
+  const descEl = document.querySelector('.zone-container.editor-kit-container') || document.querySelector('[contenteditable="true"]');
+  if (descEl) {
+    descEl.focus();
+    await sleep(300);
+
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(descEl);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    let docExecOk = false;
+    try {
+      docExecOk = document.execCommand('insertText', false, cleanDesc);
+    } catch (e) {
+      console.warn('[doudou-douyin] execCommand error:', e);
+    }
+
+    if (!docExecOk || descEl.innerText.trim().length < 10) {
+      const fiberKey = Object.keys(descEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+      let curr = descEl[fiberKey];
+      while (curr) {
+        if (curr.memoizedProps?.editor && typeof curr.memoizedProps?.editor?.setContent === 'function') {
+          curr.memoizedProps.editor.setContent(cleanDesc);
+          break;
+        }
+        curr = curr.return;
+      }
+    }
+  }
+  await sleep(600);
+
+  // 4. 处理横/竖封面弹窗提示（若出现“暂不设置”弹窗，自动点击跳过）
+  const ignoreHoriCoverBtn = Array.from(document.querySelectorAll('button, span, div')).find(e => e.innerText?.trim() === '暂不设置');
+  if (ignoreHoriCoverBtn) {
+    ignoreHoriCoverBtn.click();
+    await sleep(500);
+  }
+
+  // 5. 视口平滑滚动模拟真实检查
+  window.scrollTo({ top: 300, behavior: 'smooth' });
+  await sleep(500);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(300);
+
+  // 6. 点击「暂存离开」保存草稿
+  const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '暂存离开');
+  if (!draftBtn) {
+    return { success: false, error: '未找到「暂存离开」按钮' };
+  }
+
+  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await sleep(300);
+  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+  await sleep(400);
+  draftBtn.click();
+  await sleep(2500);
+
+  return {
+    success: true,
+    title: cleanTitle,
+    uploadFinished,
+    url: location.href,
+    timestamp: Date.now()
+  };
+})()`;
+}
+

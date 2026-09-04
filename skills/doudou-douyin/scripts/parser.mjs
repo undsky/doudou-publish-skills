@@ -131,6 +131,17 @@ export function extractImagePostDescription(content, title = '', tags = []) {
 }
 
 /**
+ * 提炼视频发布描述正文（要点梳理 + 话题标签，抖音限制 1000 字以内）
+ * @param {string} content 
+ * @param {string} title 
+ * @param {string[]} tags 
+ * @returns {string}
+ */
+export function extractVideoDescription(content, title = '', tags = []) {
+  return extractImagePostDescription(content, title, tags);
+}
+
+/**
  * 解析排版后的正文 HTML（遵循 gzh-design 规范）
  * 优先读取同名目录下干净的 `[article_name]_排版_[theme].html`
  * @param {string} markdownFilePath 
@@ -381,6 +392,94 @@ export function resolveImagePostCards(markdownFilePath) {
 }
 
 /**
+ * 解析视频资产（从文章同名目录下的 video/ 目录寻找 .mp4 视频产物）
+ * 优先匹配 video_manifest.json 中输出的成片（排除 _nobgm.mp4），或选取第一个可用的 .mp4
+ * @param {string} markdownFilePath 
+ * @returns {{ hasVideo: boolean, videoPath?: string, fileName?: string, sizeBytes?: number, durationSeconds?: number }}
+ */
+export function resolveVideoAsset(markdownFilePath) {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const baseName = path.basename(absPath, path.extname(absPath));
+  const articleDir = path.join(dir, baseName);
+
+  // 1. 优先扫描 articleDir/video/
+  const videoDir = path.join(articleDir, 'video');
+  if (fs.existsSync(videoDir) && fs.statSync(videoDir).isDirectory()) {
+    // 优先读取 video_manifest.json
+    const manifestPath = path.join(videoDir, 'video_manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        const manifestTitle = manifest.article?.title || manifest.video?.title;
+        if (manifest.video?.outputs && Array.isArray(manifest.video.outputs)) {
+          const primary = manifest.video.outputs.find(o => o.bgm !== false && o.file?.endsWith('.mp4')) || manifest.video.outputs[0];
+          if (primary && primary.file) {
+            const p = path.join(videoDir, primary.file);
+            if (fs.existsSync(p)) {
+              const stat = fs.statSync(p);
+              return {
+                hasVideo: true,
+                videoPath: p,
+                fileName: primary.file,
+                sizeBytes: stat.size,
+                durationSeconds: manifest.video.duration_seconds || 0,
+                manifestTitle
+              };
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const files = fs.readdirSync(videoDir).filter(f => f.endsWith('.mp4'));
+    const chosen = files.find(f => !f.includes('nobgm') && !f.includes('_temp')) || files[0];
+    if (chosen) {
+      const p = path.join(videoDir, chosen);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: chosen,
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  // 2. 备选扫描 articleDir/*.mp4
+  if (fs.existsSync(articleDir) && fs.statSync(articleDir).isDirectory()) {
+    const files = fs.readdirSync(articleDir).filter(f => f.endsWith('.mp4'));
+    if (files.length > 0) {
+      const p = path.join(articleDir, files[0]);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: files[0],
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  // 3. 备选扫描同级目录
+  const siblingMp4 = path.join(dir, `${baseName}.mp4`);
+  if (fs.existsSync(siblingMp4)) {
+    const stat = fs.statSync(siblingMp4);
+    return {
+      hasVideo: true,
+      videoPath: siblingMp4,
+      fileName: `${baseName}.mp4`,
+      sizeBytes: stat.size,
+      durationSeconds: 0
+    };
+  }
+
+  return { hasVideo: false };
+}
+
+/**
  * 全面解析 Markdown 文件及其关联资产
  * @param {string} markdownFilePath 
  * @param {string} author 
@@ -401,20 +500,28 @@ export function parseAllAssets(markdownFilePath, author = '豆豆') {
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
   const imageCards = resolveImagePostCards(absPath);
+  const video = resolveVideoAsset(absPath);
+  const videoTitle = (video.manifestTitle && video.manifestTitle.length <= 30) ? video.manifestTitle : articleTitle;
+  const videoDesc = extractVideoDescription(rawContent, videoTitle, tags);
 
   return {
     markdownFilePath: absPath,
     articleTitle,
     imagePostTitle,
+    videoTitle,
     author,
     articleSummary,
     tags,
     imagePostDesc,
+    videoDesc,
     articleHtml,
     cover,
     imageCards,
     cardCount: imageCards.length,
-    cardFilePaths: imageCards.map(c => c.localPath)
+    cardFilePaths: imageCards.map(c => c.localPath),
+    video,
+    hasVideo: video.hasVideo,
+    videoPath: video.videoPath
   };
 }
 
@@ -430,6 +537,7 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
   console.log(JSON.stringify({
     articleTitle: result.articleTitle,
     imagePostTitle: result.imagePostTitle,
+    videoTitle: result.videoTitle,
     author: result.author,
     articleSummary: result.articleSummary,
     tags: result.tags,
@@ -439,6 +547,10 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     coverFile: result.cover.fileName,
     cardCount: result.cardCount,
     cardFiles: result.imageCards.map(s => s.name),
-    cardPaths: result.cardFilePaths
+    cardPaths: result.cardFilePaths,
+    hasVideo: result.hasVideo,
+    videoFileName: result.video?.fileName,
+    videoPath: result.video?.videoPath,
+    videoSizeBytes: result.video?.sizeBytes
   }, null, 2));
 }
