@@ -256,38 +256,51 @@ export function buildImagePostEditorScript(meta) {
   }
   await sleep(400);
 
-  // 3. 填写描述正文与话题（严格限制 <= 1000 字）
+  // 3. 填写描述正文与话题（严格限制 <= 1000 字，保留原生分段换行）
   const cleanDesc = meta.description.length > 1000 ? meta.description.substring(0, 990) + '...' : meta.description;
-  const descEl = document.querySelector('.zone-container.editor-kit-container, [contenteditable="true"]');
+  const descEl = document.querySelector('.zone-container.editor-kit-container') || document.querySelector('[contenteditable="true"]');
   if (descEl) {
     descEl.focus();
     await sleep(300);
 
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(descEl);
-    range.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    let docExecOk = false;
+    let fiberSetOk = false;
     try {
-      docExecOk = document.execCommand('insertText', false, cleanDesc);
+      const fiberKey = Object.keys(descEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+      if (fiberKey) {
+        let curr = descEl[fiberKey];
+        while (curr) {
+          if (curr.memoizedProps?.editor && typeof curr.memoizedProps.editor.setText === 'function') {
+            const editor = curr.memoizedProps.editor;
+            if (typeof editor.reset === 'function') editor.reset();
+            editor.setText(cleanDesc);
+            fiberSetOk = true;
+            break;
+          }
+          curr = curr.return;
+        }
+      }
     } catch (e) {
-      console.warn('[doudou-douyin] execCommand error:', e);
+      console.warn('[doudou-douyin] Fiber editor.setText 异常:', e);
     }
 
-    if (!docExecOk || descEl.innerText.trim().length < 10) {
-      const fiberKey = Object.keys(descEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-      let curr = descEl[fiberKey];
-      while (curr) {
-        if (curr.memoizedProps?.editor && typeof curr.memoizedProps?.editor?.setContent === 'function') {
-          curr.memoizedProps.editor.setContent(cleanDesc);
-          break;
+    // 回退方案：通过 execCommand 逐行注入并在行间执行 insertParagraph 保证换行
+    if (!fiberSetOk || descEl.innerText.trim().length < 10) {
+      document.execCommand('selectAll', false, null);
+      document.execCommand('delete', false, null);
+      const lines = cleanDesc.split('\\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].length > 0) {
+          document.execCommand('insertText', false, lines[i]);
         }
-        curr = curr.return;
+        if (i < lines.length - 1) {
+          document.execCommand('insertParagraph', false, null);
+        }
       }
     }
+
+    // 关闭话题推荐浮层
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+    descEl.blur();
   }
   await sleep(600);
 
@@ -378,38 +391,51 @@ export function buildVideoPostEditorScript(meta) {
   }
   await sleep(400);
 
-  // 3. 填写作品简介与话题标签（严格限制 <= 1000 字）
+  // 3. 填写作品简介与话题标签（严格限制 <= 1000 字，保留原生分段换行）
   const cleanDesc = meta.description.length > 1000 ? meta.description.substring(0, 990) + '...' : meta.description;
   const descEl = document.querySelector('.zone-container.editor-kit-container') || document.querySelector('[contenteditable="true"]');
   if (descEl) {
     descEl.focus();
     await sleep(300);
 
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(descEl);
-    range.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    let docExecOk = false;
+    let fiberSetOk = false;
     try {
-      docExecOk = document.execCommand('insertText', false, cleanDesc);
+      const fiberKey = Object.keys(descEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+      if (fiberKey) {
+        let curr = descEl[fiberKey];
+        while (curr) {
+          if (curr.memoizedProps?.editor && typeof curr.memoizedProps.editor.setText === 'function') {
+            const editor = curr.memoizedProps.editor;
+            if (typeof editor.reset === 'function') editor.reset();
+            editor.setText(cleanDesc);
+            fiberSetOk = true;
+            break;
+          }
+          curr = curr.return;
+        }
+      }
     } catch (e) {
-      console.warn('[doudou-douyin] execCommand error:', e);
+      console.warn('[doudou-douyin] Fiber editor.setText 异常:', e);
     }
 
-    if (!docExecOk || descEl.innerText.trim().length < 10) {
-      const fiberKey = Object.keys(descEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-      let curr = descEl[fiberKey];
-      while (curr) {
-        if (curr.memoizedProps?.editor && typeof curr.memoizedProps?.editor?.setContent === 'function') {
-          curr.memoizedProps.editor.setContent(cleanDesc);
-          break;
+    // 回退方案：通过 execCommand 逐行注入并在行间执行 insertParagraph 保证换行
+    if (!fiberSetOk || descEl.innerText.trim().length < 10) {
+      document.execCommand('selectAll', false, null);
+      document.execCommand('delete', false, null);
+      const lines = cleanDesc.split('\\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].length > 0) {
+          document.execCommand('insertText', false, lines[i]);
         }
-        curr = curr.return;
+        if (i < lines.length - 1) {
+          document.execCommand('insertParagraph', false, null);
+        }
       }
     }
+
+    // 关闭话题推荐浮层
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+    descEl.blur();
   }
   await sleep(600);
 
