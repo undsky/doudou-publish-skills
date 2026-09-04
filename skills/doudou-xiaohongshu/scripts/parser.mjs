@@ -173,7 +173,116 @@ export function resolveImagePostCards(markdownFilePath) {
 }
 
 /**
- * 全面解析 Markdown 文件及其关联图文资产
+ * 提取小红书视频笔记标题（<= 20 字）
+ * @param {string} content 
+ * @param {string} fallbackTitle 
+ * @returns {string}
+ */
+export function extractVideoPostTitle(content, fallbackTitle = '未命名视频') {
+  return extractImagePostTitle(content, fallbackTitle);
+}
+
+/**
+ * 提炼小红书视频笔记专属描述（<= 1000 字）
+ * @param {string} content 
+ * @param {string} title 
+ * @param {string[]} tags 
+ * @returns {string}
+ */
+export function extractVideoPostDescription(content, title = '', tags = []) {
+  return extractImagePostDescription(content, title, tags);
+}
+
+/**
+ * 解析视频资产（从文章同名目录下的 video/ 目录寻找 .mp4 视频产物）
+ * 优先匹配 video_manifest.json 中输出的成片（排除 _nobgm.mp4），或选取第一个可用的 .mp4
+ * @param {string} markdownFilePath 
+ * @returns {{ hasVideo: boolean, videoPath?: string, fileName?: string, sizeBytes?: number, durationSeconds?: number, manifestTitle?: string }}
+ */
+export function resolveVideoAsset(markdownFilePath) {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const baseName = path.basename(absPath, path.extname(absPath));
+  const articleDir = path.join(dir, baseName);
+
+  // 1. 优先扫描 articleDir/video/
+  const videoDir = path.join(articleDir, 'video');
+  if (fs.existsSync(videoDir) && fs.statSync(videoDir).isDirectory()) {
+    // 优先读取 video_manifest.json
+    const manifestPath = path.join(videoDir, 'video_manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        const manifestTitle = manifest.article?.title || manifest.video?.title;
+        if (manifest.video?.outputs && Array.isArray(manifest.video.outputs)) {
+          const primary = manifest.video.outputs.find(o => o.bgm !== false && o.file?.endsWith('.mp4')) || manifest.video.outputs[0];
+          if (primary && primary.file) {
+            const p = path.join(videoDir, primary.file);
+            if (fs.existsSync(p)) {
+              const stat = fs.statSync(p);
+              return {
+                hasVideo: true,
+                videoPath: p,
+                fileName: primary.file,
+                sizeBytes: stat.size,
+                durationSeconds: manifest.video.duration_seconds || 0,
+                manifestTitle
+              };
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const files = fs.readdirSync(videoDir).filter(f => f.endsWith('.mp4'));
+    const chosen = files.find(f => !f.includes('nobgm') && !f.includes('_temp')) || files[0];
+    if (chosen) {
+      const p = path.join(videoDir, chosen);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: chosen,
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  // 2. 备选扫描 articleDir/*.mp4
+  if (fs.existsSync(articleDir) && fs.statSync(articleDir).isDirectory()) {
+    const files = fs.readdirSync(articleDir).filter(f => f.endsWith('.mp4'));
+    if (files.length > 0) {
+      const p = path.join(articleDir, files[0]);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: files[0],
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  // 3. 备选扫描同级目录
+  const siblingMp4 = path.join(dir, `${baseName}.mp4`);
+  if (fs.existsSync(siblingMp4)) {
+    const stat = fs.statSync(siblingMp4);
+    return {
+      hasVideo: true,
+      videoPath: siblingMp4,
+      fileName: `${baseName}.mp4`,
+      sizeBytes: stat.size,
+      durationSeconds: 0
+    };
+  }
+
+  return { hasVideo: false };
+}
+
+/**
+ * 全面解析 Markdown 文件及其关联资产（图文与视频）
  * @param {string} markdownFilePath 
  * @param {string} author 
  * @returns {object}
@@ -190,19 +299,29 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const tags = [];
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const imageCards = resolveImagePostCards(absPath);
+  const video = resolveVideoAsset(absPath);
+  const videoTitle = (video.manifestTitle && video.manifestTitle.length <= 20) 
+    ? video.manifestTitle 
+    : (video.manifestTitle ? video.manifestTitle.substring(0, 19) + '…' : imagePostTitle);
+  const videoDesc = extractVideoPostDescription(rawContent, videoTitle, tags);
 
   return {
     markdownFilePath: absPath,
     title: imagePostTitle,
     imagePostTitle,
+    videoTitle,
     author,
     articleSummary,
     tags,
     description: imagePostDesc,
     imagePostDesc,
+    videoDesc,
     imageCards,
     cardCount: imageCards.length,
-    cardFilePaths: imageCards.map(c => c.localPath)
+    cardFilePaths: imageCards.map(c => c.localPath),
+    video,
+    hasVideo: video.hasVideo,
+    videoPath: video.videoPath
   };
 }
 
@@ -213,15 +332,20 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
     process.exit(1);
   }
-  console.log(`[parser] 正在解析图文资产: ${targetFile}`);
+  console.log(`[parser] 正在解析资产: ${targetFile}`);
   const result = parseAllAssets(targetFile);
   console.log(JSON.stringify({
     title: result.title,
+    videoTitle: result.videoTitle,
     author: result.author,
     tags: result.tags,
     descPreview: result.description.substring(0, 100) + '...',
     cardCount: result.cardCount,
     cardFiles: result.imageCards.map(s => s.name),
-    cardPaths: result.cardFilePaths
+    cardPaths: result.cardFilePaths,
+    hasVideo: result.hasVideo,
+    videoFileName: result.video?.fileName,
+    videoPath: result.video?.videoPath,
+    videoSizeBytes: result.video?.sizeBytes
   }, null, 2));
 }
