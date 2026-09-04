@@ -65,7 +65,7 @@ export function extractSummary(content) {
   if (summary.length > 190) {
     summary = summary.substring(0, 187) + '...';
   }
-  return summary || '本文分享了深度技术实践与架构解析，欢迎阅读与交流。';
+  return summary || '';
 }
 
 /** * 解析封面图资产

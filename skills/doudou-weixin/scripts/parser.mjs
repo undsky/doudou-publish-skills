@@ -68,7 +68,7 @@ export function extractSummary(content) {
   if (summary.length > 115) {
     summary = summary.substring(0, 112) + '...';
   }
-  return summary || '本文分享了深度技术实践与架构解析，欢迎阅读与交流。';
+  return summary || '';
 }
 
 /**

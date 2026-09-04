@@ -75,7 +75,148 @@ export function extractSummary(content) {
   if (summary.length > 120) {
     summary = summary.substring(0, 117) + '...';
   }
-  return summary || '本文分享了深度技术实践与架构解析，欢迎阅读与交流。';
+  return summary || '';
+}
+
+/**
+ * 提取并清洗 B站视频标题（B站视频标题上限80字，推荐30字以内）
+ * @param {string} content 
+ * @param {string} fallbackTitle 
+ * @param {string} [manifestTitle]
+ * @returns {string}
+ */
+export function extractVideoTitle(content, fallbackTitle = '未命名视频', manifestTitle = '') {
+  let target = manifestTitle || extractTitle(content, fallbackTitle);
+  // 清洗特殊标点，保持精炼自然
+  let cleanTitle = target.replace(/[【】《》「」：:，,。！!？?]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanTitle.length > 80) {
+    cleanTitle = cleanTitle.substring(0, 77) + '...';
+  }
+  return cleanTitle || fallbackTitle;
+}
+
+/**
+ * 提炼 B站视频专属简介（结构化多行干货要点，限制 2000 字以内）
+ * @param {string} content 
+ * @param {string} title 
+ * @param {string[]} tags 
+ * @returns {string}
+ */
+export function extractVideoDescription(content, title = '', tags = []) {
+  const lines = content.split('\n');
+  const points = [];
+  let isCodeBlock = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      isCodeBlock = !isCodeBlock;
+      continue;
+    }
+    if (isCodeBlock || !trimmed) continue;
+
+    if (trimmed.startsWith('- ') || trimmed.startsWith('1. ') || trimmed.startsWith('2. ') || trimmed.startsWith('3. ') || trimmed.startsWith('4. ')) {
+      const clean = trimmed
+        .replace(/^[-*\d.]+\s+/, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[*_`~]/g, '')
+        .trim();
+      if (clean.length > 6 && clean.length < 100) {
+        points.push(clean);
+      }
+    }
+    if (points.length >= 6) break;
+  }
+
+  const summary = extractSummary(content);
+  let desc = `💡 ${summary}\n\n`;
+  if (points.length > 0) {
+    desc += `🔥 【核心干货要点】\n` + points.map((p, idx) => `0${idx + 1}丨${p}`).join('\n') + '\n\n';
+  }
+  desc += `✨ 如果觉得内容对你有帮助，欢迎点赞、投币、收藏、关注一键三连支持！`;
+
+  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t}#`).join(' ') : '';
+  if (tagString) {
+    desc += `\n\n${tagString}`;
+  }
+
+  return desc.length > 1900 ? desc.substring(0, 1890) + '...' : desc;
+}
+
+/**
+ * 解析视频资产（从文章同名目录下的 video/ 目录寻找 .mp4 视频产物）
+ * 优先匹配 video_manifest.json 中输出的成片（排除 _nobgm.mp4），或选取第一个可用的 .mp4
+ * @param {string} markdownFilePath 
+ * @returns {{ hasVideo: boolean, videoPath?: string, fileName?: string, sizeBytes?: number, durationSeconds?: number, manifestTitle?: string }}
+ */
+export function resolveVideoAsset(markdownFilePath) {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const ext = path.extname(absPath);
+  const stem = path.basename(absPath, ext);
+  const articleDir = path.join(dir, stem);
+
+  // 1. 优先扫描 articleDir/video/
+  const videoDir = path.join(articleDir, 'video');
+  if (fs.existsSync(videoDir) && fs.statSync(videoDir).isDirectory()) {
+    // 优先读取 video_manifest.json
+    const manifestPath = path.join(videoDir, 'video_manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        const manifestTitle = manifest.article?.title || manifest.video?.title;
+        if (manifest.video?.outputs && Array.isArray(manifest.video.outputs)) {
+          const primary = manifest.video.outputs.find(o => o.bgm !== false && o.file?.endsWith('.mp4')) || manifest.video.outputs[0];
+          if (primary && primary.file) {
+            const p = path.join(videoDir, primary.file);
+            if (fs.existsSync(p)) {
+              const stat = fs.statSync(p);
+              return {
+                hasVideo: true,
+                videoPath: p,
+                fileName: primary.file,
+                sizeBytes: stat.size,
+                durationSeconds: manifest.video.duration_seconds || 0,
+                manifestTitle
+              };
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const files = fs.readdirSync(videoDir).filter(f => f.endsWith('.mp4'));
+    const chosen = files.find(f => !f.includes('nobgm') && !f.includes('_temp')) || files[0];
+    if (chosen) {
+      const p = path.join(videoDir, chosen);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: chosen,
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  // 2. 备选扫描 articleDir/ 下直接存在的 .mp4
+  if (fs.existsSync(articleDir) && fs.statSync(articleDir).isDirectory()) {
+    const files = fs.readdirSync(articleDir).filter(f => f.endsWith('.mp4'));
+    if (files.length > 0) {
+      const p = path.join(articleDir, files[0]);
+      const stat = fs.statSync(p);
+      return {
+        hasVideo: true,
+        videoPath: p,
+        fileName: files[0],
+        sizeBytes: stat.size,
+        durationSeconds: 0
+      };
+    }
+  }
+
+  return { hasVideo: false };
 }
 
 /**
@@ -418,6 +559,10 @@ export async function parseArticle(filePath) {
     }
   }
 
+  const video = resolveVideoAsset(absPath);
+  const videoTitle = extractVideoTitle(content, title, video.manifestTitle);
+  const videoDesc = extractVideoDescription(content, videoTitle, topics);
+
   return {
     filePath: absPath,
     stem,
@@ -428,8 +573,20 @@ export async function parseArticle(filePath) {
     isCdnVersion,
     rawContent,
     html,
-    images
+    images,
+    video,
+    videoTitle,
+    videoDesc
   };
+}
+
+/**
+ * 一站式解析所有文章与视频资产
+ * @param {string} markdownFilePath 
+ * @returns {Promise<object>}
+ */
+export async function parseAllAssets(markdownFilePath) {
+  return await parseArticle(markdownFilePath);
 }
 
 // 命令行直接测试
@@ -452,6 +609,9 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     },
     imagesCount: result.images.length,
     images: result.images.map(img => ({ id: img.id, src: img.src, type: img.type, hasBase64: !!img.base64 })),
+    video: result.video,
+    videoTitle: result.videoTitle,
+    videoDescSnippet: result.videoDesc.substring(0, 150) + '...',
     htmlSnippet: result.html.substring(0, 300)
   }, null, 2));
 }

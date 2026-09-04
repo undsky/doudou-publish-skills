@@ -118,11 +118,9 @@ export function extractImagePostDescription(content, title = '', tags = []) {
   const tagString = tags.map(t => `#${t}`).join(' ');
   const summary = extractArticleSummary(content);
 
-  let desc = `💡 ${summary}\n\n🔥 核心要点干货整理：\n`;
+  let desc = `💡 ${summary}\n\n`;
   if (points.length > 0) {
-    desc += points.map((p, idx) => `0${idx + 1} ${p}`).join('\n') + '\n\n';
-  } else {
-    desc += `01 工业级标准封装实践\n02 清晰接口契约与分层设计\n03 自动化守门与高质量交付\n\n`;
+    desc += `🔥 核心要点干货整理：\n` + points.map((p, idx) => `0${idx + 1} ${p}`).join('\n') + '\n\n';
   }
   desc += `✨ 欢迎评论区交流讨论！\n\n${tagString}`;
 

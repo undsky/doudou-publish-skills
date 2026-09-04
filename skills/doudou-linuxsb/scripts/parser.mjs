@@ -80,7 +80,7 @@ export function extractSummary(content) {
   if (summary.length > 200) {
     summary = summary.substring(0, 197) + '...';
   }
-  return summary || '本文分享了深度技术实践与经验解析，欢迎交流与讨论。';
+  return summary || '';
 }
 
 /**

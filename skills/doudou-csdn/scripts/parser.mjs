@@ -65,7 +65,7 @@ export function extractSummary(content) {
   if (summary.length > 220) {
     summary = summary.substring(0, 215) + '...';
   }
-  return summary || '本文深入剖析了核心架构设计与工程化实战，欢迎阅读与交流。';
+  return summary || '';
 }
 
 
