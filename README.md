@@ -20,4 +20,5 @@
 | **doudou-xiaohongshu** | [`skills/doudou-xiaohongshu`](./skills/doudou-xiaohongshu) | 自动将长文专栏与图文笔记（含 3:4 归藏卡片）发布至 [小红书创作者服务平台](https://creator.xiaohongshu.com) 草稿箱。          |
 | **doudou-douyin**      | [`skills/doudou-douyin`](./skills/doudou-douyin)           | 自动将长文文章与图文笔记（含信息图卡片）发布至 [抖音创作者平台](https://creator.douyin.com) 草稿箱。                        |
 | **doudou-zhihu**       | [`skills/doudou-zhihu`](./skills/doudou-zhihu)             | 自动将 Markdown 文章、知乎话题与封面发布至 [知乎专栏](https://www.zhihu.com/creator/manage/creation/all) 草稿箱。           |
+| **doudou-shipinhao**   | [`skills/doudou-shipinhao`](./skills/doudou-shipinhao)     | 自动将视频成片、短标题与结构化描述发布至 [微信视频号助手](https://channels.weixin.qq.com) 草稿箱。                         |
 | **doudou-linuxsb**     | [`skills/doudou-linuxsb`](./skills/doudou-linuxsb)         | 自动将 Markdown 文章与版块填入 [烧饼社区 (Linux.sb)](https://linux.sb) 发帖页（保留编辑就绪态供人工审查，不自动触发保存）。 |
