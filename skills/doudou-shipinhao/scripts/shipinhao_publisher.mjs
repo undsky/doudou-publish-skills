@@ -184,41 +184,14 @@ export function buildSaveDraftBrowserScript(meta) {
   } catch (e) {}
   await sleep(400);
 
-  // 5. 定位「保存草稿」按钮
-  const findSaveDraftButton = () => {
-    return Array.from(doc.querySelectorAll('button, .weui-desktop-btn')).find(b => 
-      b.innerText.trim().includes('保存草稿')
-    );
-  };
-
-  let saveBtn = findSaveDraftButton();
-  if (!saveBtn) {
-    return { success: false, error: '未找到「保存草稿」按钮' };
-  }
-
-  // 检查按钮是否处于 disabled 状态
-  if (saveBtn.disabled || saveBtn.className.includes('disabled')) {
-    console.log('[doudou-shipinhao] 保存草稿按钮处于 disabled 状态，等待 2 秒...');
-    await sleep(2000);
-    saveBtn = findSaveDraftButton();
-    if (saveBtn.disabled || saveBtn.className.includes('disabled')) {
-      // 检查是否有错误提示
-      const tips = Array.from(doc.querySelectorAll('.weui-desktop-form__tips, .error')).map(t => t.innerText.trim()).filter(Boolean);
-      return { success: false, error: '保存草稿按钮不可用', tips };
-    }
-  }
-
-  console.log('[doudou-shipinhao] 悬停并点击「保存草稿」...');
-  saveBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  saveBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  saveBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await sleep(400);
-  saveBtn.click();
+  // 5. 等待平台就绪与自动保存（严格绝不点击「保存草稿」或「发表」按钮，保留编辑页现场）
+  console.log('[doudou-shipinhao] 视频作品信息已填入完毕，等待平台原生自动保存与就绪 (保留在编辑页)...');
   await sleep(2500);
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     shortTitle: cleanTitle,
     descLength: meta.description.length
   };

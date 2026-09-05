@@ -279,37 +279,19 @@ export async function buildBrowserPublishScript(markdownFilePath) {
   targetWin.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(300, 600);
 
-  // 8. 拟真点击「保存为草稿」
-  log('正在保存文章到草稿箱...');
-  const saveDraftBtn = Array.from(targetDoc.querySelectorAll('.footer-right button, .footer button, button')).find(b => b.innerText.trim() === '保存为草稿');
-
-  let saveSuccess = false;
-  let toastMessages = [];
-
-  if (saveDraftBtn) {
-    saveDraftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    saveDraftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    await randomDelay(300, 500);
-    saveDraftBtn.click();
-
-    // 等待保存结果
-    await delay(1800);
-    const toasts = Array.from(targetDoc.querySelectorAll('.vui_message, .vui_toast, [class*="toast"], [class*="message"]')).map(el => el.innerText?.trim()).filter(Boolean);
-    toastMessages = Array.from(new Set(toasts));
-    saveSuccess = toastMessages.some(m => m.includes('成功') || m.includes('已保存')) || true;
-    log('草稿保存触发完成，提示消息: ' + (toastMessages.join(' | ') || '保存成功'));
-  } else {
-    log('未找到「保存为草稿」按钮');
-  }
+  // 8. 等待平台原生自动保存生效（B站专栏编辑器输入后自动保存，绝不主动点击「保存为草稿」或「发布」按钮）
+  log('内容已注入完成，正在等待 B站专栏原生自动保存生效 (保留在编辑页)...');
+  await delay(2500);
 
   return {
-    success: saveSuccess,
+    success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: data.title,
     summary: data.summary,
     topics: data.topics,
     coverState: data.cover ? (data.cover.localPath || data.cover.url ? '已配置' : '无') : '无',
     imagesCount: data.images.length,
-    toasts: toastMessages,
     logs
   };
 };
@@ -618,23 +600,14 @@ export function buildFillVideoFormBrowserScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(300, 500);
 
-  // 8. 存草稿操作（严禁触碰「立即投稿」按钮！）
-  log('【安全红线检查】严格保持在草稿箱，绝不点击「立即投稿」');
-  log('开始点击「存草稿」按钮保存草稿...');
-
-  const draftBtn = document.querySelector('.submit-draft') 
-    || Array.from(document.querySelectorAll('span, button')).find(el => el.innerText?.trim() === '存草稿');
-
-  let savedToDraft = false;
-  if (draftBtn) {
-    draftBtn.click();
-    savedToDraft = true;
-    await delay(1500);
-  }
+  // 8. 等待平台就绪与自动保存（严禁触碰「立即投稿」按钮，亦不主动点击存草稿，保留现场）
+  log('【安全红线检查】表单与视频已配置完成，等待平台自动同步就绪 (严格绝不点击「立即投稿」)');
+  await delay(2000);
 
   return {
     success: true,
-    savedToDraft,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: meta.title,
     tags: meta.tags,
     draftUrl: window.location.href,

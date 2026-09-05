@@ -1,6 +1,6 @@
 ---
 name: doudou-xiaohongshu
-description: "通过 chrome-devtools-mcp 实现小红书自动发布视频、图文笔记到草稿箱功能。用户未明确指定模态时默认发布全部可用模态（视频笔记 + 图文笔记），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。支持用户指定的 Markdown 文章及其关联视频（video/*.mp4）与全套图文卡片集，智能提炼吸睛短标题（<=20字）与结构化换行干货要点和热门话题标签（<=1000字），全流程模拟真实人类行为防风控，精准操作 Shadow DOM 下的「暂存离开」安全保存草稿。"
+description: "通过 chrome-devtools-mcp 实现小红书自动发布视频、图文笔记到草稿箱功能。用户未明确指定模态时默认发布全部可用模态（视频笔记 + 图文笔记），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。支持用户指定的 Markdown 文章及其关联视频（video/*.mp4）与全套图文卡片集，智能提炼吸睛短标题（<=20字）与结构化换行干货要点和热门话题标签（<=1000字），全流程模拟真实人类行为防风控，依托平台原生自动保存，保留编辑页面供人工最终复核，绝不自动触发公开发布。"
 ---
 
 # 小红书自动化发布草稿技能规范 (doudou-xiaohongshu)
@@ -73,7 +73,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 
   | 模态 | 状态 | 标题 | 存证截图 / 原因 |
   | :--- | :--- | :--- | :--- |
-  | 视频笔记 | ✅ 已暂存离开 | ... | `xhs_video_draft_proof.png` |
+  | 视频笔记 | ✅ 就绪/原生自动保存 | ... | `xhs_video_draft_proof.png` |
   | 图文笔记 | ⏭️ 已跳过 | — | 未找到 3:4 图文卡片集 |
 
 ---
@@ -97,10 +97,9 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 1. **随机时延抖动**：所有交互前插入 250ms ~ 650ms 随机延迟（`sleep(ms + Math.floor(Math.random() * 200))`），模拟人类打字与反应节奏。
 2. **原生事件完整派发**：标题输入触发 `input` 与 `change` 事件（带 `bubbles: true, composed: true`）；富文本描述使用 ProseMirror `setContent(htmlFormatted, true)` 保持段落换行与响应式状态同步。
 3. **真实鼠标与视口交互**：点击操作前先将元素 `scrollIntoView({ behavior: 'smooth', block: 'center' })`，派发 `mouseover`、`mouseenter` 再执行 `click`；分步平滑滚动页面模拟人工审阅。
-4. **Web Component 与 Shadow DOM 适配**：小红书底部操作栏采用自定义元素 `<xhs-publish-btn>`，优先定位其 Shadow DOM (`_sr`) 内的「暂存离开」按钮。
-5. **绝对安全隔离底线**：全流程终点统一点击「**暂存离开**」，严禁误触直接「发布」。
-6. **确定性草稿保存与存证**：完成编辑后截取存证图片（`xhs_video_draft_proof.png` / `xhs_draft_proof.png`），并验证草稿箱计数与草稿列表。
-7. **发布完成后保留页面（严禁自动关闭）**：暂存与截屏存证完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
+4. **绝对安全隔离底线**：严禁点击「发布」按钮；同时**无需也不得主动点击「暂存离开」按钮**（避免跳出当前编辑页面破坏现场）。小红书平台在输入后会自动实时同步保存，全流程终点停留在当前编辑页供人工复核。
+5. **确定性原生自动保存与存证**：完成编辑后平滑视口滚动审阅排版，等待 2.5 秒原生自动保存生效，截取编辑状态截图存证（`xhs_video_draft_proof.png` / `xhs_draft_proof.png`）。
+6. **发布完成后保留页面（严禁自动关闭）**：全流程完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
 
 ---
 
@@ -118,10 +117,10 @@ flowchart TD
     Upload --> Wait[步骤 3: 轮询等待视频上传处理就绪]
     Wait --> Title[步骤 4: 填写精炼短标题 <= 20字]
     Title --> Desc[步骤 5: ProseMirror 注入 1000字以内换行分段描述与话题]
-    Desc --> Scroll[步骤 6: 视口平滑滚动模拟人工检查并截屏存证]
-    Scroll --> Save[步骤 7: Shadow DOM 下悬停并点击「暂存离开」保存草稿]
-    Save --> Verify[步骤 8: 草稿箱状态验证与存证确认]
-    Verify --> End([完成])
+    Desc --> Scroll[步骤 6: 视口平滑滚动模拟人工检查]
+    Scroll --> WaitSave[步骤 7: 等待小红书原生自动保存生效]
+    WaitSave --> Proof[步骤 8: 保持编辑现场并截屏存证]
+    Proof --> End([完成])
 ```
 
 1. **导航页面**：访问 `https://creator.xiaohongshu.com/publish/publish?target=video`。
@@ -129,9 +128,9 @@ flowchart TD
 3. **轮询等待就绪**：监控页面出现「重新上传」或标题输入框就绪。
 4. **填充标题**：填写精炼短标题（<= 20 字）至 `input[placeholder*="填写标题"], input.d-text`。
 5. **填充描述与话题**：通过 ProseMirror `setContent` 注入 `<p>` 段落结构描述与热门话题标签（<= 1000 字），严格保证段落换行。
-6. **模拟审阅与存证**：平滑滚动视口，截取编辑状态截图保存至 `xhs_video_draft_proof.png`。
-7. **暂存草稿**：定位 `<xhs-publish-btn>` 的 Shadow DOM (`_sr`) 下的「暂存离开」按钮，悬停并点击保存。
-8. **验证存证**：返回上传页，验证「草稿箱」新增对应视频笔记草稿。
+6. **模拟审阅**：平滑滚动视口，模拟人工复核。
+7. **等待原生自动保存**：依托小红书平台实时自动保存能力，等待 2.5 秒（严禁点击暂存离开跳出页面，严禁点击发布）。
+8. **截图存证并保留现场**：截取当前编辑状态截图保存至 `xhs_video_draft_proof.png`，保留页面供人工最终确认。
 
 ---
 
@@ -140,8 +139,8 @@ flowchart TD
 1. **导航页面**：访问 `https://creator.xiaohongshu.com/publish/publish?target=image`。
 2. **真实卡片批量上传**：解析目录下的 `xhs_images/images/`，通过 `upload_file` 批量上传全部 3:4 卡片。
 3. **填充标题与描述**：填写短标题（<= 20 字），注入分段换行作品描述与话题标签（<= 1000 字）。
-4. **模拟审阅与存证**：平滑滚动视口，截取编辑状态截图保存至 `xhs_draft_proof.png`。
-5. **暂存草稿与验证**：Shadow DOM 下点击「暂存离开」保存至图文草稿箱。
+4. **模拟审阅**：平滑滚动视口，模拟人工阅读检查。
+5. **等待原生自动保存与存证**：依托平台原生自动保存等待 2.5 秒，截取当前编辑状态截图保存至 `xhs_draft_proof.png`，保留编辑页面现场。
 
 ---
 
@@ -180,10 +179,10 @@ for (const mode of modes) {
 
   try {
     if (mode === "video") {
-      // 先 upload_file 派发 meta.video.videoPath，轮询上传就绪，再填充文案并暂存离开
+      // 先 upload_file 派发 meta.video.videoPath，轮询上传就绪，再填充文案并等待原生自动保存
       results.push(await evaluate_script({ pageId, function: buildVideoPostBrowserScript(meta) }));
     } else {
-      // 先 upload_file 批量上传 meta.cardFilePaths，再填充标题与描述并暂存离开
+      // 先 upload_file 批量上传 meta.cardFilePaths，再填充标题与描述并等待原生自动保存
       results.push(await evaluate_script({ pageId, function: buildImagePostBrowserScript(meta) }));
     }
   } catch (e) {

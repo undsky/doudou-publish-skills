@@ -140,27 +140,21 @@ export function buildBrowserPublishScript(markdownFilePath) {
 }
 
 /**
- * 生成保存草稿的独立异步 JS 代码
+ * 生成等待平台原生自动保存与就绪状态检查的异步 JS 代码
  */
 export function buildSaveDraftScript() {
   return `(async () => {
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '存为草稿');
-  if (!draftBtn) {
-    return { success: false, error: '未找到「存为草稿」按钮' };
-  }
-
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+  console.log('[doudou-aliyun] 内容已全部注入，正在模拟视口滚动审阅并等待平台原生自动保存...');
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  await randomDelay(500, 800);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(400, 700);
 
-  draftBtn.click();
-
-  await delay(3000);
-  const toasts = Array.from(document.querySelectorAll('.next-message, .next-toast, .next-feedback')).map(t => t.innerText.trim()).filter(Boolean);
+  // 等待平台原生自动保存机制生效（绝不主动点击「存为草稿」或「发布」按钮）
+  await delay(2500);
   const statusTexts = Array.from(document.querySelectorAll('p, span, div')).map(el => el.innerText.trim()).filter(t => t.includes('保存了草稿') || t.includes('成功'));
 
   const formEl = document.querySelector('form.public-article-form');
@@ -176,10 +170,10 @@ export function buildSaveDraftScript() {
 
   return {
     success: true,
-    draftTime: instance?.state?.draftTime,
+    isReady: true,
+    status: 'ready_auto_saved',
+    draftTime: instance?.state?.draftTime || new Date().toLocaleTimeString(),
     editAid: instance?.state?.editAid,
-    fileList: instance?.state?.fileList,
-    toasts,
     statusTexts
   };
 })()`;

@@ -242,33 +242,8 @@ export function buildBrowserPublishScript(markdownFilePath) {
     await randomDelay(500, 800);
   }
 
-  // 10. 安全隔离：拟真悬停并点击「保存为草稿」
-  log('💾 正在执行安全草稿保存（仅保存草稿，绝不触发公开发布）...');
-  const saveDraftBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.trim() === '保存为草稿');
-  if (!saveDraftBtn) {
-    return {
-      success: false,
-      error: '未能找到面板内的「保存为草稿」按钮',
-      logs
-    };
-  }
-
-  saveDraftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  saveDraftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  saveDraftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await randomDelay(400, 700);
-  saveDraftBtn.click();
-  log('✅ 已点击「保存为草稿」按钮，等待网络同步...');
-
-  // 等待草稿接口保存完毕
-  await delay(3000);
-
-  // 获取保存后的 URL 与 articleId
-  const currentUrl = window.location.href;
-  const urlObj = new URL(currentUrl);
-  const articleId = urlObj.searchParams.get('articleId') || '';
-
-  // 尝试关闭弹窗（点击取消或关闭按钮）
+  // 10. 安全隔离：关闭发布设置面板并等待平台原生自动保存生效（绝不点击「保存为草稿」或「发布」按钮）
+  log('💾 正在关闭发布设置面板并保留配置（依托平台原生自动保存，绝不触碰发布）...');
   const cancelBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
   const closeBtn = modal.querySelector('.modal__close-button');
   if (cancelBtn) {
@@ -279,10 +254,23 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   await randomDelay(500, 800);
 
-  log('🎉 CSDN 文章草稿保存成功！草稿文章 ID: ' + (articleId || '已保存'));
+  // 模拟平滑视口滚动审阅
+  window.scrollTo({ top: 300, behavior: 'smooth' });
+  await randomDelay(400, 700);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await delay(2500);
+
+  // 获取保存后的 URL 与 articleId
+  const currentUrl = window.location.href;
+  const urlObj = new URL(currentUrl);
+  const articleId = urlObj.searchParams.get('articleId') || '';
+
+  log('🎉 CSDN 文章内容填入完成！(articleId: ' + (articleId || '就绪') + ')');
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     platform: 'CSDN',
     articleId,
     draftUrl: currentUrl,

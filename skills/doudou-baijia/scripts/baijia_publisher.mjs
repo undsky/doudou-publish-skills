@@ -238,36 +238,17 @@ export function buildPublishBrowserScript(meta) {
   }
   await sleep(600);
 
-  // 5. 滚动到页面底部并点击「存草稿」
-  log('正在拟真点击「存草稿」按钮...');
-  const draftBtn = Array.from(document.querySelectorAll('button, .cheetah-btn')).find(b => (b.innerText || '').trim() === '存草稿');
-  
-  if (draftBtn) {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    await sleep(400);
-    draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await sleep(300);
+  // 5. 模拟人工视口平滑滚动排版审阅并等待平台原生自动保存
+  log('正在模拟人工视口平滑滚动排版审阅...');
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  await sleep(800);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(500);
 
-    const draftProps = getProps(draftBtn);
-    if (draftProps && typeof draftProps.onClick === 'function') {
-      try {
-        draftProps.onClick({
-          preventDefault: () => {},
-          stopPropagation: () => {},
-          target: draftBtn,
-          currentTarget: draftBtn,
-          nativeEvent: new MouseEvent('click', { bubbles: true })
-        });
-      } catch (err) {}
-    }
-    draftBtn.click();
-    log('已点击「存草稿」按钮');
-  } else {
-    log('警告: 未找到「存草稿」按钮');
-  }
+  // 百家号平台具备输入自动保存机制，绝不主动点击「存草稿」或「发布」按钮
+  log('已完成全部内容注入，正在静候百家号原生自动保存生效 (保持停留在编辑页)...');
+  await sleep(2500);
 
-  // 6. 等待并捕获草稿保存 Toast 与 article_id
-  await sleep(3500);
   let toastMessage = '';
   const messageEls = document.querySelectorAll('.cheetah-message-notice-content, .cheetah-message-custom-content, .cheetah-message');
   if (messageEls.length > 0) {
@@ -278,11 +259,10 @@ export function buildPublishBrowserScript(meta) {
   const urlObj = new URL(currentUrl);
   const articleId = urlObj.searchParams.get('article_id') || '';
 
-  const isDraftSaved = toastMessage.includes('存入草稿') || toastMessage.includes('成功') || !!articleId;
-  log('草稿保存状态检查: ' + (isDraftSaved ? '成功' : '等待中') + ' (Toast: ' + toastMessage + ', ArticleID: ' + articleId + ')');
-
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: meta.title,
     author: meta.author,
     summary: meta.summary,

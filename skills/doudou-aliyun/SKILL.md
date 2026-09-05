@@ -1,11 +1,11 @@
 ---
 name: doudou-aliyun
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到阿里云开发者社区草稿箱（https://developer.aliyun.com/article/new）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、CDN 正文自动替换、官方通道封面上传以及草稿保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入阿里云开发者社区发文页（https://developer.aliyun.com/article/new）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、CDN 正文自动替换、官方通道封面上传以及平台原生自动保存就绪存证。
 ---
 
-# 阿里云开发者社区文章自动发布到草稿技能 (doudou-aliyun)
+# 阿里云开发者社区文章自动发布技能 (doudou-aliyun)
 
-本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件发布至**阿里云开发者社区（https://developer.aliyun.com/article/new ）的草稿箱**。
+本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的 Markdown 文件发布至**阿里云开发者社区（https://developer.aliyun.com/article/new ）**。
 
 技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延、视口平滑滚动及悬停交互，避免被平台风控拦截。自动提取文章标题、摘要、CDN 版 Markdown 正文以及宽屏封面图。
 
@@ -13,8 +13,9 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
 
 ## 核心规约与防风控原则
 
-1. **草稿安全隔离**：
-   - **严格限定仅点击「存为草稿」按钮**，绝对不触发公开发布，确保所有内容必须经人工最终确认后再公开发布。
+1. **安全隔离与自动保存机制**：
+   - **依托平台原生自动保存**：阿里云发文平台在标题、正文与封面填入后具备实时自动保存草稿机制。
+   - **移除发布时对草稿箱的操作**：严禁主动寻找并点击「存为草稿」按钮（避免因选择器变动或未就绪导致流程中断），更**严禁触碰任何形式的公开发布按钮**，所有操作停留在当前编辑页就绪态，由人工做最终确认与手动发布。
 2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 400~800ms、步骤间 500~1500ms、点击前 300~600ms），严禁毫秒级并发。
    - **真实事件完整性与 React Controlled 状态同步**：对于表单输入，使用原生属性描述符 Setter 赋值，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并同步触发 React Field 与 Component State 校验，杜绝表单空值红字拦截。
@@ -28,7 +29,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
      3. 再次从 Markdown 正文中提取第一张图片本地路径或网络链接；
      4. 若均无则跳过封面设置。
 4. **发布完成后保留页面（严禁自动关闭）**：
-   - 草稿保存与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核草稿内容、补充登录或手动确认发布。
+   - 表单内容填入与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核草稿内容、补充登录或手动确认发布。
    - 未登录、验证码拦截、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
 
 ---
@@ -45,8 +46,8 @@ flowchart TD
     S3 --> S4[步骤 4: 模拟自然视口滚动至下方]
     S4 --> S5[步骤 5: 填写文章摘要并校验原创免责设置]
     S5 --> S6[步骤 6: 官方通道上传并绑定文章封面]
-    S6 --> S7[步骤 7: 拟真悬停并点击「存为草稿」]
-    S7 --> S8[步骤 8: 捕获保存反馈并截屏存证]
+    S6 --> S7[步骤 7: 模拟人工视口平滑滚动审阅]
+    S7 --> S8[步骤 8: 静候平台自动保存生效并截屏存证]
 ```
 
 ### 步骤 0：解析 Markdown 资产与封面
@@ -193,26 +194,25 @@ if (formInstance && formInstance.field) {
 
 ---
 
-### 步骤 7：拟真悬停并点击「存为草稿」
+### 步骤 7：模拟人工视口平滑滚动审阅
 
-1. 寻找「存为草稿」按钮元素：
-   `const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '存为草稿');`
-2. 将视口滚动至按钮完全可见：
-   `draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });`
-3. 模拟鼠标悬停（Hover）派发事件：
-   `draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));`
-   `draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));`
-4. 拟真停顿 400ms~800ms。
-5. 触发点击：
-   `draftBtn.click();`
+1. 模拟人工自上而下审阅已排版的正文与封面：
+   - 滚动到底部：`window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });`
+   - 停顿 500~800ms；
+   - 滚动回顶部：`window.scrollTo({ top: 0, behavior: 'smooth' });`
+   - 停顿 400~700ms。
+2. **严格安全隔离（绝不主动点击草稿或发布按钮）**：
+   - 阿里云编辑器具备输入实时自动保存机制，**严禁主动寻找并点击「存为草稿」按钮**，**绝对严禁点击「发布」按钮**。
 
 ---
 
-### 步骤 8：捕获保存反馈并截屏存证
+### 步骤 8：静候平台自动保存生效并截屏存证
 
-1. 等待 2~3 秒，检测页面 Toast 提示（`.next-message`, `.next-toast`, `.next-feedback`）或检查页面上是否出现 `已于XX:XX保存了草稿`。
-2. 视口滚动到封面与草稿状态区域，调用 `take_screenshot` 保存当前页面截图作为存证。
-3. 输出结构化结果报告（文章标题、保存状态、草稿时间戳、封面图绑定状态等）。
+1. 静候 2~3 秒，等待阿里云平台原生自动保存机制生效；
+2. 捕获页面状态（如检查 `instance?.state?.draftTime` 或检测页面是否出现 `保存了草稿`）；
+3. 视口滚动到封面与标题状态区域，调用 `take_screenshot` 保存当前页面截图作为存证（如 `aliyun_draft_proof.png`）；
+4. **保留页面现场**：存证完成后，**严禁调用 `close_page` 或关闭标签页**，保持当前页面打开供人工复核；
+5. 输出结构化结果报告（文章标题、就绪状态、草稿时间戳、封面图绑定状态等）。
 
 ---
 

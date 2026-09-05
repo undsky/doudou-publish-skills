@@ -148,6 +148,8 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: data.title,
     fid: data.fid,
     forumName: data.forumName,

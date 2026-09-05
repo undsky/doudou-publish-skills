@@ -81,42 +81,14 @@ export function buildImagePostBrowserScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(400);
 
-  // 5. 定位 Shadow DOM 或主 DOM 下的「暂存离开」按钮并点击
-  const findDraftButton = () => {
-    const webComp = document.querySelector('xhs-publish-btn');
-    if (webComp && webComp._sr) {
-      const btn = webComp._sr.querySelector('button.ce-btn.white') || Array.from(webComp._sr.querySelectorAll('button')).find(b => b.innerText.includes('暂存离开'));
-      if (btn) return btn;
-    }
-    const directBtn = document.querySelector('button.draft, button.save-btn');
-    if (directBtn) return directBtn;
-    return Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '暂存离开');
-  };
-
-  let draftBtn = findDraftButton();
-  if (!draftBtn) {
-    for (let retry = 0; retry < 10; retry++) {
-      await sleep(500);
-      draftBtn = findDraftButton();
-      if (draftBtn) break;
-    }
-  }
-
-  if (!draftBtn) {
-    return { success: false, error: '未找到「暂存离开」按钮' };
-  }
-
-  console.log('[doudou-xiaohongshu] 悬停并点击「暂存离开」...');
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await sleep(400);
-  draftBtn.click();
+  // 5. 依托平台原生自动保存，平滑停留在当前编辑页供人工复核（严禁点击暂存离开跳出页面，严禁触发发布）
+  console.log('[doudou-xiaohongshu] 依托小红书原生自动保存，等待 2.5 秒并保留编辑页面...');
   await sleep(2500);
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     mode: 'image',
     title: meta.title,
     url: location.href,
@@ -223,42 +195,14 @@ export function buildVideoPostBrowserScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(400);
 
-  // 6. 定位 Shadow DOM 或主 DOM 下的「暂存离开」按钮并点击
-  const findDraftButton = () => {
-    const webComp = document.querySelector('xhs-publish-btn');
-    if (webComp && webComp._sr) {
-      const btn = webComp._sr.querySelector('button.ce-btn.white') || Array.from(webComp._sr.querySelectorAll('button')).find(b => b.innerText.includes('暂存离开'));
-      if (btn) return btn;
-    }
-    const directBtn = document.querySelector('button.draft, button.save-btn');
-    if (directBtn) return directBtn;
-    return Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '暂存离开');
-  };
-
-  let draftBtn = findDraftButton();
-  if (!draftBtn) {
-    for (let retry = 0; retry < 10; retry++) {
-      await sleep(500);
-      draftBtn = findDraftButton();
-      if (draftBtn) break;
-    }
-  }
-
-  if (!draftBtn) {
-    return { success: false, error: '未找到「暂存离开」按钮' };
-  }
-
-  console.log('[doudou-xiaohongshu] 悬停并点击「暂存离开」...');
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await sleep(400);
-  draftBtn.click();
+  // 6. 依托平台原生自动保存，平滑停留在当前编辑页供人工复核（严禁点击暂存离开跳出页面，严禁触发发布）
+  console.log('[doudou-xiaohongshu] 依托小红书原生自动保存，等待 2.5 秒并保留编辑页面...');
   await sleep(2500);
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     mode: 'video',
     title: cleanTitle,
     url: location.href,

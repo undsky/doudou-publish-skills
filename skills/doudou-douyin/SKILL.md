@@ -1,11 +1,11 @@
 ---
 name: doudou-douyin
-description: "通过 chrome-devtools-mcp 实现抖音发布视频、文章、图文到草稿箱功能。用户未明确指定模态时默认发布全部可用模态（视频 + 图文 + 文章），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。支持根据用户指定的 Markdown 文章及其关联视频（video/*.mp4）与同名资产目录，真实上传 MP4 视频或全套小红书/抖音图文卡片、高清封面（>=500px校验）、纯排版富文本正文（TipTap状态双向同步）、异步上传/转码就绪轮询、Slate/React Fiber 话题与描述同步，全流程模拟真实人类行为防风控并存证。"
+description: "通过 chrome-devtools-mcp 实现抖音自动填入视频、文章、图文发文页并依托平台原生自动保存功能。用户未明确指定模态时默认发布全部可用模态（视频 + 图文 + 文章），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。支持根据用户指定的 Markdown 文章及其关联视频（video/*.mp4）与同名资产目录，真实上传 MP4 视频或全套小红书/抖音图文卡片、高清封面（>=500px校验）、纯排版富文本正文（TipTap状态双向同步）、异步上传/转码就绪轮询、Slate/React Fiber 话题与描述同步，全流程模拟真实人类行为防风控，完成后保留标签页不发布。"
 ---
 
-# 抖音自动化发布草稿技能规范 (doudou-douyin)
+# 抖音自动化发布技能规范 (doudou-douyin)
 
-本技能通过 `chrome-devtools-mcp` 控制 Chrome 浏览器，实现抖音创作者平台（Creator Studio）的自动化草稿发布流程，支持**视频**、**图文**与**文章**三模态自动化发布。
+本技能通过 `chrome-devtools-mcp` 控制 Chrome 浏览器，实现抖音创作者平台（Creator Studio）的内容自动化填入全流程，支持**视频**、**图文**与**文章**三模态自动化发布。
 
 ---
 
@@ -112,8 +112,8 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
 3. **随机微延迟**：在表单聚焦、输入、点击之间插入 200ms ~ 600ms 随机延迟（`sleep(ms + Math.random() * 200)`）。
 4. **原生事件与状态双向同步**：文本输入必须派发 `input` 与 `change` 事件；富文本调用 TipTap/Slate/Selection 状态同步；话题标签保持精准绑定。
 5. **真实鼠标交互**：点击操作前先将元素 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 再执行 `click`。
-6. **确定性草稿保存与存证**：全流程终点统一点击「**暂存离开**」（严禁误触直接「发布」），并在完成暂存后截取存证图片（`douyin_video_draft_proof.png` / `douyin_image_draft_proof.png` / `douyin_draft_proof.png`）。
-7. **发布完成后保留页面（严禁自动关闭）**：暂存与截屏存证完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
+6. **安全隔离与自动保存机制**：抖音创作者平台具备输入实时自动保存机制。**彻底移除点击「暂存离开」按钮的操作**（防止页面跳出当前编辑器回到内容管理列表），**严格禁止误触直接「发布」**。全流程表单与资产注入完成后，平滑滚动视口审阅，静候平台自动保存生效，并截取当前编辑页存证图片（`douyin_video_draft_proof.png` / `douyin_image_draft_proof.png` / `douyin_draft_proof.png`）。
+7. **发布完成后保留页面（严禁自动关闭）**：填入与截屏存证完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
 
 ---
 
@@ -137,14 +137,14 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
 5. **封面智能处理**：
    - 默认采用平台智能抽帧推荐封面。
    - 若出现“设置横封面获更多流量”等弹窗，自动点击「暂不设置」跳过。
-6. **暂存草稿与存证**：
-   - 截取当前视频编辑状态截图保存至 `douyin_video_draft_proof.png`。
-   - 视口平滑滚动后，悬停并点击「**暂存离开**」，安全保存至草稿箱。
-   - 验证页面跳转回上传页并展示未发布草稿提示。
+6. **平滑滚动审阅与就绪存证**：
+   - 视口平滑滚动后，静候 2~3 秒待抖音原生自动保存生效；
+   - 严格绝不点击「暂存离开」（避免跳出编辑器），绝对禁止触碰「发布」；
+   - 截取当前视频编辑状态截图保存至 `douyin_video_draft_proof.png`，保留当前编辑页。
 
 ---
 
-### 模式 B：发布图文草稿（Image-Text Post）
+### 模式 B：发布图文（Image-Text Post）
 
 1. **导航页面与重置**：
    - 访问 `https://creator.douyin.com/creator-micro/content/upload?default-tab=3`。
@@ -157,13 +157,14 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
 4. **填充信息**：
    - 填写标题（严格限制 20 字以内）至 `input[placeholder*="添加作品标题"]`。
    - 填写描述与话题（严格限制 1000 字以内）至 `.zone-container.editor-kit-container`。
-5. **暂存草稿与存证**：
-   - 截取当前编辑状态截图保存至 `douyin_image_draft_proof.png`。
-   - 视口平滑滚动后，悬停并点击「**暂存离开**」，保存至草稿箱。
+5. **平滑滚动审阅与就绪存证**：
+   - 视口平滑滚动后，静候 2~3 秒待抖音原生自动保存生效；
+   - 严格绝不点击「暂存离开」，绝对禁止触碰「发布」；
+   - 截取当前编辑状态截图保存至 `douyin_image_draft_proof.png`，保留当前编辑页。
 
 ---
 
-### 模式 C：发布文章草稿（Long Article Post）
+### 模式 C：发布文章（Long Article Post）
 
 1. **导航页面与进入发文**：
    - 访问 `https://creator.douyin.com/creator-micro/content/upload?default-tab=5`。
@@ -179,9 +180,10 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
    - 验证头图与封面设置（`.addIcon-WtgoEN`）已自动同步绑定。
 5. **话题标签设置**：
    - 定位 `.topicSelector-MJsOhh` 的 React Fiber 实例，通过 `setItem(prev => ({ ...prev, long_article_topic: topicList }))` 同步话题。
-6. **暂存草稿与存证**：
-   - 截取当前文章编辑状态截图保存至 `douyin_draft_proof.png`。
-   - 视口平滑滚动后，悬停并点击「**暂存离开**」，保存至草稿箱。
+6. **平滑滚动审阅与就绪存证**：
+   - 视口平滑滚动后，静候 2~3 秒待抖音原生自动保存生效；
+   - 严格绝不点击「暂存离开」，绝对禁止触碰「发布」；
+   - 截取当前文章编辑状态截图保存至 `douyin_draft_proof.png`，保留当前编辑页。
 
 ---
 

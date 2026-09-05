@@ -1,11 +1,11 @@
 ---
 name: doudou-csdn
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发布到 CSDN 博客草稿箱（https://editor.csdn.net/md）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、原生 Markdown 文件流与 DOM 注入、分类专栏勾选、Mark-Selection 技术标签匹配、官方 CoverImage 封面绑定以及草稿保存状态存证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入 CSDN 博客发文页（https://editor.csdn.net/md）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、原生 Markdown 文件流与 DOM 注入、分类专栏勾选、Mark-Selection 技术标签匹配、官方 CoverImage 封面绑定以及平台原生自动保存就绪存证。
 ---
 
-# CSDN 博客文章自动发布到草稿技能 (doudou-csdn)
+# CSDN 博客文章自动发布技能 (doudou-csdn)
 
-本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文件发布至 **CSDN 博客创作者编辑器（https://editor.csdn.net/md ）的草稿箱**。
+本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文件发布至 **CSDN 博客创作者编辑器（https://editor.csdn.net/md ）**。
 
 技能严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、视口平滑滚动及悬停交互，避免被平台风控拦截。自动提取文章标题、摘要、分类专栏、技术标签、CDN 版 Markdown 正文以及宽屏封面图。
 
@@ -13,8 +13,9 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
 
 ## 核心规约与防风控原则
 
-1. **草稿安全隔离**：
-   - **严格限定仅点击「保存为草稿」/「保存草稿」按钮**，绝对不点击「发布文章」，确保所有内容必须经人工最终确认后再公开发布。
+1. **安全隔离与自动保存机制**：
+   - **依托平台原生自动保存**：CSDN Markdown 编辑器具备实时自动保存草稿机制。
+   - **移除发布时对草稿箱的操作**：发布设置抽屉配置完毕后，直接关闭抽屉，严禁主动寻找并点击「保存为草稿」按钮，**绝对不点击「发布文章」**，确保所有内容保留在当前编辑页就绪态，由人工最终确认与手动发布。
 2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 600~1500ms、点击悬停 300~500ms），严禁毫秒级并发。
    - **真实事件完整性**：对于表单与文本输入，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并同步 Element-UI 与 Vue 组件实例数据。
@@ -30,7 +31,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
    - **摘要**：提炼 80~200 字纯文本摘要（CSDN 限制 256 字以内）。
    - **分类专栏与标签**：依据文章内容智能推断分类专栏（如「AI编程」、「AI工具箱」、「n8n教程」、「Dify」等），并匹配 1~5 个官方技术标签（如「AI编程」、「人工智能」、「智能体」、「架构」等）。
 4. **发布完成后保留页面（严禁自动关闭）**：
-   - 草稿保存与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核草稿内容、补充登录或手动确认发布。
+   - 表单配置与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核内容、补充登录或手动确认发布。
    - 未登录、验证码拦截、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
 
 ---
@@ -48,8 +49,8 @@ flowchart TD
     S4 --> S5[步骤 5: 拟真点击「发布文章」打开发布设置抽屉]
     S5 --> S6[步骤 6: 拟真配置文章标签与分类专栏]
     S6 --> S7[步骤 7: 绑定/上传文章封面]
-    S7 --> S8[步骤 8: 填写文章摘要并点击「保存为草稿」]
-    S8 --> S9[步骤 9: 捕获保存状态与 Article ID 截屏存证]
+    S7 --> S8[步骤 8: 填写文章摘要并关闭设置抽屉]
+    S8 --> S9[步骤 9: 平滑滚动审阅、静候自动保存生效并截屏存证]
 ```
 
 ### 步骤 0：解析 Markdown 资产与封面
@@ -144,23 +145,25 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 
 ---
 
-### 步骤 8：填写文章摘要并安全点击「保存为草稿」
+### 步骤 8：填写文章摘要并关闭设置抽屉
 
 1. 聚焦摘要输入框 `textarea.el-textarea__inner` 填入精炼摘要（256 字以内），派发 `input` 与 `change` 事件；
-2. **安全隔离核心操作**：
-   - 寻找面板底部的「保存为草稿」按钮（`button.btn-b-normal.ml16`）；
-   - 视口滚动并派发 `mouseover`/`mouseenter` 悬停 400~700ms；
-   - 点击「保存为草稿」，**严格避免触碰「发布文章」红钮**；
-3. 等待 3 秒让 CSDN 完成云端草稿存储；
-4. 点击「取消」或关闭按钮退出弹窗。
+2. **安全隔离核心规约**：
+   - 寻找面板右上角或底部的「取消」或关闭按钮（`cancelBtn` / `modal__close-button`）并点击，退出弹窗回到 Markdown 编辑器；
+   - **严禁主动寻找并点击「保存为草稿」按钮**，**绝对避免触碰「发布文章」按钮**。
 
 ---
 
-### 步骤 9：捕获保存状态与 Article ID 截屏存证
+### 步骤 9：平滑滚动审阅、静候自动保存生效并截屏存证
 
-1. 从当前 URL 中提取保存后的 `articleId`（`https://editor.csdn.net/md?articleId=<article_id>`）；
-2. 调用 `take_screenshot` 保存当前页面截图作为存证；
-3. 输出结构化结果报告（文章标题、草稿 ID、专栏、标签、摘要、封面状态、操作日志）。
+1. 模拟人工视口平滑滚动审阅排版：
+   - 向下滚动：`window.scrollTo({ top: 300, behavior: 'smooth' });` 停顿 400~700ms；
+   - 滚回顶部：`window.scrollTo({ top: 0, behavior: 'smooth' });`；
+2. 静候 2~3 秒，让 CSDN Markdown 编辑器原生自动保存机制生效；
+3. 从当前 URL 中提取 `articleId`（`https://editor.csdn.net/md?articleId=<article_id>`）；
+4. 调用 `take_screenshot` 保存当前就绪页面截图作为存证（`csdn_draft_proof.png`）；
+5. **保留页面现场**：存证完成后，**严禁调用 `close_page` 或关闭标签页**，保持当前页面打开供人工复核；
+6. 输出结构化结果报告（文章标题、就绪状态、articleId、专栏、标签、摘要、封面状态、操作日志）。
 
 ---
 

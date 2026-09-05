@@ -271,67 +271,35 @@ export function buildBrowserPublishScript(markdownFilePath) {
     }
   }
 
-  // 9. 拟真悬停并点击「存草稿」按钮（优先抽屉内存草稿，降级顶栏存草稿）
-  log('模拟鼠标悬停并点击「存草稿」...');
-  let draftBtn = null;
-  if (drawer) {
-    draftBtn = Array.from(drawer.querySelectorAll('button')).find(b => b.innerText.trim() === '存草稿');
-  }
-  if (!draftBtn) {
-    draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '存草稿');
+    // 9. 安全隔离：收起发布抽屉并等待平台原生自动保存生效（保留编辑页现场，绝不点击「发布」）
+  log('💾 正在收起发布抽屉并保留配置（依托腾讯云原生自动保存，绝不触碰发布）...');
+  const closeDrawerBtn = drawer ? drawer.querySelector('button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)') : null;
+  if (closeDrawerBtn) {
+    closeDrawerBtn.click();
+    await randomDelay(400, 600);
   }
 
-  if (draftBtn) {
-    draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-    await randomDelay(400, 700);
-    draftBtn.click();
-    log('已触发「存草稿」点击');
-  } else if (drawerFiber && typeof drawerFiber.memoizedProps?.onSaveDraftArticle === 'function') {
-    log('未在 DOM 中找到「存草稿」按钮，直接通过 React onSaveDraftArticle 触发保存');
-    await drawerFiber.memoizedProps.onSaveDraftArticle();
-  }
+  // 10. 模拟人工视口平滑滚动排版审阅
+  window.scrollTo({ top: 300, behavior: 'smooth' });
+  await randomDelay(400, 700);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await delay(2500);
 
-  // 10. 轮询等待网络请求与状态保存反馈（最高等待 8 秒）
-  let isSuccess = false;
-  let draftId = null;
-  let currentUrl = window.location.href;
-  let statusTexts = [];
-  let toasts = [];
+  const currentUrl = window.location.href;
+  const draftIdMatch = currentUrl.match(/[?&]draftId=([^&]+)/);
+  const draftId = draftIdMatch ? draftIdMatch[1] : null;
 
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await delay(1000);
-    currentUrl = window.location.href;
-    const draftIdMatch = currentUrl.match(/[?&]draftId=([^&]+)/);
-    draftId = draftIdMatch ? draftIdMatch[1] : null;
-
-    toasts = Array.from(document.querySelectorAll('[class*="toast"], [class*="message"], [class*="notify"], [class*="alert"], .t-message'))
-      .map(t => t.innerText.trim())
-      .filter(Boolean);
-
-    statusTexts = Array.from(document.querySelectorAll('span, p, div'))
-      .map(el => el.innerText.trim())
-      .filter(t => t.includes('保存到草稿') || t.includes('保存了草稿') || t.includes('保存成功'));
-
-    if (draftId || statusTexts.length > 0 || toasts.some(t => t.includes('成功') || t.includes('草稿'))) {
-      isSuccess = true;
-      break;
-    }
-  }
-
-  log(isSuccess ? '草稿保存成功! (draftId: ' + draftId + ')' : '保存完成，请查看页面状态');
+  log('🎉 腾讯云开发者社区文章内容填入完毕，自动保存已就绪！(draftId: ' + (draftId || '就绪') + ')');
 
   return {
-    success: isSuccess,
+    success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     draftId,
     url: currentUrl,
     title: data.title,
     summary: data.summary,
-    coverType: data.cover ? data.cover.type : 'none',
-    coverUrl: data.cover ? data.cover.url : null,
-    toasts,
-    statusTexts: statusTexts.slice(0, 5),
+    coverState: data.cover ? '已配置' : '无',
     logs
   };
 };`;

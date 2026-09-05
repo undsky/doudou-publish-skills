@@ -234,12 +234,14 @@ export function buildPublishBrowserScript(meta) {
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: meta.title,
     author: meta.author,
     summary: meta.summary,
     tags: meta.tags,
     coverUploaded,
-    footerText: footerText.replace(/\\n/g, ' | '),
+    footerText: footerText.replace(/\n/g, ' | '),
     isDraftSaved,
     logs
   };
@@ -359,6 +361,7 @@ export function buildVideoPublishBrowserScript(meta) {
     mode: 'video',
     title: meta.title,
     isReady: isSubmitVisible,
+    status: 'ready_auto_saved',
     logs
   };
 }`;

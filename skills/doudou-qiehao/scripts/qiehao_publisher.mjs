@@ -402,80 +402,31 @@ export function buildPublishBrowserScript(meta) {
     }
   }
 
-  // 7. 点击「存草稿」按钮并校验状态
-  log('💾 正在保存至企鹅号草稿箱...');
-  let saved = false;
-  const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText?.trim() === '存草稿');
-  if (saveBtn) {
-    await simulateClick(saveBtn);
-    const saveHandlers = getReactHandler(saveBtn);
-    if (saveHandlers && typeof saveHandlers.onClick === 'function') {
-      try {
-        saveHandlers.onClick({
-          target: saveBtn,
-          currentTarget: saveBtn,
-          preventDefault() {},
-          stopPropagation() {},
-          persist() {}
-        });
-      } catch (e) {}
-    }
-    
-    // 检查并处理可能出现的 AI生成声明弹窗
-    const handleAiDeclaration = async () => {
-      const dialog = document.querySelector('.omui-dialog');
-      if (dialog && dialog.innerText?.includes('AI生成声明')) {
-        const submitBtn = Array.from(dialog.querySelectorAll('button')).find(b => b.innerText?.trim() === '提交');
-        if (submitBtn) {
-          submitBtn.click();
-          log('✅ 已自动确认并提交「AI生成声明」合规弹窗');
-          await sleep(500);
-        }
-      }
-    };
-    await handleAiDeclaration();
-
-    // 等待并检查提示信息
-    for (let i = 0; i < 6; i++) {
-      await sleep(600);
-      await handleAiDeclaration();
-      const msgs = Array.from(document.querySelectorAll('.tool_message-cls1f3u-, .omui-message, .omui-notification, [class*="message"]')).map(m => m.innerText?.trim());
-      if (msgs.some(m => m && (m.includes('已保存') || m.includes('保存成功')))) {
-        saved = true;
-        log('✅ 捕获到草稿保存成功提示: 已保存');
-        break;
-      }
-    }
-    if (!saved) {
-      saved = true; // 企鹅号 editorCache 自动同步机制
-      log('✅ 已触发草稿保存请求');
-    }
-  } else {
-    return {
-      success: false,
-      error: '未能找到「存草稿」按钮',
-      logs
-    };
-  }
-
-  // 8. 滚动至顶部以展示完整页面
+  // 7. 模拟视口平滑滚动审阅排版并等待企鹅号原生自动保存生效（保留编辑页，绝不点击「存草稿」或「发表」）
+  log('正在模拟人工视口平滑滚动审阅排版...');
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  await sleep(800);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(400);
+  await sleep(500);
+
+  log('正在等待企鹅号原生自动保存生效 (保留在编辑页)...');
+  await sleep(2500);
 
   // 提取正文字数
   const wordCountEl = document.querySelector('.tool_publish_buttons_text-cls3VQdb, .tool_message-cls1f3u-');
   const wordCount = wordCountEl ? wordCountEl.innerText : '已统计';
 
-  log('🎉 企鹅号图文草稿发布流程执行完毕！');
+  log('🎉 企鹅号图文内容填入完毕，平台原生自动保存已就绪！');
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: meta.title,
     wordCount: wordCount,
     category: meta.category,
     tags: meta.tags,
     coverUploaded: coverUploaded,
-    status: '已成功保存至企鹅号草稿箱',
     logs
   };
 };`;

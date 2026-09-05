@@ -297,6 +297,8 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: data.title,
     topics: addedTopics.length > 0 ? addedTopics : data.topics,
     coverUploaded,

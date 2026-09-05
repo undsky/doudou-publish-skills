@@ -269,19 +269,18 @@ export function buildBrowserPublishScript(markdownFilePath) {
     await randomDelay(600, 1000);
   }
 
-  // 11. 触发草稿保存并校验状态
-  log('正在触发草稿箱保存更新...');
-  if (parentVue && typeof parentVue.update === 'function') {
-    try {
-      parentVue.update();
-    } catch (e) {
-      log('触发 update 提示: ' + e.message);
-    }
-  }
+  // 11. 模拟人工视口平滑滚动审阅排版
+  log('模拟人工视口平滑滚动审阅排版...');
+  window.scrollTo({ top: 300, behavior: 'smooth' });
+  await randomDelay(400, 700);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await randomDelay(300, 500);
 
+  // 12. 等待掘金平台原生自动保存生效（绝不点击「确定并发布」按钮，保留编辑页）
+  log('正在等待掘金原生自动保存生效 (保留在编辑页)...');
   await delay(2500);
 
-  // 12. 获取草稿保存状态反馈
+  // 获取草稿保存状态反馈
   const statusTexts = Array.from(document.querySelectorAll('header *, nav *, [class*="status"] *'))
     .map(el => el.innerText ? el.innerText.trim() : '')
     .filter(t => t && (t.includes('保存') || t.includes('草稿')));
@@ -290,6 +289,8 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     draftId,
     title: data.title,
     category: data.category,

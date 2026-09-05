@@ -176,22 +176,14 @@ export function buildArticleBrowserScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(400);
 
-  // 8. 点击「暂存离开」保存草稿
-  const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '暂存离开');
-  if (!draftBtn) {
-    return { success: false, error: '未找到「暂存离开」按钮' };
-  }
-
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await sleep(400);
-  draftBtn.click();
+  // 8. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
+  console.log('[doudou-douyin] 文章已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
   await sleep(2500);
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: cleanTitle,
     summary: cleanSummary,
     url: location.href,
@@ -310,22 +302,14 @@ export function buildImagePostEditorScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(300);
 
-  // 5. 点击「暂存离开」保存草稿
-  const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '暂存离开');
-  if (!draftBtn) {
-    return { success: false, error: '未找到「暂存离开」按钮' };
-  }
-
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await sleep(400);
-  draftBtn.click();
+  // 5. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
+  console.log('[doudou-douyin] 图文卡片与文案已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
   await sleep(2500);
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: cleanTitle,
     uploadFinished,
     url: location.href,
@@ -452,22 +436,14 @@ export function buildVideoPostEditorScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(300);
 
-  // 6. 点击「暂存离开」保存草稿
-  const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '暂存离开');
-  if (!draftBtn) {
-    return { success: false, error: '未找到「暂存离开」按钮' };
-  }
-
-  draftBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  draftBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  draftBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await sleep(400);
-  draftBtn.click();
+  // 6. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
+  console.log('[doudou-douyin] 视频及作品信息已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
   await sleep(2500);
 
   return {
     success: true,
+    isReady: true,
+    status: 'ready_auto_saved',
     title: cleanTitle,
     uploadFinished,
     url: location.href,
