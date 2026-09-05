@@ -187,6 +187,55 @@ export function resolveCoverImage(markdownFilePath, content) {
  * 解析 Markdown 及其关联资产
  * @param {string} filePath 
  */
+/**
+ * 源库分类目录名 -> CSDN 分类专栏名的映射
+ * 键为 `mds/<分类>/` 的目录名（小写比对）
+ */
+export const COLUMN_BY_SOURCE_DIR = {
+  aicoding: 'AI编程',
+  aitool: 'AI工具箱',
+  dify: 'Dify',
+  n8n: 'n8n教程',
+  agent: '智能体',
+  doudou: '豆豆',
+  'ruoyi-eggjs': 'RuoYi-Eggjs',
+  'ruoyi-springboot3': 'RuoYi-SpringBoot3'
+};
+
+/**
+ * 推断 CSDN 分类专栏名
+ * 优先取源文件所在的分类目录（`mds/<分类>/xxx.md`），无法命中时按标题与正文关键词兜底。
+ * 返回值需与页面上的专栏名完全一致才会被勾选；不匹配时 publisher 会保留现有专栏设置。
+ * @param {string} filePath
+ * @param {string} title
+ * @param {string} content
+ * @returns {string}
+ */
+export function inferCategoryColumn(filePath, title = '', content = '') {
+  // 1. 源目录优先（含产物同名目录的场景，向上多取一层）
+  const segments = path.resolve(filePath).split(path.sep).map(s => s.toLowerCase());
+  for (let i = segments.length - 2; i >= 0 && i >= segments.length - 4; i--) {
+    const hit = COLUMN_BY_SOURCE_DIR[segments[i]];
+    if (hit) return hit;
+  }
+
+  // 2. 关键词兜底
+  const fullText = `${title} ${content.slice(0, 800)}`.toLowerCase();
+  const rules = [
+    { column: 'Dify', keywords: ['dify'] },
+    { column: 'n8n教程', keywords: ['n8n'] },
+    { column: 'RuoYi-SpringBoot3', keywords: ['ruoyi-springboot3', 'ruoyi springboot', 'springboot3'] },
+    { column: 'RuoYi-Eggjs', keywords: ['ruoyi-eggjs', 'eggjs'] },
+    { column: 'AI工具箱', keywords: ['工具箱', 'mcp', '插件', 'devtools', '效率工具'] },
+    { column: 'AI编程', keywords: ['ai编程', 'aicoding', 'claude code', 'cursor', 'copilot', 'agent', '智能体', '大模型', 'llm', 'prompt'] }
+  ];
+  for (const item of rules) {
+    if (item.keywords.some(k => fullText.includes(k))) return item.column;
+  }
+
+  return 'AI编程';
+}
+
 export function parseArticle(filePath) {
   const absPath = path.resolve(filePath);
   if (!fs.existsSync(absPath)) {
@@ -211,6 +260,7 @@ export function parseArticle(filePath) {
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
   const tags = [];
+  const categoryColumn = inferCategoryColumn(absPath, title, rawContent);
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免 CSDN 编辑器标题与正文重复）
@@ -226,6 +276,7 @@ export function parseArticle(filePath) {
     title,
     summary,
     tags,
+    categoryColumn,
     cover,
     isCdnVersion,
     bodyContent,

@@ -489,8 +489,42 @@ export function convertMarkdownToBilibiliHtml(markdown, baseDir) {
 }
 
 /**
+ * 从标题与正文派生 1~3 个视频标签（B 站投稿要求至少一个标签）
+ * 命中不到任何关键词时返回空数组，由调用方决定是否留空交人工补填。
+ * @param {string} content
+ * @param {string} title
+ * @returns {string[]}
+ */
+export function inferTopics(content, title = '') {
+  const fullText = `${title} ${content.slice(0, 1500)}`.toLowerCase();
+
+  const rules = [
+    { topic: 'AI', keywords: ['ai', '人工智能', 'aigc'] },
+    { topic: '大模型', keywords: ['大模型', 'llm', 'gpt', 'claude', 'deepseek', 'qwen'] },
+    { topic: '智能体', keywords: ['智能体', 'agent', 'mcp'] },
+    { topic: '编程', keywords: ['编程', '代码', 'coding', '开发'] },
+    { topic: '前端', keywords: ['vue', 'react', 'javascript', 'typescript', '前端'] },
+    { topic: '后端', keywords: ['java', 'spring', 'golang', 'python', '后端', '微服务'] },
+    { topic: '效率工具', keywords: ['n8n', '自动化', '工作流', '效率', '工具'] },
+    { topic: '运维', keywords: ['docker', 'kubernetes', 'k8s', 'linux', 'nginx', '运维'] },
+    { topic: '数据库', keywords: ['mysql', 'redis', 'postgres', 'mongodb', '数据库'] },
+    { topic: '教程', keywords: ['教程', '实战', '入门', '指南', '手把手'] }
+  ];
+
+  const hits = [];
+  for (const item of rules) {
+    if (item.keywords.some(k => fullText.includes(k))) {
+      hits.push(item.topic);
+      if (hits.length >= 3) break;
+    }
+  }
+
+  return hits;
+}
+
+/**
  * 完整解析 Markdown 及其关联资产（异步支持网络图片预拉取为 Base64）
- * @param {string} filePath 
+ * @param {string} filePath
  */
 export async function parseArticle(filePath) {
   const absPath = path.resolve(filePath);
@@ -515,7 +549,7 @@ export async function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const topics = [];
+  const topics = inferTopics(rawContent, title);
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 若封面是远程 URL 且无 Base64，Node 端预拉取

@@ -98,3 +98,33 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联
 
 - [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、定位视频成片（.mp4）/长文标题（防超长截断）、摘要、排版 HTML、高清封面及视频描述，`tags` 保持 `[]`。
 - [scripts/toutiao_publisher.mjs](scripts/toutiao_publisher.mjs)：浏览器注入脚本生成器（涵盖长文图文 Sylph/ProseMirror 状态双向同步与视频上传就绪核验脚本）。
+
+### Agent 调用范式
+
+```javascript
+import { parseAllAssets } from "./scripts/parser.mjs";
+import {
+  buildPublishBrowserScript,
+  buildPrepareVideoUploadBrowserScript,
+  buildWaitVideoUploadReadyBrowserScript,
+  buildVideoPublishBrowserScript,
+} from "./scripts/toutiao_publisher.mjs";
+
+// 1. 解析目标 Markdown（parseAllAssets 为同步函数）
+const meta = parseAllAssets(markdownFilePath);
+
+// 2A. 模式 A：长文图文草稿
+const articleRes = await evaluate_script({
+  pageId,
+  function: buildPublishBrowserScript(meta),
+});
+
+// 2B. 模式 B：视频作品（平台无草稿按钮，仅保留就绪态供人工确认发布）
+await evaluate_script({ pageId, function: buildPrepareVideoUploadBrowserScript() });
+await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
+await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(120) });
+const videoRes = await evaluate_script({
+  pageId,
+  function: buildVideoPublishBrowserScript(meta),
+});
+```

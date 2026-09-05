@@ -22,7 +22,7 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动发布视频
 | :--- | :--- | :--- |
 | **源 Markdown 文章** | `path/to/article_name.md` | 原始文章 |
 | **视频成片文件** | `path/to/article_name/video/[video_name].mp4` 或 `[article_name].mp4` | 成品高清视频（优先识别 `video_manifest.json` 登记输出） |
-| **视频作品短标题** | `<= 20 字`（严格截断） | 自动清洗 Markdown 符号与非规范标点，超长自动截断为 17 字 + `...`（共 20 字） |
+| **视频作品短标题** | `<= 16 字`（严格截断） | 自动清洗 Markdown 符号与非规范标点，超长自动截断为 15 字 + `…`（共 16 字，对齐视频号短标题上限） |
 | **视频作品描述** | `<= 1000 字` | 核心要点梳理，保留多行分段排版（换行 `<p>` 或 `<div>` 分段），严禁单行塌陷 |
 | **标签处理约定** | `tags = []` | 遵循多平台发布技能合集规范，保持空数组 |
 
@@ -62,7 +62,7 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动发布视频
 3. **轮询等待视频上传完毕**：
    - 异步监听视频上传完成标志（如进度条结束、生成视频缩略图预览、或「保存草稿」按钮解除 disabled 状态）。
 4. **注入短标题与分段描述**：
-   - 填入清洗后的短标题（<= 20 字）至短标题输入框并触发数据同步。
+   - 填入清洗后的短标题（<= 16 字）至短标题输入框并触发数据同步。
    - 填入多行结构化描述（<= 1000 字）至 `.input-editor`，确保每行分段清晰无挤压。
 5. **暂存草稿与存证**：
    - 检查「保存草稿」按钮状态，执行拟真点击。
@@ -75,5 +75,34 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动发布视频
 
 以下路径均相对本技能目录（`SKILL.md` 所在目录）：
 
-- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、定位视频成片（.mp4）、提取规范短标题（<= 20 字）、结构化多行描述（<= 1000 字），`tags` 保持 `[]`。
+- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、定位视频成片（.mp4）、提取规范短标题（<= 16 字）、结构化多行描述（<= 1000 字），`tags` 保持 `[]`。
 - [scripts/shipinhao_publisher.mjs](scripts/shipinhao_publisher.mjs)：生成视频号自动化发布浏览器脚本（含 iframe 穿透、异步就绪轮询、Vue 状态同步与草稿保存）。
+
+### Agent 调用范式
+
+```javascript
+import { parseAllAssets } from "./scripts/parser.mjs";
+import {
+  buildPrepareUploadBrowserScript,
+  buildWaitUploadReadyBrowserScript,
+  buildSaveDraftBrowserScript,
+} from "./scripts/shipinhao_publisher.mjs";
+
+// 1. 解析视频成片与文案（parseAllAssets 为同步函数）
+const meta = parseAllAssets(markdownFilePath);
+
+// 2. 暴露 iframe 内的上传控件并取得 uid
+await evaluate_script({ pageId, function: buildPrepareUploadBrowserScript() });
+
+// 3. 派发真实视频文件上传
+await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
+
+// 4. 轮询等待上传与转码就绪（参数为最长等待秒数）
+await evaluate_script({ pageId, function: buildWaitUploadReadyBrowserScript(120) });
+
+// 5. 填入短标题与描述并保存草稿
+const saveRes = await evaluate_script({
+  pageId,
+  function: buildSaveDraftBrowserScript(meta),
+});
+```

@@ -117,15 +117,16 @@ export function extractImagePostDescription(content, title = '', tags = []) {
   }
 
   const tagString = tags.map(t => `#${t}`).join(' ');
-  const summary = extractArticleSummary(content);
+  const summary = extractArticleSummary(content, title);
 
-  let desc = `${summary}\n\n📌 核心要点梳理：\n`;
+  // 要点提取不到时省略整段，不编造与文章无关的固定要点
+  let desc = summary;
   if (points.length > 0) {
-    desc += points.map((p, idx) => `${idx + 1}. ${p}`).join('\n') + '\n\n';
-  } else {
-    desc += `1. 工业级标准化封装实践\n2. 明确交付契约与微服务编排\n3. 代码自动化守门与高质量输出\n\n`;
+    desc += `\n\n📌 核心要点梳理：\n` + points.map((p, idx) => `${idx + 1}. ${p}`).join('\n');
   }
-  desc += `${tagString}`;
+  if (tagString) {
+    desc += `\n\n${tagString}`;
+  }
 
   return desc.length > 950 ? desc.substring(0, 940) + '...' : desc;
 }
@@ -139,6 +140,53 @@ export function extractImagePostDescription(content, title = '', tags = []) {
  */
 export function extractVideoDescription(content, title = '', tags = []) {
   return extractImagePostDescription(content, title, tags);
+}
+
+/**
+ * 将 Markdown 中的本地图片引用替换为 CDN 链接
+ * 仅作用于 `![alt](target)` / `[text](target)` 的 target 位置与 HTML `src="target"`，
+ * 不做全文裸文件名替换，避免正文叙述或代码块里出现同名字符串时被误伤。
+ * @param {string} markdown
+ * @param {Array<{ cdn_url?: string, local_path?: string }>} assets
+ * @returns {string}
+ */
+export function replaceLocalAssetsWithCdn(markdown, assets) {
+  if (!markdown || !Array.isArray(assets) || assets.length === 0) return markdown;
+
+  // 建立「本地路径 / 裸文件名」到 CDN 链接的映射（完整路径优先命中）
+  const byPath = new Map();
+  const byName = new Map();
+  for (const asset of assets) {
+    if (!asset || !asset.cdn_url || !asset.local_path) continue;
+    const normalized = asset.local_path.replace(/\\/g, '/');
+    byPath.set(normalized, asset.cdn_url);
+    byPath.set(`./${normalized}`, asset.cdn_url);
+    const relName = path.basename(normalized);
+    if (!byName.has(relName)) byName.set(relName, asset.cdn_url);
+  }
+  if (byPath.size === 0) return markdown;
+
+  const lookup = (target) => {
+    const clean = target.trim().replace(/^<|>$/g, '').replace(/\\/g, '/');
+    if (/^(https?:)?\/\//.test(clean) || clean.startsWith('data:')) return null;
+    // 剥离 URL 查询串与锚点后再比对
+    const bare = clean.split(/[?#]/)[0];
+    return byPath.get(bare) || byPath.get(bare.replace(/^\.\//, '')) || byName.get(path.basename(bare)) || null;
+  };
+
+  // 1. Markdown 图片与链接的 target 位置
+  let result = markdown.replace(/(!?\[[^\]]*\]\()([^)\s]+)([^)]*\))/g, (full, prefix, target, suffix) => {
+    const cdn = lookup(target);
+    return cdn ? `${prefix}${cdn}${suffix}` : full;
+  });
+
+  // 2. 内联 HTML 的 src 属性
+  result = result.replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']+)\2/gi, (full, prefix, quote, target) => {
+    const cdn = lookup(target);
+    return cdn ? `${prefix}${quote}${cdn}${quote}` : full;
+  });
+
+  return result;
 }
 
 /**
@@ -166,13 +214,7 @@ export function resolveArticleHtml(markdownFilePath) {
       try {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
         if (Array.isArray(manifest.assets)) {
-          for (const asset of manifest.assets) {
-            if (asset.cdn_url && asset.local_path) {
-              const relName = path.basename(asset.local_path);
-              targetMarkdown = targetMarkdown.replaceAll(asset.local_path, asset.cdn_url);
-              targetMarkdown = targetMarkdown.replaceAll(relName, asset.cdn_url);
-            }
-          }
+          targetMarkdown = replaceLocalAssetsWithCdn(targetMarkdown, manifest.assets);
         }
       } catch (e) {}
     }

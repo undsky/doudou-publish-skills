@@ -56,7 +56,7 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
  * @param {string} content 
  * @returns {string}
  */
-export function extractArticleSummary(content) {
+export function extractArticleSummary(content, fallbackTitle = '') {
   const lines = content.split('\n');
   const textBlocks = [];
   let isCodeBlock = false;
@@ -88,7 +88,12 @@ export function extractArticleSummary(content) {
 
   let summary = textBlocks.join(' ');
   if (!summary) {
-    summary = '深度解析核心技术与工程落地实践，探索高质量智能体与自媒体自动化交付流程。';
+    // 无可提取正文时，从文章自身派生摘要（标题 + 首个有效文本行），不注入与内容无关的固定文案
+    const firstMeaningful = content.split('\n')
+      .map(l => l.trim().replace(/^[#>*\-\d.\s]+/, '').replace(/[*_`~]/g, '').trim())
+      .find(l => l.length > 0 && !l.startsWith('!['));
+    const parts = [fallbackTitle, firstMeaningful].filter(Boolean);
+    summary = [...new Set(parts)].join(' ').trim();
   }
   if (summary.length > 100) {
     summary = summary.substring(0, 98) + '...';
@@ -193,6 +198,53 @@ export function markdownToSemanticHtml(markdown) {
 }
 
 /**
+ * 将 Markdown 中的本地图片引用替换为 CDN 链接
+ * 仅作用于 `![alt](target)` / `[text](target)` 的 target 位置与 HTML `src="target"`，
+ * 不做全文裸文件名替换，避免正文叙述或代码块里出现同名字符串时被误伤。
+ * @param {string} markdown
+ * @param {Array<{ cdn_url?: string, local_path?: string }>} assets
+ * @returns {string}
+ */
+export function replaceLocalAssetsWithCdn(markdown, assets) {
+  if (!markdown || !Array.isArray(assets) || assets.length === 0) return markdown;
+
+  // 建立「本地路径 / 裸文件名」到 CDN 链接的映射（完整路径优先命中）
+  const byPath = new Map();
+  const byName = new Map();
+  for (const asset of assets) {
+    if (!asset || !asset.cdn_url || !asset.local_path) continue;
+    const normalized = asset.local_path.replace(/\\/g, '/');
+    byPath.set(normalized, asset.cdn_url);
+    byPath.set(`./${normalized}`, asset.cdn_url);
+    const relName = path.basename(normalized);
+    if (!byName.has(relName)) byName.set(relName, asset.cdn_url);
+  }
+  if (byPath.size === 0) return markdown;
+
+  const lookup = (target) => {
+    const clean = target.trim().replace(/^<|>$/g, '').replace(/\\/g, '/');
+    if (/^(https?:)?\/\//.test(clean) || clean.startsWith('data:')) return null;
+    // 剥离 URL 查询串与锚点后再比对
+    const bare = clean.split(/[?#]/)[0];
+    return byPath.get(bare) || byPath.get(bare.replace(/^\.\//, '')) || byName.get(path.basename(bare)) || null;
+  };
+
+  // 1. Markdown 图片与链接的 target 位置
+  let result = markdown.replace(/(!?\[[^\]]*\]\()([^)\s]+)([^)]*\))/g, (full, prefix, target, suffix) => {
+    const cdn = lookup(target);
+    return cdn ? `${prefix}${cdn}${suffix}` : full;
+  });
+
+  // 2. 内联 HTML 的 src 属性
+  result = result.replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']+)\2/gi, (full, prefix, quote, target) => {
+    const cdn = lookup(target);
+    return cdn ? `${prefix}${quote}${cdn}${quote}` : full;
+  });
+
+  return result;
+}
+
+/**
  * 解析排版正文 HTML
  * 优先读取同名目录下 `[article_name]_cdn.md` 或结合 `cdn_manifest.json` 转换为百家号标准语义富文本 HTML
  * @param {string} markdownFilePath 
@@ -217,13 +269,7 @@ export function resolveArticleHtml(markdownFilePath) {
       try {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
         if (Array.isArray(manifest.assets)) {
-          for (const asset of manifest.assets) {
-            if (asset.cdn_url && asset.local_path) {
-              const relName = path.basename(asset.local_path);
-              targetMarkdown = targetMarkdown.replaceAll(asset.local_path, asset.cdn_url);
-              targetMarkdown = targetMarkdown.replaceAll(relName, asset.cdn_url);
-            }
-          }
+          targetMarkdown = replaceLocalAssetsWithCdn(targetMarkdown, manifest.assets);
         }
       } catch (e) {
         console.warn('[parser] 读取 cdn_manifest.json 异常:', e.message);
@@ -370,7 +416,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
 
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const articleTitle = extractArticleTitle(rawContent);
-  const articleSummary = extractArticleSummary(rawContent);
+  const articleSummary = extractArticleSummary(rawContent, articleTitle);
   const tags = [];
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);

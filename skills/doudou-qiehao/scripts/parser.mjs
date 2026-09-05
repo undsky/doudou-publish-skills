@@ -56,7 +56,7 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
  * @param {string} content 
  * @returns {string}
  */
-export function extractArticleSummary(content) {
+export function extractArticleSummary(content, fallbackTitle = '') {
   const lines = content.split('\n');
   const textBlocks = [];
   let isCodeBlock = false;
@@ -88,7 +88,12 @@ export function extractArticleSummary(content) {
 
   let summary = textBlocks.join(' ');
   if (!summary) {
-    summary = '深度解析核心技术与工程落地实践，探索高质量智能体与自媒体自动化交付流程。';
+    // 无可提取正文时，从文章自身派生摘要（标题 + 首个有效文本行），不注入与内容无关的固定文案
+    const firstMeaningful = content.split('\n')
+      .map(l => l.trim().replace(/^[#>*\-\d.\s]+/, '').replace(/[*_`~]/g, '').trim())
+      .find(l => l.length > 0 && !l.startsWith('!['));
+    const parts = [fallbackTitle, firstMeaningful].filter(Boolean);
+    summary = [...new Set(parts)].join(' ').trim();
   }
   if (summary.length > 100) {
     summary = summary.substring(0, 98) + '...';
@@ -180,6 +185,53 @@ export function markdownToSemanticHtml(markdown) {
 }
 
 /**
+ * 将 Markdown 中的本地图片引用替换为 CDN 链接
+ * 仅作用于 `![alt](target)` / `[text](target)` 的 target 位置与 HTML `src="target"`，
+ * 不做全文裸文件名替换，避免正文叙述或代码块里出现同名字符串时被误伤。
+ * @param {string} markdown
+ * @param {Array<{ cdn_url?: string, local_path?: string }>} assets
+ * @returns {string}
+ */
+export function replaceLocalAssetsWithCdn(markdown, assets) {
+  if (!markdown || !Array.isArray(assets) || assets.length === 0) return markdown;
+
+  // 建立「本地路径 / 裸文件名」到 CDN 链接的映射（完整路径优先命中）
+  const byPath = new Map();
+  const byName = new Map();
+  for (const asset of assets) {
+    if (!asset || !asset.cdn_url || !asset.local_path) continue;
+    const normalized = asset.local_path.replace(/\\/g, '/');
+    byPath.set(normalized, asset.cdn_url);
+    byPath.set(`./${normalized}`, asset.cdn_url);
+    const relName = path.basename(normalized);
+    if (!byName.has(relName)) byName.set(relName, asset.cdn_url);
+  }
+  if (byPath.size === 0) return markdown;
+
+  const lookup = (target) => {
+    const clean = target.trim().replace(/^<|>$/g, '').replace(/\\/g, '/');
+    if (/^(https?:)?\/\//.test(clean) || clean.startsWith('data:')) return null;
+    // 剥离 URL 查询串与锚点后再比对
+    const bare = clean.split(/[?#]/)[0];
+    return byPath.get(bare) || byPath.get(bare.replace(/^\.\//, '')) || byName.get(path.basename(bare)) || null;
+  };
+
+  // 1. Markdown 图片与链接的 target 位置
+  let result = markdown.replace(/(!?\[[^\]]*\]\()([^)\s]+)([^)]*\))/g, (full, prefix, target, suffix) => {
+    const cdn = lookup(target);
+    return cdn ? `${prefix}${cdn}${suffix}` : full;
+  });
+
+  // 2. 内联 HTML 的 src 属性
+  result = result.replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']+)\2/gi, (full, prefix, quote, target) => {
+    const cdn = lookup(target);
+    return cdn ? `${prefix}${quote}${cdn}${quote}` : full;
+  });
+
+  return result;
+}
+
+/**
  * 解析排版正文 HTML
  * 优先读取同名目录下 `[article_name]_cdn.md` 或结合 `cdn_manifest.json` 转换为企鹅号标准语义富文本 HTML
  * @param {string} markdownFilePath 
@@ -204,13 +256,7 @@ export function resolveArticleHtml(markdownFilePath) {
       try {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
         if (Array.isArray(manifest.assets)) {
-          for (const asset of manifest.assets) {
-            if (asset.cdn_url && asset.local_path) {
-              const relName = path.basename(asset.local_path);
-              targetMarkdown = targetMarkdown.replaceAll(asset.local_path, asset.cdn_url);
-              targetMarkdown = targetMarkdown.replaceAll(relName, asset.cdn_url);
-            }
-          }
+          targetMarkdown = replaceLocalAssetsWithCdn(targetMarkdown, manifest.assets);
         }
       } catch (e) {
         console.warn('[parser] 读取 cdn_manifest.json 异常:', e.message);
@@ -446,6 +492,33 @@ export function extractArticleImages(markdownFilePath, content = '') {
  * @param {string} author 
  * @returns {object}
  */
+/**
+ * 依据标题与正文推断企鹅号文章分类（对应平台分类下拉的可选项）
+ * @param {string} content
+ * @param {string} title
+ * @returns {string}
+ */
+export function inferCategory(content, title = '') {
+  const fullText = (title + ' ' + content).toLowerCase();
+
+  const rules = [
+    { category: '科技', keywords: ['ai', 'agent', '智能体', '大模型', 'llm', 'gpt', 'prompt', 'aigc', '编程', '代码', '开发', '架构', '微服务', 'java', 'python', 'docker', 'k8s', 'n8n', 'mcp', '自动化', '数据库', '前端', '后端', '算法', '技术'] },
+    { category: '财经', keywords: ['财经', '股票', '基金', '投资', '理财', '经济', '金融', '营收', '融资', '上市'] },
+    { category: '游戏', keywords: ['游戏', '手游', '端游', '电竞', 'steam', '主机', '玩家'] },
+    { category: '汽车', keywords: ['汽车', '新能源车', '电动车', '车型', '试驾', '燃油车'] },
+    { category: '教育', keywords: ['教育', '考试', '学习方法', '课程', '考研', '高考', '教学'] },
+    { category: '职场', keywords: ['职场', '面试', '简历', '求职', '晋升', '年终总结', '副业'] }
+  ];
+
+  for (const item of rules) {
+    if (item.keywords.some(k => fullText.includes(k))) {
+      return item.category;
+    }
+  }
+
+  return '科技';
+}
+
 export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const absPath = path.resolve(markdownFilePath);
   if (!fs.existsSync(absPath)) {
@@ -454,8 +527,9 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
 
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const articleTitle = extractArticleTitle(rawContent);
-  const articleSummary = extractArticleSummary(rawContent);
+  const articleSummary = extractArticleSummary(rawContent, articleTitle);
   const tags = [];
+  const category = inferCategory(rawContent, articleTitle);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
   const articleImages = extractArticleImages(absPath, rawContent);
@@ -465,6 +539,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
     articleTitle,
     author,
     articleSummary,
+    category,
     tags,
     articleHtml,
     cover,

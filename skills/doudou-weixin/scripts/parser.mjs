@@ -108,13 +108,14 @@ export function extractStickerDescription(content, title = '', tags = []) {
   const tagString = tags.map(t => `#${t}`).join(' ');
   const summary = extractSummary(content);
 
-  let desc = `${summary}\n\n📌 核心要点梳理：\n`;
+  // 要点提取不到时省略整段，不编造与文章无关的固定要点
+  let desc = summary;
   if (points.length > 0) {
-    desc += points.map((p, idx) => `${idx + 1}. ${p}`).join('\n') + '\n\n';
-  } else {
-    desc += `1. 工业级标准化封装实践\n2. 明确交付契约与微服务编排\n3. 代码自动化守门与高质量输出\n\n`;
+    desc += `\n\n📌 核心要点梳理：\n` + points.map((p, idx) => `${idx + 1}. ${p}`).join('\n');
   }
-  desc += `${tagString}`;
+  if (tagString) {
+    desc += `\n\n${tagString}`;
+  }
 
   return desc;
 }

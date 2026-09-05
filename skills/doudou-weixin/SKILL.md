@@ -121,8 +121,8 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 4. 调用 `evaluate_script` 执行 `buildArticleBrowserScript(meta)`：
    - 拟真输入作者 `#author` 与摘要 `#js_description`；
    - 拟真输入标题 ProseMirror 并同步 `#title`；
-   - 聚焦正文 ProseMirror，派发 `ClipboardEvent('paste')` 注入 `gzh-design` 排版 HTML；
-   - 若存在封面图，派发 `drop` 事件至 `#js_cover_area`；
+   - 聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入 `gzh-design` 排版 HTML（`insertHTML` 保底）；
+   - 若存在封面图，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
    - 模拟平滑向下滚动 380px 审查排版后滚回顶部；
    - 拟真悬停并点击「保存为草稿」按钮（`#js_submit button`）；
    - 等待 2.5 秒，捕获 `appmsgid` 与页面「已保存」提示；

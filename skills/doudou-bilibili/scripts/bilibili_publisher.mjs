@@ -396,10 +396,12 @@ export function buildWaitVideoUploadReadyBrowserScript(maxWaitSeconds = 180) {
  * @returns {string}
  */
 export function buildFillVideoFormBrowserScript(meta) {
+  // 标签一律取解析结果（parser.inferTopics 从文章自身派生），不注入与内容无关的固定标签；
+  // 留空时由 publisher 记录提示，交人工在页面补填。
   const metaJson = JSON.stringify({
     title: meta.videoTitle || meta.title || '',
     description: meta.videoDesc || meta.description || '',
-    tags: (Array.isArray(meta.topics) && meta.topics.length > 0) ? meta.topics : ['AI编程', '智能体', '技术分享'],
+    tags: Array.isArray(meta.topics) ? meta.topics : [],
     cover: meta.cover || null
   });
 
@@ -561,8 +563,10 @@ export function buildFillVideoFormBrowserScript(meta) {
       await randomDelay(300, 500);
     }
     tagInput.blur();
+  } else if (tagInput) {
+    log('提示: 未从文章派生出标签，已跳过标签填写（B 站要求至少一个标签，请人工在页面补填）');
   }
-  
+
   // 顺带点击推荐标签
   const recTags = Array.from(document.querySelectorAll('.label-item, .rec-tag, [class*="recommend"] span, [class*="tag-item"]')).filter(el => {
     const text = el.innerText.trim();
@@ -651,7 +655,11 @@ export async function buildVideoPublishScript(markdownFilePath) {
 
 // 命令行直接运行测试脚本生成
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('bilibili_publisher.mjs'))) {
-  const targetFile = process.argv[2] || 'e:/me/undsky/mds/AICoding/ddagent.md';
+  const targetFile = process.argv[2];
+  if (!targetFile) {
+    console.error('❌ 缺少必要参数！用法: node bilibili_publisher.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   const scriptCode = await buildBrowserPublishScript(targetFile);
   console.log('生成专栏 Browser Payload 脚本长度:', scriptCode.length);
 

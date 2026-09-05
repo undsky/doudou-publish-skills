@@ -121,3 +121,26 @@ description: "通过 chrome-devtools-mcp 实现抖音发布视频、文章、图
 
 - [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取视频（.mp4）/长文/图文标题（防超长截断）、摘要、话题、排版 HTML、高清封面及图文卡片集。
 - [scripts/douyin_publisher.mjs](scripts/douyin_publisher.mjs)：视频、文章与图文发布浏览器注入脚本生成器（含放弃旧草稿、上传/CDN就绪轮询、Slate/React Fiber 状态双向同步与暂存草稿）。
+
+### Agent 调用范式
+
+```javascript
+import { parseAllAssets } from "./scripts/parser.mjs";
+import {
+  buildDiscardDraftScript,
+  buildArticleBrowserScript,
+  buildImagePostEditorScript,
+  buildVideoPostEditorScript,
+} from "./scripts/douyin_publisher.mjs";
+
+// 1. 解析目标 Markdown（parseAllAssets 为同步函数）
+const meta = parseAllAssets(markdownFilePath);
+
+// 2. 可选：先放弃残留的未发布旧草稿，避免编辑器复用旧内容
+await evaluate_script({ pageId, function: buildDiscardDraftScript() });
+
+// 3. 按模态择一执行（长文 / 图文卡片 / 视频）
+const articleRes = await evaluate_script({ pageId, function: buildArticleBrowserScript(meta) });
+const imageRes = await evaluate_script({ pageId, function: buildImagePostEditorScript(meta) });
+const videoRes = await evaluate_script({ pageId, function: buildVideoPostEditorScript(meta) });
+```

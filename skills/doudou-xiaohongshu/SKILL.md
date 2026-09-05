@@ -87,3 +87,28 @@ flowchart TD
 
 - [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取视频（.mp4）/图文短标题（<=20字）、结构化分段要点描述与热门话题、全量读取 3:4 小红书图文卡片集。
 - [scripts/xhs_publisher.mjs](scripts/xhs_publisher.mjs)：视频与图文发布浏览器注入脚本生成器（涵盖 ProseMirror 状态双向同步、换行保留、Shadow DOM 交互与防风控人机模拟）。
+
+### Agent 调用范式
+
+```javascript
+import { parseAllAssets } from "./scripts/parser.mjs";
+import {
+  buildImagePostBrowserScript,
+  buildVideoPostBrowserScript,
+} from "./scripts/xhs_publisher.mjs";
+
+// 1. 解析目标 Markdown（parseAllAssets 为同步函数）
+const meta = parseAllAssets(markdownFilePath);
+
+// 2A. 图文笔记：卡片集先经 upload_file 批量上传，再填充标题与描述并暂存
+const imageRes = await evaluate_script({
+  pageId,
+  function: buildImagePostBrowserScript(meta),
+});
+
+// 2B. 视频作品：先 upload_file 派发 meta.video.videoPath，再填充文案并暂存
+const videoRes = await evaluate_script({
+  pageId,
+  function: buildVideoPostBrowserScript(meta),
+});
+```

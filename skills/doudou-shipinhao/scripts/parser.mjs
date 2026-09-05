@@ -240,8 +240,12 @@ export function parseAllAssets(markdownFilePath) {
 }
 
 // 命令行直接测试支持
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1'))) {
-  const targetMd = process.argv[2] || 'e:/me/undsky/mds/AICoding/ddagent.md';
+if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
+  const targetMd = process.argv[2];
+  if (!targetMd) {
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
+    process.exit(1);
+  }
   console.log('=== 解析视频号资产测试 ===');
   const res = parseAllAssets(targetMd);
   console.log(JSON.stringify(res, null, 2));

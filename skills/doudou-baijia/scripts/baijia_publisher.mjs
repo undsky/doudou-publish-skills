@@ -8,7 +8,6 @@
  */
 
 import path from 'node:path';
-import fs from 'node:fs';
 import { parseAllAssets } from './parser.mjs';
 
 /**
