@@ -1,6 +1,6 @@
 ---
 name: doudou-bilibili
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联视频（video/*.mp4）自动发布到哔哩哔哩（B站）草稿箱（专栏：https://member.bilibili.com/platform/upload/text/new-edit ，视频：https://member.bilibili.com/platform/upload/video/frame ）。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、TipTap/Sunflower 富文本渲染、B站官方 BFS 图床转存与裁切、原创声明配置、视频异步上传与就绪轮询、结构化简介与标签注入，以及草稿保存状态验证与截图存证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联视频（video/*.mp4）自动发布到哔哩哔哩（B站）草稿箱（专栏：https://member.bilibili.com/platform/upload/text/new-edit ，视频：https://member.bilibili.com/platform/upload/video/frame ）。用户未明确指定模态时默认发布全部可用模态（视频投稿 + 专栏文章），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。支持真实人工行为模拟、防风控时延与事件派发、智能封面提取（兼容产物同名目录与 cdn_manifest.json）、TipTap/Sunflower 富文本渲染、B站官方 BFS 图床转存与裁切、原创声明配置、视频异步上传与就绪轮询、结构化简介与标签注入，以及草稿保存状态验证与截图存证。
 ---
 
 # 哔哩哔哩自动化发布草稿技能 (doudou-bilibili)
@@ -16,6 +16,70 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联
 - **专栏文章发布入口**：`https://member.bilibili.com/platform/upload/text/new-edit`
 - **视频投稿发布入口**：`https://member.bilibili.com/platform/upload/video/frame`
 - **稿件管理中心入口**：`https://member.bilibili.com/platform/upload-manager/article`
+
+---
+
+## 🎯 模态选择规约（默认全模态发布）
+
+B 站同时支持**视频投稿 / 专栏文章**两种模态。模态的取舍**不允许由 Agent 自行揣测或随意挑一个执行**，必须严格遵循以下判定链：
+
+1. **用户未明确指定模态 => 默认发布全部可用模态**。
+   - 「把这篇发 B 站」「发布到 B 站草稿箱」「发一下 xxx.md」等未点名模态的指令，一律理解为**视频投稿 + 专栏文章全发**，而非只发专栏。
+   - **严禁**以「资产多、耗时长、担心风控」等理由自行缩减模态；也**严禁**中途反问用户「要发专栏还是视频」——默认答案就是两种都发。
+2. **用户明确指定模态 => 严格只发指定的那些**。
+   - 如「只发专栏」「仅发视频投稿」，则严格按指定集合执行，不得擅自追加其他模态。
+3. **模态所需资产缺失 => 自动跳过该模态，其余照常发布**。
+   - 缺失不是失败：跳过并在最终报告里明确登记原因，**绝不因为某一模态缺资产而中断整个任务**。
+   - 若用户显式点名的模态恰好缺资产，同样跳过，并在报告中提示需要补齐的资产路径。
+
+### 模态可用性判定表
+
+| 模态 | 必需资产 | 缺失时的处置 |
+| :--- | :--- | :--- |
+| **视频投稿（video）** | `video/*.mp4` 成片（`meta.video.hasVideo === true`） | 跳过视频模态，登记「未找到 video/*.mp4 视频成片」 |
+| **专栏文章（article）** | 专栏正文 HTML（`meta.html` 非空） | 跳过专栏模态，登记「未解析出可用专栏正文 HTML」 |
+
+> 封面缺失**不构成**跳过任一模态的理由：专栏按资产优先级降级取图，视频则交由 B 站智能抽帧推荐（详见资产解析优先级第 2 条）。
+
+### 确定性模态计划（由解析器给出，禁止手工推断）
+
+`parseArticle()` / `parseAllAssets()` 已内置模态编排，直接读取 `meta.publishPlan`，**不要自行拼凑模态列表**：
+
+```javascript
+import { parseArticle } from "./scripts/parser.mjs";
+
+// requestedModes 留空 / null => 默认全模态；传入 "视频" 或 ["article"] => 只发指定模态
+const meta = await parseArticle(markdownFilePath, requestedModes ?? null);
+
+meta.publishPlan;
+// {
+//   requested: [],                      // 归一化后的用户指定模态（空数组 = 用户未指定）
+//   userSpecified: false,               // false => 走默认全发
+//   modes: ["video", "article"],        // 本次实际要执行的模态（已按推荐顺序排序）
+//   skipped: [{ mode, label, reason }], // 被跳过的模态及原因
+//   summary: "用户未指定模态 => 默认发布全部可用模态｜将发布：视频投稿 + 专栏文章"
+// }
+```
+
+命令行同样可校验计划（第二个参数留空即默认全模态）：
+
+```bash
+node scripts/parser.mjs <Markdown文件绝对路径>          # 默认全模态
+node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模态
+```
+
+### 多模态串行执行规约
+
+- **执行顺序**：`video` → `article`（视频分片上传与转码最慢，优先启动；专栏随后执行）。
+- **状态隔离**：每个模态**必须重新导航到自己的发布入口**，严禁复用上一模态的编辑器页面或残留内容。
+- **失败隔离**：单个模态失败（上传超时、BFS 转存失败、验证码拦截等）**只标记该模态失败并继续下一个模态**，不得终止剩余模态。
+- **页面保留**：所有模态执行完毕后，**全部页面一律原样保留**（详见核心规约第 4 条）——视频投稿模态尤其关键，页面即创作者人工确认提交的唯一入口。
+- **统一汇总报告**：任务结束时输出逐模态结果表，含状态、标题、存证截图路径与跳过原因：
+
+  | 模态 | 状态 | 标题 | 存证截图 / 原因 |
+  | :--- | :--- | :--- | :--- |
+  | 视频投稿 | ✅ 已存草稿 | ... | `bilibili_video_draft_proof.png` |
+  | 专栏文章 | ✅ 已保存为草稿 | ... | `bilibili_article_draft_proof.png` |
 
 ---
 
@@ -62,6 +126,8 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联
 ---
 
 ## 🚀 双模态自动化发布执行流程
+
+> 下列模式**不是「择一执行」的选项**，而是逐模态执行的操作手册：按「模态选择规约」得出的 `publishPlan.modes` 依次执行其中每一个模态（默认两种全发）。模式字母仅为编号，实际执行顺序恒为 `video`（模式 B）→ `article`（模式 A）。
 
 ### 模式 A：发布专栏文章草稿（Article Post）
 
@@ -158,7 +224,7 @@ flowchart TD
 
 以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用：
 
-- `scripts/parser.mjs`：解析 Markdown，提取专栏标题/摘要/封面资产/TipTap HTML，以及视频成片路径/精炼标题/结构化简介/标签。
+- `scripts/parser.mjs`：解析 Markdown，提取专栏标题/摘要/封面资产/TipTap HTML，以及视频成片路径/精炼标题/结构化简介/标签；并产出确定性模态计划 `publishPlan`（`PUBLISH_MODES` / `normalizeRequestedModes` / `resolvePublishPlan`）。
 - `scripts/bilibili_publisher.mjs`：浏览器注入脚本生成器（专栏 BFS 图床转存、视频上传暴露、上传就绪等待、表单拟真填充与草稿存证）。
 
 ### 1. 命令行测试解析
@@ -184,23 +250,31 @@ import {
 import { parseArticle } from './scripts/parser.mjs';
 
 // 1. 解析目标文章与视频成片
-const meta = await parseArticle(markdownFilePath);
+//    requestedModes 留空 => 默认全模态；仅当用户明确点名模态时才传入
+const meta = await parseArticle(markdownFilePath, requestedModes ?? null);
 
-// 2. 准备上传控件并获取 uid
+// 2. 读取确定性模态计划，逐模态串行执行（video -> article），严禁自行推断模态
+//    以下为 video 模态的步骤；article 模态请重新导航至专栏发布入口后执行模式 A 流程
+const { modes, skipped, summary } = meta.publishPlan;
+
+// 3. 准备上传控件并获取 uid
 const prepRes = await evaluate_script({ pageId, function: buildPrepareVideoUploadBrowserScript() });
 
-// 3. 派发视频上传
+// 4. 派发视频上传
 await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
 
-// 4. 等待视频上传就绪
+// 5. 等待视频上传就绪
 await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(180) });
 
-// 5. 填充标题、简介、标签与类型
+// 6. 填充标题、简介、标签与类型
 const fillRes = await evaluate_script({ pageId, function: buildFillVideoFormBrowserScript(meta) });
 
-// 6. 截屏存证
+// 7. 截屏存证
 await take_screenshot({ 
   pageId, 
   filePath: `${articleDir}/bilibili_video_draft_proof.png` 
 });
+
+// 8. 继续执行 publishPlan.modes 中的下一个模态（如 article），
+//    单模态失败只登记该模态失败，不得终止剩余模态；全部结束后汇总 skipped 输出统一报告
 ```

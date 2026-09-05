@@ -304,7 +304,78 @@ export function resolveStickerImages(markdownFilePath) {
  * @param {string} author 
  * @returns {object}
  */
-export function parseAllAssets(markdownFilePath, author = 'undsky') {
+export const PUBLISH_MODES = [
+  { mode: 'article', label: '图文文章', aliases: ['article', '文章', '图文文章', '长文', '图文'] },
+  { mode: 'sticker', label: '小绿书贴图', aliases: ['sticker', '贴图', '小绿书', '卡片', '图片', '图文卡片'] }
+];
+
+/**
+ * 将用户自然语言指定的模态归一化为标准模态名数组
+ * 返回空数组代表「用户未明确指定」，调用方应回退为发布全部可用模态
+ * @param {string|string[]|null|undefined} requested
+ * @returns {string[]}
+ */
+export function normalizeRequestedModes(requested) {
+  if (!requested) return [];
+  const rawList = Array.isArray(requested)
+    ? requested
+    : String(requested).split(/[\s,，、+/|和与及]+/);
+  const picked = [];
+  for (const raw of rawList) {
+    const key = String(raw).trim().toLowerCase().replace(/[\s_-]/g, '');
+    if (!key) continue;
+    const hit = PUBLISH_MODES.find(m => m.aliases.some(a => a.toLowerCase().replace(/[\s_-]/g, '') === key));
+    if (hit && !picked.includes(hit.mode)) picked.push(hit.mode);
+  }
+  return PUBLISH_MODES.filter(m => picked.includes(m.mode)).map(m => m.mode);
+}
+
+/**
+ * 依据已解析资产推导发布计划：默认全模态发布，缺资产的模态自动跳过并登记原因
+ * @param {object} meta parseAllAssets 的解析结果（可为半成品对象）
+ * @param {string|string[]|null} requestedModes 用户显式指定的模态；为空表示未指定 => 全发
+ * @returns {{requested: string[], userSpecified: boolean, modes: string[], skipped: {mode: string, label: string, reason: string}[], summary: string}}
+ */
+export function resolvePublishPlan(meta, requestedModes = null) {
+  const requested = normalizeRequestedModes(requestedModes);
+  const userSpecified = requested.length > 0;
+  const targetModes = userSpecified ? requested : PUBLISH_MODES.map(m => m.mode);
+
+  const availability = {
+    article: {
+      ok: !!(meta.articleHtml && meta.articleHtml.htmlContent && meta.articleHtml.htmlContent.trim().length > 0),
+      reason: '未解析出可用的排版正文 HTML'
+    },
+    sticker: {
+      ok: Array.isArray(meta.stickerImages) && meta.stickerImages.length > 0,
+      reason: '同名目录下未找到 xhs_images/images/ 贴图卡片集'
+    }
+  };
+
+  const modes = [];
+  const skipped = [];
+  for (const def of PUBLISH_MODES) {
+    if (!targetModes.includes(def.mode)) continue;
+    if (availability[def.mode].ok) {
+      modes.push(def.mode);
+    } else {
+      skipped.push({ mode: def.mode, label: def.label, reason: availability[def.mode].reason });
+    }
+  }
+
+  const labelOf = m => (PUBLISH_MODES.find(d => d.mode === m) || { label: m }).label;
+  const summary = [
+    userSpecified
+      ? `用户指定模态：${requested.map(labelOf).join(' + ')}`
+      : '用户未指定模态 => 默认发布全部可用模态',
+    modes.length ? `将发布：${modes.map(labelOf).join(' + ')}` : '无可发布模态',
+    skipped.length ? `已跳过：${skipped.map(s => `${s.label}（${s.reason}）`).join('；')}` : ''
+  ].filter(Boolean).join('｜');
+
+  return { requested, userSpecified, modes, skipped, summary };
+}
+
+export function parseAllAssets(markdownFilePath, author = 'undsky', requestedModes = null) {
   const absPath = path.resolve(markdownFilePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`找不到指定的 Markdown 文件: ${absPath}`);
@@ -319,7 +390,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const cover = resolveCoverImage(absPath, rawContent);
   const stickerImages = resolveStickerImages(absPath);
 
-  return {
+  const result = {
     markdownFilePath: absPath,
     title,
     author,
@@ -331,6 +402,9 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
     stickerImages,
     stickerCount: stickerImages.length
   };
+
+  result.publishPlan = resolvePublishPlan(result, requestedModes);
+  return result;
 }
 
 // 命令行直接运行测试支持
@@ -341,8 +415,10 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     process.exit(1);
   }
   console.log(`[parser] 正在解析: ${targetFile}`);
-  const result = parseAllAssets(targetFile);
+  // 第三个参数可选：显式指定模态（如 "文章" / "贴图"），留空则默认全模态发布
+  const result = parseAllAssets(targetFile, 'undsky', process.argv[3] || null);
   console.log(JSON.stringify({
+    publishPlan: result.publishPlan,
     title: result.title,
     author: result.author,
     summary: result.summary,

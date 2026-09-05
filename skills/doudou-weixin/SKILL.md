@@ -1,6 +1,6 @@
 ---
 name: doudou-weixin
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动发布到微信公众平台草稿箱（https://mp.weixin.qq.com）。支持「图文文章」与「小绿书贴图」双创作模态、真实人机行为模拟（防风控随机时延、ProseMirror 富文本粘贴解析、平滑滚动与拟真悬停）、资产智能解析（兼容产物同名目录、排版 HTML、封面图、小红书图文卡片）以及草稿保存状态验证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动发布到微信公众平台草稿箱（https://mp.weixin.qq.com）。支持「图文文章」与「小绿书贴图」双创作模态，用户未明确指定模态时默认两种全发（资产缺失的模态自动跳过并登记原因），用户明确指定时只发指定模态；真实人机行为模拟（防风控随机时延、ProseMirror 富文本粘贴解析、平滑滚动与拟真悬停）、资产智能解析（兼容产物同名目录、排版 HTML、封面图、小红书图文卡片）以及草稿保存状态验证。
 ---
 
 # 微信公众平台文章与贴图自动发布到草稿技能 (doudou-weixin)
@@ -8,6 +8,71 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文章及其衍生资产发布至**微信公众平台（https://mp.weixin.qq.com ）的草稿箱**。
 
 技能原生支持**「图文文章 (Article)」**与**「图文贴图 (Sticker)」**双模态创作发布，严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、ProseMirror 原生富文本解析、视口平滑滚动及悬停交互，避免被微信平台风控拦截。自动提取文章标题、作者、摘要、排版 HTML 正文、宽屏封面图以及小红书/微信图文卡片集。
+
+---
+
+## 🎯 模态选择规约（默认全模态发布）
+
+公众平台同时支持**图文文章 / 小绿书贴图**两种模态。模态的取舍**不允许由 Agent 自行揣测或随意挑一个执行**，必须严格遵循以下判定链：
+
+1. **用户未明确指定模态 => 默认发布全部可用模态**。
+   - 「把这篇发公众号」「发布到公众号草稿箱」「发一下 xxx.md」等未点名模态的指令，一律理解为**图文文章 + 小绿书贴图全发**，而非只发文章。
+   - **严禁**以「资产多、耗时长、担心风控」等理由自行缩减模态；也**严禁**中途反问用户「要发文章还是贴图」——默认答案就是两种都发。
+2. **用户明确指定模态 => 严格只发指定的那些**。
+   - 如「只发文章」「仅发贴图」「只要小绿书」，则严格按指定集合执行，不得擅自追加其他模态。
+3. **模态所需资产缺失 => 自动跳过该模态，其余照常发布**。
+   - 缺失不是失败：跳过并在最终报告里明确登记原因，**绝不因为某一模态缺资产而中断整个任务**。
+   - 若用户显式点名的模态恰好缺资产，同样跳过，并在报告中提示需要补齐的资产路径。
+
+### 模态可用性判定表
+
+| 模态 | 必需资产 | 缺失时的处置 |
+| :--- | :--- | :--- |
+| **图文文章（article）** | 排版正文 HTML（`meta.articleHtml.htmlContent` 非空） | 跳过文章模态，登记「未解析出可用排版正文 HTML」 |
+| **小绿书贴图（sticker）** | `xhs_images/images/` 卡片集（`meta.stickerCount > 0`） | 跳过贴图模态，登记「未找到贴图卡片集」 |
+
+> 封面图缺失**不构成**跳过文章模态的理由：按既有异常规约降级跳过封面注入，正文草稿照常保存，并在报告中标记封面待手动绑定。
+
+### 确定性模态计划（由解析器给出，禁止手工推断）
+
+`parseAllAssets()` 已内置模态编排，直接读取 `meta.publishPlan`，**不要自行拼凑模态列表**：
+
+```javascript
+import { parseAllAssets } from "./scripts/parser.mjs";
+
+// requestedModes 留空 / null => 默认全模态；传入 "贴图" 或 ["article"] => 只发指定模态
+const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
+
+meta.publishPlan;
+// {
+//   requested: [],                      // 归一化后的用户指定模态（空数组 = 用户未指定）
+//   userSpecified: false,               // false => 走默认全发
+//   modes: ["article", "sticker"],      // 本次实际要执行的模态（已按推荐顺序排序）
+//   skipped: [{ mode, label, reason }], // 被跳过的模态及原因
+//   summary: "用户未指定模态 => 默认发布全部可用模态｜将发布：图文文章 + 小绿书贴图"
+// }
+```
+
+命令行同样可校验计划（第三个参数留空即默认全模态）：
+
+```bash
+node scripts/parser.mjs <Markdown文件绝对路径>          # 默认全模态
+node scripts/parser.mjs <Markdown文件绝对路径> "贴图"    # 仅指定模态
+```
+
+### 多模态串行执行规约
+
+- **执行顺序**：`article` → `sticker`（先完成信息量最大的长文，再发贴图卡片）。
+- **状态隔离**：每个模态**必须回到草稿箱页面重新点击「新的创作」**并选择对应入口（「文章」/「贴图」），严禁在上一模态的编辑器页面内切换创作类型。
+- **防重复保存**：两个模态的「保存为草稿」点击之间至少间隔 3 秒（详见风控处理表）。
+- **失败隔离**：单个模态失败（未登录、上传超时、选择器失效等）**只标记该模态失败并继续下一个模态**，不得终止剩余模态。
+- **页面保留**：所有模态执行完毕后，**全部页面一律原样保留**（详见核心规约第 4 条），不得关闭。
+- **统一汇总报告**：任务结束时输出逐模态结果表，含状态、`appmsgid`、存证截图路径与跳过原因：
+
+  | 模态 | 状态 | appmsgid | 存证截图 / 原因 |
+  | :--- | :--- | :--- | :--- |
+  | 图文文章 | ✅ 已保存为草稿 | ... | `weixin_article_draft_proof.png` |
+  | 小绿书贴图 | ⏭️ 已跳过 | — | 未找到 xhs_images 贴图卡片集 |
 
 ---
 
@@ -42,6 +107,8 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 ## 自动化执行全流程
 
 当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/dddownsmartedu.md`）时，依次执行以下阶段：
+
+> 下图两个模态**不是「择一执行」的分支**，而是逐模态执行的操作手册：按「模态选择规约」得出的 `publishPlan.modes` 依次执行其中每一个模态（默认两种全发），执行顺序恒为 `article`（步骤 3）→ `sticker`（步骤 4）。
 
 ```mermaid
 flowchart TD
@@ -163,7 +230,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
 
-- `scripts/parser.mjs`：解析 Markdown，提取标题、作者、摘要、话题、贴图文案、排版 HTML 与封面/图文卡片资产。
+- `scripts/parser.mjs`：解析 Markdown，提取标题、作者、摘要、话题、贴图文案、排版 HTML 与封面/图文卡片资产；并产出确定性模态计划 `publishPlan`（`PUBLISH_MODES` / `normalizeRequestedModes` / `resolvePublishPlan`）。
 - `scripts/weixin_publisher.mjs`：文章与贴图发布浏览器注入脚本生成器（编辑器状态同步与防风控人机模拟）。
 
 1. **直接运行 Node.js 脚本测试资产解析与代码生成**：
@@ -183,19 +250,32 @@ import {
 } from "./scripts/weixin_publisher.mjs";
 
 // 1. 解析目标 Markdown
-const meta = parseAllAssets(markdownFilePath);
+//    requestedModes 留空 => 默认全模态；仅当用户明确点名模态时才传入
+const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 
-// 2. 在文章页执行发布
-const articleCode = buildArticleBrowserScript(meta);
-const articleResult = await evaluate_script({
-  pageId: articlePageId,
-  function: articleCode,
-});
+// 2. 读取确定性模态计划，严禁自行推断要发哪些模态
+const { modes, skipped, summary } = meta.publishPlan;
+console.log(summary); // 例：用户未指定模态 => 默认发布全部可用模态｜将发布：图文文章 + 小绿书贴图
 
-// 3. 在贴图页执行发布
-const stickerCode = buildStickerBrowserScript(meta);
-const stickerResult = await evaluate_script({
-  pageId: stickerPageId,
-  function: stickerCode,
-});
+// 3. 逐模态串行执行（article -> sticker）；单模态失败不影响后续模态
+const results = [];
+for (const mode of modes) {
+  // 3.1 回到草稿箱页面，点击「新的创作」并选择本模态对应入口（「文章」/「贴图」）
+  //     严禁在上一模态的编辑器页面内切换创作类型
+  const editorPageId = await openEditorViaNewCreation(mode);
+
+  try {
+    const code =
+      mode === "article"
+        ? buildArticleBrowserScript(meta)
+        : buildStickerBrowserScript(meta);
+    results.push(await evaluate_script({ pageId: editorPageId, function: code }));
+  } catch (e) {
+    results.push({ mode, ok: false, error: String(e) }); // 记录失败并继续下一模态
+  }
+
+  await sleep(3000); // 两次「保存为草稿」之间至少间隔 3 秒，规避防重复保存拦截
+}
+
+// 4. 汇总逐模态结果 + skipped 跳过原因，输出统一报告（页面一律保留不关闭）
 ```

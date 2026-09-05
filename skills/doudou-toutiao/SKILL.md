@@ -1,6 +1,6 @@
 ---
 name: doudou-toutiao
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联视频（video/*.mp4）自动发布到今日头条/头条号创作者平台草稿箱（文章：https://mp.toutiao.com/profile_v4/graphic/publish ，视频：https://mp.toutiao.com/profile_v4/xigua/upload-video ）。严格遵循真实人工行为模拟与防风控规约（微随机时延抖动、全链路 DOM 事件派发、ProseMirror/Sylph 富文本双向同步、视口平滑滚动排版审阅、异步上传转码就绪等待、抽屉式封面真实上传与弹窗确认），智能解析同名资产目录与 CDN 映射表，支持草稿保存状态验证与存证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联视频（video/*.mp4）自动发布到今日头条/头条号创作者平台草稿箱（文章：https://mp.toutiao.com/profile_v4/graphic/publish ，视频：https://mp.toutiao.com/profile_v4/xigua/upload-video ）。用户未明确指定模态时默认发布全部可用模态（视频 + 长文图文），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。严格遵循真实人工行为模拟与防风控规约（微随机时延抖动、全链路 DOM 事件派发、ProseMirror/Sylph 富文本双向同步、视口平滑滚动排版审阅、异步上传转码就绪等待、抽屉式封面真实上传与弹窗确认），智能解析同名资产目录与 CDN 映射表，支持草稿保存状态验证与存证。
 ---
 
 # 头条号自动化发布草稿技能规范 (doudou-toutiao)
@@ -15,6 +15,70 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联
 - **发布视频入口**：`https://mp.toutiao.com/profile_v4/xigua/upload-video`
 - **草稿箱管理入口**：`https://mp.toutiao.com/profile_v4/manage/draft`
 - **西瓜内容管理入口**：`https://mp.toutiao.com/profile_v4/xigua/content-manage-v2`
+
+---
+
+## 🎯 模态选择规约（默认全模态发布）
+
+头条号同时支持**视频 / 长文图文**两种模态。模态的取舍**不允许由 Agent 自行揣测或随意挑一个执行**，必须严格遵循以下判定链：
+
+1. **用户未明确指定模态 => 默认发布全部可用模态**。
+   - 「把这篇发头条」「发布到头条号草稿箱」「发一下 xxx.md」等未点名模态的指令，一律理解为**视频 + 长文图文全发**，而非只发文章。
+   - **严禁**以「资产多、耗时长、担心风控」等理由自行缩减模态；也**严禁**中途反问用户「要发文章还是视频」——默认答案就是两种都发。
+2. **用户明确指定模态 => 严格只发指定的那些**。
+   - 如「只发文章」「仅发视频」，则严格按指定集合执行，不得擅自追加其他模态。
+3. **模态所需资产缺失 => 自动跳过该模态，其余照常发布**。
+   - 缺失不是失败：跳过并在最终报告里明确登记原因，**绝不因为某一模态缺资产而中断整个任务**。
+   - 若用户显式点名的模态恰好缺资产，同样跳过，并在报告中提示需要补齐的资产路径。
+
+### 模态可用性判定表
+
+| 模态 | 必需资产 | 缺失时的处置 |
+| :--- | :--- | :--- |
+| **视频（video）** | `video/*.mp4` 成片（`meta.video.hasVideo === true`） | 跳过视频模态，登记「未找到 video/*.mp4 视频成片」 |
+| **长文图文（article）** | 排版正文 HTML（`meta.articleHtml.htmlContent` 非空） | 跳过文章模态，登记「未解析出可用排版正文 HTML」 |
+
+> 两个模态的终点态不同，必须分别遵守：图文模态等待「草稿已保存」；视频模态**仅停在就绪态截屏存证，绝不点击发布**（详见防风控规约第 1 条）。
+
+### 确定性模态计划（由解析器给出，禁止手工推断）
+
+`parseAllAssets()` 已内置模态编排，直接读取 `meta.publishPlan`，**不要自行拼凑模态列表**：
+
+```javascript
+import { parseAllAssets } from "./scripts/parser.mjs";
+
+// requestedModes 留空 / null => 默认全模态；传入 "视频" 或 ["article"] => 只发指定模态
+const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
+
+meta.publishPlan;
+// {
+//   requested: [],                      // 归一化后的用户指定模态（空数组 = 用户未指定）
+//   userSpecified: false,               // false => 走默认全发
+//   modes: ["video", "article"],        // 本次实际要执行的模态（已按推荐顺序排序）
+//   skipped: [{ mode, label, reason }], // 被跳过的模态及原因
+//   summary: "用户未指定模态 => 默认发布全部可用模态｜将发布：视频 + 长文图文"
+// }
+```
+
+命令行同样可校验计划（第三个参数留空即默认全模态）：
+
+```bash
+node scripts/parser.mjs <Markdown文件绝对路径>          # 默认全模态
+node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模态
+```
+
+### 多模态串行执行规约
+
+- **执行顺序**：`video` → `article`（视频上传与转码最慢，优先启动；长文随后执行）。
+- **状态隔离**：每个模态**必须重新导航到自己的发布入口**，严禁复用上一模态的编辑器页面或残留内容。
+- **失败隔离**：单个模态失败（上传超时、验证码拦截、选择器失效等）**只标记该模态失败并继续下一个模态**，不得终止剩余模态。
+- **页面保留**：所有模态执行完毕后，**全部页面一律原样保留**（详见防风控规约第 3 条）——视频模态尤其关键，页面即创作者人工确认发布的唯一入口。
+- **统一汇总报告**：任务结束时输出逐模态结果表，含状态、标题、存证截图路径与跳过原因：
+
+  | 模态 | 状态 | 标题 | 存证截图 / 原因 |
+  | :--- | :--- | :--- | :--- |
+  | 视频 | ✅ 表单就绪待人工发布 | ... | `toutiao_video_draft_proof.png` |
+  | 长文图文 | ✅ 草稿已保存 | ... | `toutiao_draft_proof.png` |
 
 ---
 
@@ -52,6 +116,8 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联
 ---
 
 ## 🚀 双模态自动化发布执行流程
+
+> 下列模式**不是「择一执行」的选项**，而是逐模态执行的操作手册：按「模态选择规约」得出的 `publishPlan.modes` 依次执行其中每一个模态（默认两种全发）。模式字母仅为编号，实际执行顺序恒为 `video`（模式 B）→ `article`（模式 A）。
 
 ### 模式 A：发布长文图文草稿（Long Article Post）
 
@@ -96,7 +162,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联
 
 以下路径均相对本技能目录（`SKILL.md` 所在目录）：
 
-- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、定位视频成片（.mp4）/长文标题（防超长截断）、摘要、排版 HTML、高清封面及视频描述，`tags` 保持 `[]`。
+- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、定位视频成片（.mp4）/长文标题（防超长截断）、摘要、排版 HTML、高清封面及视频描述，`tags` 保持 `[]`；并产出确定性模态计划 `publishPlan`（`PUBLISH_MODES` / `normalizeRequestedModes` / `resolvePublishPlan`）。
 - [scripts/toutiao_publisher.mjs](scripts/toutiao_publisher.mjs)：浏览器注入脚本生成器（涵盖长文图文 Sylph/ProseMirror 状态双向同步与视频上传就绪核验脚本）。
 
 ### Agent 调用范式
@@ -111,20 +177,33 @@ import {
 } from "./scripts/toutiao_publisher.mjs";
 
 // 1. 解析目标 Markdown（parseAllAssets 为同步函数）
-const meta = parseAllAssets(markdownFilePath);
+//    requestedModes 留空 => 默认全模态；仅当用户明确点名模态时才传入
+const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 
-// 2A. 模式 A：长文图文草稿
-const articleRes = await evaluate_script({
-  pageId,
-  function: buildPublishBrowserScript(meta),
-});
+// 2. 读取确定性模态计划，严禁自行推断要发哪些模态
+const { modes, skipped, summary } = meta.publishPlan;
+console.log(summary); // 例：用户未指定模态 => 默认发布全部可用模态｜将发布：视频 + 长文图文
 
-// 2B. 模式 B：视频作品（平台无草稿按钮，仅保留就绪态供人工确认发布）
-await evaluate_script({ pageId, function: buildPrepareVideoUploadBrowserScript() });
-await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
-await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(120) });
-const videoRes = await evaluate_script({
-  pageId,
-  function: buildVideoPublishBrowserScript(meta),
-});
+// 3. 逐模态串行执行（video -> article）；单模态失败不影响后续模态
+const results = [];
+for (const mode of modes) {
+  try {
+    if (mode === "video") {
+      // 视频：平台无草稿按钮，仅保留就绪态供人工确认发布
+      await navigate_page({ pageId, url: "https://mp.toutiao.com/profile_v4/xigua/upload-video" });
+      await evaluate_script({ pageId, function: buildPrepareVideoUploadBrowserScript() });
+      await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
+      await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(120) });
+      results.push(await evaluate_script({ pageId, function: buildVideoPublishBrowserScript(meta) }));
+    } else {
+      // 长文图文：等待页面提示「草稿已保存」
+      await navigate_page({ pageId, url: "https://mp.toutiao.com/profile_v4/graphic/publish" });
+      results.push(await evaluate_script({ pageId, function: buildPublishBrowserScript(meta) }));
+    }
+  } catch (e) {
+    results.push({ mode, ok: false, error: String(e) }); // 记录失败并继续下一模态
+  }
+}
+
+// 4. 汇总逐模态结果 + skipped 跳过原因，输出统一报告（页面一律保留不关闭）
 ```
