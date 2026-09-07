@@ -78,8 +78,91 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 
   | 模态 | 状态 | 标题 | 存证截图 / 原因 |
   | :--- | :--- | :--- | :--- |
-  | 视频投稿 | ✅ 已存草稿 | ... | `bilibili_video_draft_proof.png` |
-  | 专栏文章 | ✅ 已保存为草稿 | ... | `bilibili_article_draft_proof.png` |
+  | 视频投稿 | ✅ 已存草稿 | ... | `bilibili_video.png` |
+  | 专栏文章 | ✅ 已保存为草稿 | ... | `bilibili_article.png` |
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 稿件管理中心出现该标题草稿，或上传进度 100% + 「存草稿」成功提示 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const t = document.body.innerText;
+  const done = /100%|上传完成|上传成功/.test(t);
+  const saved = /存草稿|草稿箱|保存成功/.test(t);
+  return { passed: done && saved, uploadDone: done, draftSaved: saved };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（哔哩哔哩不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/bilibili_article.png、publishes/screenshots/bilibili_video.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `article` / `video`）：
+
+```json
+{
+  "skill": "doudou-bilibili",
+  "platform": "哔哩哔哩",
+  "platformSlug": "bilibili",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "专栏文章",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/bilibili_article.png",
+      "assertion": { "rule": "稿件管理中心出现该标题草稿，或上传进度 100% + 「存草稿」成功提示", "passed": true }
+    },
+    {
+      "mode": "video",
+      "modeDesc": "视频投稿",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/bilibili_video.png",
+      "assertion": { "rule": "稿件管理中心出现该标题草稿，或上传进度 100% + 「存草稿」成功提示", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -104,12 +187,18 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 1. **安全隔离与自动保存机制**：
    - **依托平台原生自动保存**：B 站专栏文章具备输入实时自动保存机制；视频投稿上传后自动持久化存储在云端草稿中。
    - **移除发布时对草稿箱的操作**：严禁主动寻找并点击「保存为草稿」或「存草稿」按钮，**绝对不自动点击「发布」或「立即投稿」**，确保所有内容保留在当前编辑页就绪态，由创作者人工最终审阅并手动提交。
-2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+2. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+3. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+4. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 600~1500ms、点击悬停 300~500ms），严禁毫秒级并发。
    - **真实事件完整性**：对于标题输入与表单开关，依次派发 `focus`、`keydown`、`input`、`change`、`blur`，并同步 ProseMirror / TipTap / Vue 组件状态。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~500ms 后再触发 `click`。
-3. **资产自动解析优先级**：
+5. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已图床化的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的资产（优先 16:9 / 2.35:1 / 1:1 封面）；
@@ -118,7 +207,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
      4. 视频投稿时若无自定义封面则由 B 站自动推荐高质量抽帧。
    - **正文配图官方 BFS 转存**：B 站专栏草稿强制校验图片域名必须为 `*.hdslb.com`。本技能在浏览器端通过 `/x/dynamic/feed/draw/upload_bfs`（带 CSRF `bili_jct`）自动将所有本地与网络配图转存为 B 站原生图床 URL。
    - **原创声明**：自动选择「自制」并勾选「声明此内容为原创，未经授权禁止转载」。
-4. **发布完成后保留页面（严禁自动关闭）**：
+6. **发布完成后保留页面（严禁自动关闭）**：
    - 专栏文章或视频投稿表单就绪并完成截屏存证后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场——页面即是创作者人工审阅后点击提交的唯一入口。
    - 未登录、验证码拦截、上传超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
 
@@ -139,7 +228,7 @@ flowchart TD
     S4 --> S5[步骤 5: 打开发布设置并上传裁切封面]
     S5 --> S6[步骤 6: 勾选原创声明]
     S6 --> S7[步骤 7: 模拟人工视口平滑滚动检查]
-    S7 --> S8[步骤 8: 静候平台自动保存生效]
+    S7 --> S8[步骤 8: 轮询完成断言直至通过]
     S8 --> S9[步骤 9: 验证就绪状态并截屏存证]
 ```
 
@@ -157,7 +246,7 @@ flowchart TD
 6. **勾选原创声明**：
    - 勾选「声明此文章为原创，未经授权禁止转载」。
 7. **视口平滑滚动与等待自动保存**：
-   - 平滑滚动审查后，等待平台原生自动保存生效（2~3 秒），截屏存证（`bilibili_draft_proof.png`），原样保留当前编辑页面，绝不点击「保存为草稿」或「发布」按钮。
+   - 平滑滚动审查后，等待平台原生自动保存生效（2~3 秒），截屏存证（`bilibili_article.png`），原样保留当前编辑页面，绝不点击「保存为草稿」或「发布」按钮。
 
 ---
 
@@ -203,7 +292,7 @@ flowchart TD
 11. **视口平滑滚动核验与自动保存就绪**：
     - 视口自上而下平滑滚动模拟人工核验排版；
     - 等待平台自动同步就绪，严格遵循安全隔离规约（**绝不主动点击「存草稿」，绝不点击「立即投稿」**）；
-    - 在当前视频投稿页面截取就绪状态存证截图并保存至文章同名目录：`bilibili_video_draft_proof.png`；
+    - 在当前视频投稿页面截取就绪状态存证截图并保存至文章同名目录：`bilibili_video.png`；
     - **严禁调用 `close_page` 或关闭当前页面**，原样保留页面现场供创作者人工审阅后手动提交。
 
 ---
@@ -272,7 +361,7 @@ const fillRes = await evaluate_script({ pageId, function: buildFillVideoFormBrow
 // 7. 截屏存证
 await take_screenshot({ 
   pageId, 
-  filePath: `${articleDir}/bilibili_video_draft_proof.png` 
+  filePath: `${articleDir}/bilibili_video.png` 
 });
 
 // 8. 继续执行 publishPlan.modes 中的下一个模态（如 article），

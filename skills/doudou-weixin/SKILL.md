@@ -71,22 +71,110 @@ node scripts/parser.mjs <Markdown文件绝对路径> "贴图"    # 仅指定模�
 
   | 模态 | 状态 | appmsgid | 存证截图 / 原因 |
   | :--- | :--- | :--- | :--- |
-  | 图文文章 | ✅ 已保存为草稿 | ... | `weixin_article_draft_proof.png` |
+  | 图文文章 | ✅ 已保存为草稿 | ... | `weixin_article.png` |
   | 小绿书贴图 | ⏭️ 已跳过 | — | 未找到 xhs_images 贴图卡片集 |
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | URL 出现 appmsgid= 或页面出现「已保存」提示 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const m = location.href.match(/appmsgid=(\d+)/);
+  const savedTip = /已保存|保存成功/.test(document.body.innerText);
+  return { passed: Boolean(m) || savedTip, draftId: m?.[1] ?? null, draftUrl: m ? location.href : null, savedTip };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（微信公众号不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/weixin_article.png、publishes/screenshots/weixin_sticker.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `article` / `sticker`）：
+
+```json
+{
+  "skill": "doudou-weixin",
+  "platform": "微信公众号",
+  "platformSlug": "weixin",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "图文长文",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/weixin_article.png",
+      "assertion": { "rule": "URL 出现 appmsgid= 或页面出现「已保存」提示", "passed": true }
+    },
+    {
+      "mode": "sticker",
+      "modeDesc": "贴图消息",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/weixin_sticker.png",
+      "assertion": { "rule": "URL 出现 appmsgid= 或页面出现「已保存」提示", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
 ## 核心规约与防风控原则
 
 1. **草稿安全隔离与平台原生自动保存**：
-   - **绝对不触发公开发布**，严禁点击「发表」或「群发」按钮；同时**无需主动寻找或点击「保存为草稿」按钮**。微信公众平台在标题、正文及封面配置后具备原生防抖自动存草稿机制。脚本在注入完成后平滑滚动视口模拟人工排版审阅，静待平台原生自动保存就绪，确保所有内容必须经人工最终审核后再公开发布。
-2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+   - **绝对不触发公开发布**，严禁点击「发表」或「群发」按钮；同时**无需主动寻找或点击「保存为草稿」按钮**。微信公众平台在标题、正文及封面配置后具备原生防抖自动存草稿机制。脚本在注入完成后平滑滚动视口模拟人工排版审阅，轮询完成断言直至通过，确保所有内容必须经人工最终审核后再公开发布。
+2. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+3. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+4. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 600~1500ms、点击前 400~700ms），严禁毫秒级并发。
    - **真实事件完整性**：对于表单输入，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并同步底层隐藏 textarea/input 与 ProseMirror 编辑器。
    - **ProseMirror 原生富文本注入**：通过派发带有 `text/html` 的 `ClipboardEvent('paste')`，利用微信编辑器官方 DOMParser 解析并渲染复杂排版，保证样式与结构 100% 官方兼容。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与交互**：交互前先将视口滚动到元素可见区域，派发 `mouseover`/`mouseenter` 悬停 400~600ms 后再交互。
-3. **资产自动解析与获取规范**：
+5. **资产自动解析与获取规范**：
    - **文章正文 HTML**：
      - 必须优先读取同名目录下由 `gzh-design` 生成的**纯排版正文 HTML**：`path/to/article_name/article_name_排版_主题(ID).html`（绝对不要使用带复制工具栏的 `_预览.html`）；
      - 注入时先全选清空 ProseMirror 编辑器，派发带有 `text/html` 的 `paste` 事件（辅以 `document.execCommand('insertHTML', false, html)` 保底并同步 `input` 事件），确保主题配色、标题组件、引言卡片、阴影圆角等样式 100% 完整保留。
@@ -98,7 +186,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> "贴图"    # 仅指定模�
      - 文章标题：64 字以内纯文本；贴图标题：20 字以内精炼文案。
      - 摘要：80~120 字纯文本（微信公众号限制 120 字以内）。
      - 贴图描述：100~300 字核心要点梳理 + `#话题标签`。
-4. **发布完成后保留页面（严禁自动关闭）**：
+6. **发布完成后保留页面（严禁自动关闭）**：
    - 图文与贴图草稿保存及存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭编辑器页面与公众平台后台页面**，必须原样保留页面现场，供用户人工复核草稿内容、补充登录或手动确认发表。
    - 未登录、扫码验证、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
 
@@ -191,7 +279,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
    - 聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入 `gzh-design` 排版 HTML（`insertHTML` 保底）；
    - 若存在封面图，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
    - 模拟平滑向下滚动 380px 审查排版后滚回顶部；
-   - 依托微信原生自动防抖存草稿机制，等待 2.5 秒；
+   - 依托微信原生自动防抖存草稿机制，轮询完成断言（1.5s 间隔，最长 45s）直至通过；
    - 捕获 `appmsgid` 与页面就绪状态；
 5. 调用 `take_screenshot` 保存文章草稿截图存证。
 
@@ -208,7 +296,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
    - 拟真输入贴图标题（20 字以内）；
    - 拟真输入贴图描述（要点梳理 + `#话题标签`）；
    - 模拟平滑视口滚动；
-   - 依托微信原生自动防抖存草稿机制，等待 2.5 秒；
+   - 依托微信原生自动防抖存草稿机制，轮询完成断言（1.5s 间隔，最长 45s）直至通过；
    - 捕获 `appmsgid` 与页面就绪状态；
 6. 调用 `take_screenshot` 保存贴图草稿截图存证。
 

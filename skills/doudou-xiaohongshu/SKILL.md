@@ -73,8 +73,90 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 
   | 模态 | 状态 | 标题 | 存证截图 / 原因 |
   | :--- | :--- | :--- | :--- |
-  | 视频笔记 | ✅ 就绪/原生自动保存 | ... | `xhs_video_draft_proof.png` |
+  | 视频笔记 | ✅ 就绪/原生自动保存 | ... | `xiaohongshu_video.png` |
   | 图文笔记 | ⏭️ 已跳过 | — | 未找到 3:4 图文卡片集 |
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 「暂存离开」后草稿箱可见该标题 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const t = document.body.innerText;
+  const inDraftBox = /草稿/.test(t);
+  return { passed: inDraftBox, draftBoxVisible: inDraftBox, url: location.href };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（小红书不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/xiaohongshu_video.png、publishes/screenshots/xiaohongshu_image.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `video` / `image`）：
+
+```json
+{
+  "skill": "doudou-xiaohongshu",
+  "platform": "小红书",
+  "platformSlug": "xiaohongshu",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "video",
+      "modeDesc": "视频笔记",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/xiaohongshu_video.png",
+      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+    },
+    {
+      "mode": "image",
+      "modeDesc": "图文笔记",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/xiaohongshu_image.png",
+      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -98,10 +180,16 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 2. **原生事件完整派发**：标题输入触发 `input` 与 `change` 事件（带 `bubbles: true, composed: true`）；富文本描述使用 ProseMirror `setContent(htmlFormatted, true)` 保持段落换行与响应式状态同步。
 3. **真实鼠标与视口交互**：点击操作前先将元素 `scrollIntoView({ behavior: 'smooth', block: 'center' })`，派发 `mouseover`、`mouseenter` 再执行 `click`；分步平滑滚动页面模拟人工审阅。
 4. **绝对安全隔离底线**：严禁点击「发布」按钮；同时**无需也不得主动点击「暂存离开」按钮**（避免跳出当前编辑页面破坏现场）。小红书平台在输入后会自动实时同步保存，全流程终点停留在当前编辑页供人工复核。
-5. **确定性原生自动保存与存证**：完成编辑后平滑视口滚动审阅排版，等待 2.5 秒原生自动保存生效，截取编辑状态截图存证（`xhs_video_draft_proof.png` / `xhs_draft_proof.png`）。
+5. **确定性原生自动保存与存证**：完成编辑后平滑视口滚动审阅排版，轮询完成断言（1.5s 间隔，最长 45s）确认原生自动保存已生效，截取编辑状态截图存证（`xiaohongshu_video.png` / `xiaohongshu_image.png`）。
 6. **发布完成后保留页面（严禁自动关闭）**：全流程完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
 
 ---
+7. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+8. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
 
 ## 🚀 双模态自动化发布执行流程
 
@@ -129,8 +217,8 @@ flowchart TD
 4. **填充标题**：填写精炼短标题（<= 20 字）至 `input[placeholder*="填写标题"], input.d-text`。
 5. **填充描述与话题**：通过 ProseMirror `setContent` 注入 `<p>` 段落结构描述与热门话题标签（<= 1000 字），严格保证段落换行。
 6. **模拟审阅**：平滑滚动视口，模拟人工复核。
-7. **等待原生自动保存**：依托小红书平台实时自动保存能力，等待 2.5 秒（严禁点击暂存离开跳出页面，严禁点击发布）。
-8. **截图存证并保留现场**：截取当前编辑状态截图保存至 `xhs_video_draft_proof.png`，保留页面供人工最终确认。
+7. **等待原生自动保存**：依托小红书平台实时自动保存能力，轮询完成断言（1.5s 间隔，最长 45s）直至通过（严禁点击暂存离开跳出页面，严禁点击发布）。
+8. **截图存证并保留现场**：截取当前编辑状态截图保存至 `xiaohongshu_video.png`，保留页面供人工最终确认。
 
 ---
 
@@ -140,7 +228,7 @@ flowchart TD
 2. **真实卡片批量上传**：解析目录下的 `xhs_images/images/`，通过 `upload_file` 批量上传全部 3:4 卡片。
 3. **填充标题与描述**：填写短标题（<= 20 字），注入分段换行作品描述与话题标签（<= 1000 字）。
 4. **模拟审阅**：平滑滚动视口，模拟人工阅读检查。
-5. **等待原生自动保存与存证**：依托平台原生自动保存等待 2.5 秒，截取当前编辑状态截图保存至 `xhs_draft_proof.png`，保留编辑页面现场。
+5. **等待原生自动保存与存证**：依托平台原生自动保存，轮询完成断言（1.5s 间隔，最长 45s）直至通过，截取当前编辑状态截图保存至 `xiaohongshu_image.png`，保留编辑页面现场。
 
 ---
 

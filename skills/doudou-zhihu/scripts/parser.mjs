@@ -1,5 +1,6 @@
 ﻿import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
@@ -109,59 +110,11 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   }
 
   // 1. 优先从同名目录的 cdn_manifest.json 查找
-  if (manifestAssets.length > 0) {
-    const coverAssets = manifestAssets.filter(a => {
-      const pathStr = (a.local_path || a.slug || a.original_name || a.cdn_url || '').toLowerCase();
-      return a.type === 'cover' || pathStr.includes('cover');
-    });
-
-    if (coverAssets.length > 0) {
-      const mainCover = coverAssets.find(a => {
-        const s = ((a.local_path || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
-        return s.includes('2.35') || s.includes('main');
-      }) || coverAssets.find(a => {
-        const s = ((a.local_path || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
-        return s.includes('16:9') || s.includes('16x9');
-      }) || coverAssets.find(a => {
-        const s = ((a.local_path || '') + ' ' + (a.slug || '') + ' ' + (a.aspect_ratio || '')).toLowerCase();
-        return s.includes('1:1') || s.includes('1x1');
-      }) || coverAssets[0];
-
-      if (mainCover) {
-        const relPath = mainCover.local_path || mainCover.original_name || mainCover.path;
-        let localFullPath = undefined;
-        if (relPath) {
-          if (path.isAbsolute(relPath) && fs.existsSync(relPath)) {
-            localFullPath = relPath;
-          } else if (fs.existsSync(path.resolve(artifactDir, relPath))) {
-            localFullPath = path.resolve(artifactDir, relPath);
-          } else if (fs.existsSync(path.resolve(dir, relPath))) {
-            localFullPath = path.resolve(dir, relPath);
-          }
-        }
-
-        let base64Data = null;
-        let mimeType = mainCover.mime_type || 'image/jpeg';
-        if (localFullPath && fs.existsSync(localFullPath)) {
-          const extName = path.extname(localFullPath).toLowerCase().replace('.', '');
-          mimeType = extName === 'png' ? 'image/png' : (extName === 'webp' ? 'image/webp' : 'image/jpeg');
-          base64Data = fs.readFileSync(localFullPath).toString('base64');
-        }
-
-        const fileName = localFullPath ? path.basename(localFullPath) : (mainCover.slug ? `${mainCover.slug}.png` : 'cover.png');
-
-        return {
-          hasCover: true,
-          type: base64Data ? 'local' : (mainCover.cdn_url ? 'cdn' : 'none'),
-          url: mainCover.cdn_url,
-          localPath: localFullPath,
-          base64: base64Data || undefined,
-          mimeType,
-          fileName
-        };
-      }
-    }
-  }
+  //    统一走 asset_resolver。原逻辑的 cover/ 路径识别本身没问题，但无论如何都读本地图
+  //    转 base64（claw163 实测 764KB），而知乎发布器有 `cover.base64 || cover.url` 双分支，
+  //    直接给 CDN 直链即可，避免注入载荷被撑爆。
+  const fromManifest = resolveCoverFromManifest(artifactDir);
+  if (fromManifest) return fromManifest;
 
   // 2. 从同名目录的 cover/images 查找本地图片
   const coverImagesDir = path.join(artifactDir, 'cover', 'images');
@@ -394,7 +347,9 @@ export function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  const topics = [];
+  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
+  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
+  const topics = inferTags(rawContent, title, 3);
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免知乎编辑器标题与正文重复），保留其余部分

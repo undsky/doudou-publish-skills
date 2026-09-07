@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 
 /**
  * 提取并清洗文章标题
@@ -370,7 +371,9 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const imagePostTitle = extractImagePostTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  const tags = [];
+  // 由 asset_resolver.inferTags 从标题与正文推断（上限 5）。
+  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
+  const tags = inferTags(rawContent, imagePostTitle, 5);
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const imageCards = resolveImagePostCards(absPath);
   const video = resolveVideoAsset(absPath);

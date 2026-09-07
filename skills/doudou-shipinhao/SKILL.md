@@ -24,7 +24,7 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动填入视频
 | **视频成片文件** | `path/to/article_name/video/[video_name].mp4` 或 `[article_name].mp4` | 成品高清视频（优先识别 `video_manifest.json` 登记输出） |
 | **视频作品短标题** | `<= 16 字`（严格截断） | 自动清洗 Markdown 符号与非规范标点，超长自动截断为 15 字 + `…`（共 16 字，对齐视频号短标题上限） |
 | **视频作品描述** | `<= 1000 字` | 核心要点梳理，保留多行分段排版（换行 `<p>` 或 `<div>` 分段），严禁单行塌陷 |
-| **标签处理约定** | `tags = []` | 遵循多平台发布技能合集规范，保持空数组 |
+| **标签处理约定** | `tags = inferTags(...)`（上限 3） | 由 `asset_resolver.inferTags` 从标题与正文推断，拼入描述末尾的 `#话题`；旧版固定为空数组导致话题串永远为空 |
 
 ---
 
@@ -44,10 +44,90 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动填入视频
    - 视频描述富文本（`.input-editor[contenteditable="true"]`）：注入带换行的结构化富文本内容，并触发 Vue 内部的 `updateDescData` 或派发完整的 `input` 事件，确保其挂载的 `postStore.descData` 与描述字数统计实时同步。
 5. **安全隔离与自动保存机制**：
    - **移除对草稿箱按钮的操作**：视频上传与信息填写完毕后，**严禁主动点击「保存草稿」按钮**，**绝对严禁触碰「发表」按钮**。
-   - 视口平滑滚动核验后，静候平台原生自动保存与就绪状态生效，并在目标目录截取存证截图（`shipinhao_video_draft_proof.png`）。
+   - 视口平滑滚动核验后，轮询完成断言直至通过，并在目标目录截取存证截图（`shipinhao_video.png`）。
 6. **发布完成后保留页面（严禁自动关闭）**：
    - 表单就绪与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭视频号助手页面**，必须原样保留页面现场，供用户人工复核内容、补充扫码登录或手动确认发表。
    - 未登录、扫码验证、视频上传超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
+
+---
+7. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+8. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 视频上传进度达 100% 且「草稿」状态可见 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const t = document.body.innerText;
+  const done = /100%|上传完成|上传成功/.test(t);
+  const draft = /草稿/.test(t);
+  return { passed: done && draft, uploadDone: done, draftVisible: draft };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（微信视频号不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/shipinhao_video.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `video`）：
+
+```json
+{
+  "skill": "doudou-shipinhao",
+  "platform": "微信视频号",
+  "platformSlug": "shipinhao",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "video",
+      "modeDesc": "视频",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/shipinhao_video.png",
+      "assertion": { "rule": "视频上传进度达 100% 且「草稿」状态可见", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -66,8 +146,8 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动填入视频
    - 填入多行结构化描述（<= 1000 字）至 `.input-editor`，确保每行分段清晰无挤压。
 5. **平滑滚动审阅与就绪存证**：
    - 视口平滑滚动模拟人工阅读检查；
-   - 静候平台原生自动保存就绪，严格绝不点击「保存草稿」或「发表」按钮；
-   - 截图保存至目标文章同名目录：`shipinhao_video_draft_proof.png`，保留当前页面。
+   - 轮询完成断言直至通过，严格绝不点击「保存草稿」或「发表」按钮；
+   - 截图保存至目标文章同名目录：`shipinhao_video.png`，保留当前页面。
 
 ---
 

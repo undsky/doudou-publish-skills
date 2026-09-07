@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
@@ -184,39 +185,12 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const manifestPath = path.join(articleDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      const items = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
-      if (items.length > 0) {
-        // 查找 2.35:1 或 16:9 封面，优先 thumb 缩略图
-        const coverItem = items.find(f => f.type === 'cover' && (f.slug?.includes('2.35x1_thumb') || f.name?.includes('2.35x1_thumb') || f.slug?.includes('main_thumb') || f.name?.includes('main_thumb'))) ||
-                          items.find(f => f.type === 'cover' && (f.aspect_ratio === '2.35:1' || f.slug?.includes('2.35x1') || f.name?.includes('2.35x1') || f.slug?.includes('main') || f.name?.includes('main'))) ||
-                          items.find(f => f.type === 'cover' && (f.slug?.includes('16x9_thumb') || f.name?.includes('16x9_thumb'))) ||
-                          items.find(f => f.type === 'cover' && (f.aspect_ratio === '16:9' || f.slug?.includes('16x9') || f.name?.includes('16x9'))) ||
-                          items.find(f => f.type === 'cover');
-        if (coverItem && coverItem.cdn_url) {
-          let localPath = null;
-          if (coverItem.local_path) {
-            const pathInArticle = path.resolve(articleDir, coverItem.local_path);
-            const pathInDir = path.resolve(dir, coverItem.local_path);
-            localPath = fs.existsSync(pathInArticle) ? pathInArticle : (fs.existsSync(pathInDir) ? pathInDir : pathInArticle);
-          }
-          let base64 = null;
-          let mimeType = 'image/png';
-          if (localPath && fs.existsSync(localPath)) {
-            const buf = fs.readFileSync(localPath);
-            mimeType = localPath.endsWith('.jpg') || localPath.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
-            base64 = `data:${mimeType};base64,${buf.toString('base64')}`;
-          }
-          return {
-            hasCover: true,
-            url: coverItem.cdn_url,
-            localPath,
-            base64,
-            mimeType,
-            fileName: coverItem.slug ? `${coverItem.slug}.png` : (coverItem.name || 'cover-2.35x1.png')
-          };
-        }
-      }
+      // 统一走 asset_resolver：此处原本已兼容 files[]，但仍在筛真实清单不存在的
+      // `type === 'cover'` 字段，导致 CDN 分支被静默跳过。resolver 以 cover/ 路径信号
+      // 识别，并内置 thumb 优先、原图重罚的打分。
+      // 公众号封面门槛是 `hasCover && coverBase64`，故必须 preferBase64。
+      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: true });
+      if (fromManifest) return fromManifest;
     } catch (e) {
       console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
     }
@@ -384,7 +358,9 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const title = extractTitle(rawContent);
   const summary = extractSummary(rawContent);
-  const tags = [];
+  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
+  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
+  const tags = inferTags(rawContent, title, 3);
   const stickerDesc = extractStickerDescription(rawContent, title, tags);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);

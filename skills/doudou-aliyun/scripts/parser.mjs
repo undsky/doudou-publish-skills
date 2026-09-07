@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 
 /**
  * 提取 Markdown 标题
@@ -85,30 +86,11 @@ export function resolveCoverImage(markdownFilePath, content) {
   const manifestPath = path.join(artifactDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(manifest.assets)) {
-        const coverAssets = manifest.assets.filter(a => a.type === 'cover');
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.slug?.includes('main')) 
-          || coverAssets[0];
-        
-        if (mainCover) {
-          let localFullPath = mainCover.local_path ? path.resolve(artifactDir, mainCover.local_path) : undefined;
-          let base64Data = null;
-          let mimeType = 'image/png';
-          if (localFullPath && fs.existsSync(localFullPath)) {
-            const extName = path.extname(localFullPath).toLowerCase().replace('.', '');
-            mimeType = extName === 'png' ? 'image/png' : 'image/jpeg';
-            base64Data = fs.readFileSync(localFullPath).toString('base64');
-          }
-          return {
-            type: base64Data ? 'local' : 'cdn',
-            url: mainCover.cdn_url,
-            localPath: localFullPath,
-            base64: base64Data || undefined,
-            mimeType
-          };
-        }
-      }
+      // 统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
+      // 识别封面（真实清单无 type/slug/aspect_ratio 字段，旧逻辑在此静默跳过）。
+      // 阿里云经 MCP upload_file 用本地路径直传，无需 base64。
+      const fromManifest = resolveCoverFromManifest(artifactDir);
+      if (fromManifest) return fromManifest;
     } catch (e) {
       // 忽略解析错误
     }

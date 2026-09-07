@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
@@ -307,6 +308,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
       const mimeType = coverCard.endsWith('.jpg') || coverCard.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
       return {
         hasCover: true,
+        type: 'local',
         localPath,
         base64: `data:${mimeType};base64,${buf.toString('base64')}`,
         mimeType,
@@ -319,28 +321,11 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const manifestPath = path.join(articleDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      if (Array.isArray(manifest.assets)) {
-        const coverItem = manifest.assets.find(f => f.type === 'cover' || f.slug?.includes('cover'));
-        if (coverItem && coverItem.cdn_url) {
-          const localPath = coverItem.local_path ? path.resolve(articleDir, coverItem.local_path) : null;
-          let base64 = null;
-          let mimeType = 'image/png';
-          if (localPath && fs.existsSync(localPath)) {
-            const buf = fs.readFileSync(localPath);
-            mimeType = localPath.endsWith('.jpg') || localPath.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
-            base64 = `data:${mimeType};base64,${buf.toString('base64')}`;
-          }
-          return {
-            hasCover: true,
-            url: coverItem.cdn_url,
-            localPath,
-            base64,
-            mimeType,
-            fileName: coverItem.slug || 'cover.png'
-          };
-        }
-      }
+      // 统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
+      // 识别封面（真实清单无 type/slug 字段，旧逻辑在此静默跳过、误挑到 2MB 插图）。
+      // 抖音封面上传门槛是 `if (meta.coverBase64)`，故必须 preferBase64。
+      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: true });
+      if (fromManifest) return fromManifest;
     } catch (e) {
       console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
     }
@@ -381,6 +366,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
       const mimeType = selectedCover.endsWith('.jpg') || selectedCover.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
       return {
         hasCover: true,
+        type: 'local',
         localPath,
         base64: `data:${mimeType};base64,${buf.toString('base64')}`,
         mimeType,
@@ -619,7 +605,9 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const articleTitle = extractArticleTitle(rawContent);
   const imagePostTitle = extractImagePostTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  const tags = [];
+  // 由 asset_resolver.inferTags 从标题与正文推断（上限 5）。
+  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
+  const tags = inferTags(rawContent, articleTitle, 5);
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);

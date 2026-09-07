@@ -19,21 +19,102 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 
 1. **绝对禁止自动触发保存**：
    - 自动流程在完成正文注入与预览校验后立即截屏并向用户汇报，**严禁触发 `button[type="submit"]` 或「保存」按钮的点击事件**。
-2. **社区规范弹窗自动响应**：
+2. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+3. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+4. **社区规范弹窗自动响应**：
    - 首次或每次进入发帖页面时，平台常弹出《社区发帖规范》（`.posting-notice-backdrop`）阻断视口，技能需自动识别并拟真悬停点击「我已阅读并确认」（`.posting-notice-confirm`）清除遮罩。
-3. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+5. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 400~1000ms），严禁毫秒级机械化并发。
    - **真实事件完整性**：对于标题输入与正文填充，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，确保表单状态与 NB-Editor 内部状态完全同步。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
-4. **版块智能推断与匹配**：
+6. **版块智能推断与匹配**：
    - 默认推荐 `fid=4`（技术交流）；
    - 根据文章标题、正文关键词与路径特征智能推荐匹配版块（如资源分享 `fid=3`、福利放送 `fid=2`、求助问答 `fid=5`、深度思考 `fid=7`、我要推广 `fid=8`、社区治理 `fid=6`、大禹治水 `fid=10`）。
-5. **资产自动解析优先级**：
+7. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **图片**：优先使用 CDN 公开链接，确保图片在社区中完美显示。
-6. **发布完成后保留页面（严禁自动关闭）**：
+8. **发布完成后保留页面（严禁自动关闭）**：
    - 正文注入、预览校验与截屏存证完成后，**严禁调用 `close_page` 或以任何方式关闭发帖页面**，必须原样保留页面现场——本技能不会自动保存，页面即是用户手动点击保存的唯一入口。
    - 未登录、验证码拦截、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 标题非空 + 预览区渲染非空（平台禁止自动保存 => ready_for_review） |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `ready_for_review` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const titleEl = document.querySelector('input[name="title"], input[placeholder*="标题"]');
+  const filled = Boolean(titleEl && titleEl.value && titleEl.value.trim().length > 0);
+  const preview = document.querySelector('.preview, .markdown-body, [class*="preview"]');
+  const rendered = Boolean(preview && preview.innerText.trim().length > 50);
+  return { passed: filled && rendered, titleFilled: filled, previewRendered: rendered };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过（本平台不适用） |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（**本平台的正常终态**） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/linuxsb_topic.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `topic`）：
+
+```json
+{
+  "skill": "doudou-linuxsb",
+  "platform": "Linux 中国",
+  "platformSlug": "linuxsb",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "topic",
+      "modeDesc": "主题帖",
+      "status": "ready_for_review",
+      "statusText": "内容已就绪，待人工确认发布",
+      "title": "……",
+      "screenshot": "screenshots/linuxsb_topic.png",
+      "assertion": { "rule": "标题非空 + 预览区渲染非空（平台禁止自动保存 => ready_for_review）", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 

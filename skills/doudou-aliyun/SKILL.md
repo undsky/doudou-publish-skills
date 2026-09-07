@@ -16,21 +16,102 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 1. **安全隔离与自动保存机制**：
    - **依托平台原生自动保存**：阿里云发文平台在标题、正文与封面填入后具备实时自动保存草稿机制。
    - **移除发布时对草稿箱的操作**：严禁主动寻找并点击「存为草稿」按钮（避免因选择器变动或未就绪导致流程中断），更**严禁触碰任何形式的公开发布按钮**，所有操作停留在当前编辑页就绪态，由人工做最终确认与手动发布。
-2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+2. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+3. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+4. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 400~800ms、步骤间 500~1500ms、点击前 300~600ms），严禁毫秒级并发。
    - **真实事件完整性与 React Controlled 状态同步**：对于表单输入，使用原生属性描述符 Setter 赋值，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并同步触发 React Field 与 Component State 校验，杜绝表单空值红字拦截。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击按钮前先将视口滚动到按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~500ms 后再触发 `click`。
-3. **资产自动解析优先级**：
+5. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 链接与本地原图（优先 2.35:1 / 16:9 宽屏封面）；
      2. 其次读取同名目录下 `cover/images/` 的本地图片文件（如 `cover-main-2.35x1.png`、`cover-16x9.png`、`cover.png`）；
      3. 再次从 Markdown 正文中提取第一张图片本地路径或网络链接；
      4. 若均无则跳过封面设置。
-4. **发布完成后保留页面（严禁自动关闭）**：
+6. **发布完成后保留页面（严禁自动关闭）**：
    - 表单内容填入与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核草稿内容、补充登录或手动确认发布。
    - 未登录、验证码拦截、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 编辑器容器存在且标题已回填（未重定向至登录页） |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const onLogin = /login|passport/i.test(location.href);
+  const titleEl = document.querySelector('input[placeholder*="标题"], .title-input input');
+  const filled = Boolean(titleEl && titleEl.value && titleEl.value.trim().length > 0);
+  const editor = Boolean(document.querySelector('.CodeMirror, .markdown-editor, [class*="editor"]'));
+  return { passed: !onLogin && filled && editor, titleFilled: filled, editorPresent: editor, onLoginPage: onLogin };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（阿里云开发者社区不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/aliyun_article.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `article`）：
+
+```json
+{
+  "skill": "doudou-aliyun",
+  "platform": "阿里云开发者社区",
+  "platformSlug": "aliyun",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "Markdown长文",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/aliyun_article.png",
+      "assertion": { "rule": "编辑器容器存在且标题已回填（未重定向至登录页）", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -47,7 +128,7 @@ flowchart TD
     S4 --> S5[步骤 5: 填写文章摘要并校验原创免责设置]
     S5 --> S6[步骤 6: 官方通道上传并绑定文章封面]
     S6 --> S7[步骤 7: 模拟人工视口平滑滚动审阅]
-    S7 --> S8[步骤 8: 静候平台自动保存生效并截屏存证]
+    S7 --> S8[步骤 8: 轮询完成断言、截屏存证并落盘回执]
 ```
 
 ### 步骤 0：解析 Markdown 资产与封面
@@ -190,7 +271,7 @@ if (formInstance && formInstance.field) {
   "filePaths": ["path/to/article_name/cover/images/cover.png"]
 }
 ```
-3. 等待 2~3 秒，浏览器将自动完成官方 OSS 签名上传与封面缩略图绑定（状态更新为 `重新上传`）。
+3. 轮询等待官方 OSS 签名上传与封面缩略图绑定完成——以按钮状态变为 `重新上传` 为客观判据（1s 间隔，最长 30s），**不要用固定秒数替代该判据**。
 
 ---
 
@@ -206,11 +287,11 @@ if (formInstance && formInstance.field) {
 
 ---
 
-### 步骤 8：静候平台自动保存生效并截屏存证
+### 步骤 8：轮询完成断言、截屏存证并落盘回执
 
-1. 静候 2~3 秒，等待阿里云平台原生自动保存机制生效；
+1. 按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
 2. 捕获页面状态（如检查 `instance?.state?.draftTime` 或检测页面是否出现 `保存了草稿`）；
-3. 视口滚动到封面与标题状态区域，调用 `take_screenshot` 保存当前页面截图作为存证（如 `aliyun_draft_proof.png`）；
+3. 视口滚动到封面与标题状态区域，调用 `take_screenshot` 保存当前页面截图作为存证（如 `aliyun_article.png`）；
 4. **保留页面现场**：存证完成后，**严禁调用 `close_page` 或关闭标签页**，保持当前页面打开供人工复核；
 5. 输出结构化结果报告（文章标题、就绪状态、草稿时间戳、封面图绑定状态等）。
 

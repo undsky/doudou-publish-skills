@@ -16,15 +16,21 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 1. **安全隔离与自动保存机制**：
    - **依托平台原生自动保存**：百家号编辑器在正文与标题填入后具备实时自动同步保存草稿机制。
    - **移除发布时对草稿箱的操作**：严禁主动寻找并点击「存草稿」按钮，**绝对严禁点击「发布」或「定时发布」**，确保内容停留在当前编辑页就绪态，由创作者人工进行最终核验与手动发布。
-2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+2. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+3. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+4. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 200~400ms、步骤间 400~1000ms、点击悬停 200~400ms），严禁毫秒级瞬时操作。
    - **真实事件完整性**：对于标题输入与表单交互，依次派发 `mouseover`、`mouseenter`、`mousedown`、`mouseup`、`click`、`focus`、`input`、`change`、`blur`，并同步底层 React / UEditor 状态。
    - **百家号 UEditor / Lexical 富文本注入**：调用 `window.editor.setContent(meta.htmlContent)` 注入标准 HTML，自动触发平台 `data-diagnose-id` 诊断与字数统计，完整保留标题、代码块、加粗、引用、列表及 CDN 配图。
    - **平滑视口滚动**：模拟人类自上而下的视觉审阅，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：点击元素前先将其 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 悬停后再触发 `click`。
-3. **正文内容忠实度保障 (Content Fidelity)**：
+5. **正文内容忠实度保障 (Content Fidelity)**：
    - 注入正文必须直接来自 `parser.mjs` / `resolveArticleHtml` 转换的完整语义 HTML，100% 保留文章中的所有小标题、对比表格、代码块、引用块、有序/无序列表以及末尾的「引用链接」模块，**严禁模型二次脑补、扩写或擅自修改正文结构**。
-4. **资产自动解析优先级**：
+6. **资产自动解析优先级**：
    - **文章标题**：限制 2～64 字以内（百家号官方限制 2~64 字），自动清洗 Markdown 符号（`#`、`**` 等）并智能截断。
    - **文章正文**：优先读取同名目录下 `[article_name]_cdn.md`（或依据 `cdn_manifest.json` 将本地图片无缝替换为 Cloudflare R2 公开 CDN 链接），转换为带有高清配图的标准语义 HTML。
    - **文章封面**（严格遵循 `baoyu-cover-image` 规约）：
@@ -32,9 +38,82 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
      2. 其次读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 条目；
      3. 再次读取同名目录下 `xhs_images/images/` 下第 1 张封面卡片（如 `01-cover.png`）；
      4. 若均无则跳过封面设置。
-5. **发布完成后保留页面（严禁自动关闭）**：
+7. **发布完成后保留页面（严禁自动关闭）**：
    - 内容填入与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核内容、补充登录或手动确认发布。
    - 未登录、验证码拦截、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | URL 出现 article_id= 或页面出现「已保存草稿」 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const m = location.href.match(/article_id=([A-Za-z0-9_-]+)/);
+  const saved = /已保存草稿|保存成功|已保存/.test(document.body.innerText);
+  return { passed: Boolean(m) || saved, draftId: m?.[1] ?? null, draftUrl: location.href, savedTip: saved };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（百家号不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/baijia_article.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `article`）：
+
+```json
+{
+  "skill": "doudou-baijia",
+  "platform": "百家号",
+  "platformSlug": "baijia",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "图文长文",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/baijia_article.png",
+      "assertion": { "rule": "URL 出现 article_id= 或页面出现「已保存草稿」", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -50,7 +129,7 @@ flowchart TD
     S3 --> S4[步骤 4: 模拟视口平滑滚动排版审阅]
     S4 --> S5[步骤 5: 激活封面插槽、上传 File 并完成裁切弹窗确认]
     S5 --> S6[步骤 6: 模拟人工视口平滑滚动审阅]
-    S6 --> S7[步骤 7: 静候平台自动保存生效并截屏存证]
+    S6 --> S7[步骤 7: 轮询完成断言、截屏存证并落盘回执]
 ```
 
 ---
@@ -128,11 +207,11 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ---
 
-### 步骤 7：静候平台自动保存生效并截屏存证
+### 步骤 7：轮询完成断言、截屏存证并落盘回执
 
-1. 静候 2~3 秒，等待百家号原生自动保存机制生效；
+1. 按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
 2. 检查页面状态与 URL（如是否包含 `article_id`，字数统计与诊断状态是否就绪）；
-3. 调用 `take_screenshot` 保存当前就绪状态作为执行存证（如 `baijia_draft_proof.png`）；
+3. 调用 `take_screenshot` 保存当前就绪状态作为执行存证（如 `baijia_article.png`）；
 4. **保留页面现场**：存证完成后，**严禁调用 `close_page` 或关闭标签页**，保持当前页面打开供人工复核；
 5. 向用户呈递包含文章标题、字数、封面状态、`article_id` 及存证截图的结构化报告。
 

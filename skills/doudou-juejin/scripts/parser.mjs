@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 
 /**
  * 提取 Markdown 标题
@@ -112,40 +113,11 @@ export function resolveCoverImage(markdownFilePath, content) {
   const artifactDir = path.join(dir, stem);
 
   // 1. 优先从同名目录的 cdn_manifest.json 查找
-  const manifestPath = path.join(artifactDir, 'cdn_manifest.json');
-  if (fs.existsSync(manifestPath)) {
-    try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(manifest.assets)) {
-        // 优先 2.35:1 或 16:9 或包含 main 的封面
-        const coverAssets = manifest.assets.filter(a => a.type === 'cover');
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.slug?.includes('main')) 
-          || coverAssets.find(a => a.aspect_ratio === '16:9' || a.slug?.includes('16x9'))
-          || coverAssets.find(a => a.aspect_ratio === '1:1' || a.slug?.includes('1x1'))
-          || coverAssets[0];
-        
-        if (mainCover) {
-          let localFullPath = mainCover.local_path ? path.resolve(artifactDir, mainCover.local_path) : undefined;
-          let base64Data = null;
-          let mimeType = 'image/jpeg';
-          if (localFullPath && fs.existsSync(localFullPath)) {
-            const extName = path.extname(localFullPath).toLowerCase().replace('.', '');
-            mimeType = extName === 'png' ? 'image/png' : 'image/jpeg';
-            base64Data = fs.readFileSync(localFullPath).toString('base64');
-          }
-          return {
-            type: base64Data ? 'local' : 'cdn',
-            url: mainCover.cdn_url,
-            localPath: localFullPath,
-            base64: base64Data || undefined,
-            mimeType
-          };
-        }
-      }
-    } catch (e) {
-      // 忽略解析错误
-    }
-  }
+  //    统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
+  //    识别封面（真实清单里没有 type/slug/aspect_ratio 字段）。命中 CDN 直链时直接返回
+  //    链接，不再读本地图转 base64，避免注入载荷被数百 KB 图片撑爆。
+  const fromManifest = resolveCoverFromManifest(artifactDir);
+  if (fromManifest) return fromManifest;
 
   // 2. 从同名目录的 cover/images 查找本地图片
   const coverImagesDir = path.join(artifactDir, 'cover', 'images');
@@ -240,7 +212,8 @@ export function parseArticle(filePath) {
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
   const category = inferCategory(content, title);
-  const tags = [];
+  // 掘金限 3 个标签；此处产出通用关键词，由发布脚本再去官方标签库做精确匹配
+  const tags = inferTags(content, title, 3);
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免掘金编辑器标题与正文重复），保留其余部分

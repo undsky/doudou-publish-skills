@@ -14,13 +14,19 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
 ## 核心规约与防风控原则
 
 1. **草稿安全隔离与平台原生自动保存**：
-   - **绝对不触发公开发布**，严禁点击「发布」按钮；同时**无需主动寻找或点击「存草稿」按钮**。腾讯云编辑器在正文注入、标题更新及抽屉配置后会自动触发原生防抖保存。脚本在配置完成后平滑关闭抽屉，模拟作者审阅，静待平台原生自动保存就绪。
-2. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+   - **绝对不触发公开发布**，严禁点击「发布」按钮；同时**无需主动寻找或点击「存草稿」按钮**。腾讯云编辑器在正文注入、标题更新及抽屉配置后会自动触发原生防抖保存。脚本在配置完成后平滑关闭抽屉，模拟作者审阅，轮询完成断言直至通过。
+2. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+3. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
+4. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
    - **随机时延抖动**：所有操作之间增加正态分布随机等待（输入前 300~600ms、步骤间 500~1500ms、点击前 400~700ms），严禁毫秒级并发。
    - **真实事件完整性**：对于表单与文本输入，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并重置 React `_valueTracker` 与同步 React Fiber State。
    - **平滑视口滚动**：模拟人类自上而下的视觉审查，分步平滑滚动页面触发浏览器的视口可见性检测。
    - **拟真悬停与点击**：交互前先将视口滚动到目标元素可见区域，派发 `mouseover`/`mouseenter` 悬停 400~700ms 后再交互。
-3. **资产自动解析优先级**：
+5. **资产自动解析优先级**：
    - **正文**：优先使用同名目录下已将本地图片替换为图床 URL 的 `[article_name]_cdn.md`；若无则使用原 Markdown 文件。
    - **封面图**：
      1. 优先读取同名目录下 `cdn_manifest.json` 中 `type: "cover"` 的 CDN 链接（优先 2.35:1 / 16:9 宽屏主封面）；
@@ -29,9 +35,82 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动发
      4. 若均无则跳过封面设置。
    - **摘要**：提炼 80~180 字纯文本摘要（腾讯云限制 200 字以内）。
    - **标签与关键词**：不自动填充，留由用户自行按需在发布抽屉中添加。
-4. **发布完成后保留页面（严禁自动关闭）**：
+6. **发布完成后保留页面（严禁自动关闭）**：
    - 注入与存证截图完成后，**严禁调用 `close_page` 或以任何方式关闭当前平台页面**，必须原样保留页面现场，供用户人工复核草稿内容、补充登录或手动确认发布。
    - 未登录、验证码拦截、网络超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | URL 出现 draftId=\d+ |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const m = location.href.match(/draftId=(\d+)/);
+  const saved = /保存成功|已保存/.test(document.body.innerText);
+  return { passed: Boolean(m), draftId: m?.[1] ?? null, draftUrl: m ? location.href : null, savedTip: saved };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（腾讯云开发者社区不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/tencent_article.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `article`）：
+
+```json
+{
+  "skill": "doudou-tencent",
+  "platform": "腾讯云开发者社区",
+  "platformSlug": "tencent",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "Markdown长文",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/tencent_article.png",
+      "assertion": { "rule": "URL 出现 draftId=\\d+", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 

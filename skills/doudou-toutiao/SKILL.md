@@ -77,8 +77,90 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 
   | 模态 | 状态 | 标题 | 存证截图 / 原因 |
   | :--- | :--- | :--- | :--- |
-  | 视频 | ✅ 表单就绪待人工发布 | ... | `toutiao_video_draft_proof.png` |
-  | 长文图文 | ✅ 草稿已保存 | ... | `toutiao_draft_proof.png` |
+  | 视频 | ✅ 表单就绪待人工发布 | ... | `toutiao_video.png` |
+  | 长文图文 | ✅ 草稿已保存 | ... | `toutiao_article.png` |
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 页面出现「已保存」/「草稿已保存」状态文字 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const t = document.body.innerText;
+  const saved = /草稿已保存|已保存|保存成功/.test(t);
+  return { passed: saved, savedTip: saved, draftUrl: location.href };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（今日头条不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/toutiao_article.png、publishes/screenshots/toutiao_video.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `article` / `video`）：
+
+```json
+{
+  "skill": "doudou-toutiao",
+  "platform": "今日头条",
+  "platformSlug": "toutiao",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "长文图文",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/toutiao_article.png",
+      "assertion": { "rule": "页面出现「已保存」/「草稿已保存」状态文字", "passed": true }
+    },
+    {
+      "mode": "video",
+      "modeDesc": "视频",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/toutiao_video.png",
+      "assertion": { "rule": "页面出现「已保存」/「草稿已保存」状态文字", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -94,7 +176,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 | **长文内容摘要** | `<= 100 字` | 提取首段精炼摘要，超长自动截断 |
 | **文章排版 HTML** | `path/to/article_name/[article_name]_cdn.md` | 纯排版正文，依据 `cdn_manifest.json` 替换为 Cloudflare R2 公开 CDN 链接 |
 | **文章封面图** | `path/to/article_name/cover/images/` | 优先读取 `xhs_images/images/01-cover.png` 或 `cover/images/` 下宽屏封面 |
-| **标签处理约定** | `tags = []` | 遵循全平台发布技能统一规范，保持空数组 |
+| **标签处理约定** | `tags = inferTags(...)`（上限 3） | 由 `asset_resolver.inferTags` 从标题与正文推断；旧版固定为空数组导致下游标签分支被判空跳过 |
 
 ---
 
@@ -112,6 +194,13 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 3. **发布完成后保留页面（严禁自动关闭）**：
    - 草稿保存或视频表单就绪并完成截屏存证后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场——视频模式尤其关键，页面即是创作者人工审阅后点击发布的唯一入口。
    - 未登录、验证码拦截、上传超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
+
+4. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+5. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
 
 ---
 
@@ -134,7 +223,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 6. **抽屉式封面真实上传与确认**：
    - 若存在封面图资产，点击 `.article-cover-add` 展开 `.byte-drawer` 抽屉，注入 `File` 对象并自动完成确认裁剪。
 7. **等待草稿云端保存并存证**：
-   - 平滑滚动至页面底部，等待校验呈现「草稿已保存」，在草稿箱页面截图存证（`toutiao_draft_proof.png`）。
+   - 平滑滚动至页面底部，等待校验呈现「草稿已保存」，在草稿箱页面截图存证（`toutiao_article.png`）。
 
 ---
 
@@ -154,7 +243,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 6. **模拟视口滚动与就绪核验**：
    - 视口平滑滚动模拟人工核验，验证右侧手机端推荐样式预览展示正常。
 7. **就绪状态截图存证**：
-   - 严格遵循安全合规原则（不点击直接发布按钮），截取当前就绪状态截图保存至 `toutiao_video_draft_proof.png`。
+   - 严格遵循安全合规原则（不点击直接发布按钮），截取当前就绪状态截图保存至 `toutiao_video.png`。
 
 ---
 

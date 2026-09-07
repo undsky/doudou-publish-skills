@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 
 /**
  * 提取 Markdown 标题
@@ -84,23 +85,10 @@ export function resolveCoverImage(markdownFilePath, content) {
   const manifestPath = path.join(artifactDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      const items = Array.isArray(manifest.assets) ? manifest.assets : (Array.isArray(manifest.files) ? manifest.files : []);
-      if (items.length > 0) {
-        // 优先 2.35:1 或 16:9 或包含 cover 的项
-        const coverAssets = items.filter(a => a.type === 'cover' || a.local_path?.includes('cover') || a.original_name?.includes('cover'));
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.local_path?.includes('2.35') || a.original_name?.includes('2.35') || a.slug?.includes('main') || a.local_path?.includes('main')) 
-          || coverAssets.find(a => a.aspect_ratio === '16:9' || a.slug?.includes('16x9') || a.local_path?.includes('16x9') || a.original_name?.includes('16x9'))
-          || coverAssets[0];
-        
-        if (mainCover && mainCover.cdn_url) {
-          return {
-            type: 'cdn',
-            url: mainCover.cdn_url,
-            localPath: mainCover.local_path ? path.resolve(artifactDir, mainCover.local_path) : undefined
-          };
-        }
-      }
+      // 统一走 asset_resolver：本平台原逻辑已兼容 files[] 且用 local_path 判封面，
+      // 收敛到公共模块只为统一维护面（选择逻辑与打分规则一处修、处处生效）。
+      const fromManifest = resolveCoverFromManifest(artifactDir);
+      if (fromManifest) return fromManifest;
     } catch (e) {
       // 忽略解析错误
     }
@@ -187,6 +175,9 @@ export function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
+  // 标签：原先本平台完全没有标签产出，发布脚本的标签分支恒被跳过。
+  // 由 asset_resolver.inferTags 从标题与正文推断（上限 5），发布时再去官方标签库匹配。
+  const tags = inferTags(rawContent, title, 5);
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免腾讯云编辑器标题重复），保留其余部分
@@ -201,6 +192,7 @@ export function parseArticle(filePath) {
     stem,
     title,
     summary,
+    tags,
     cover,
     isCdnVersion,
     bodyContent,
@@ -219,6 +211,7 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
   console.log(JSON.stringify({
     title: result.title,
     summary: result.summary,
+    tags: result.tags,
     cover: {
       type: result.cover.type,
       url: result.cover.url,

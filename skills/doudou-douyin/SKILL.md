@@ -79,9 +79,100 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
 
   | 模态 | 状态 | 标题 | 存证截图 / 原因 |
   | :--- | :--- | :--- | :--- |
-  | 视频 | ✅ 已暂存草稿 | ... | `douyin_video_draft_proof.png` |
-  | 图文 | ✅ 已暂存草稿 | ... | `douyin_image_draft_proof.png` |
+  | 视频 | ✅ 已暂存草稿 | ... | `douyin_video.png` |
+  | 图文 | ✅ 已暂存草稿 | ... | `douyin_image.png` |
   | 文章 | ⏭️ 已跳过 | — | 未解析出可用正文 HTML |
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 「暂存离开」后草稿箱可见该标题 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const t = document.body.innerText;
+  const inDraftBox = /草稿/.test(t);
+  return { passed: inDraftBox, draftBoxVisible: inDraftBox, url: location.href };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（抖音不适用） |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+必须存至 publishes/screenshots/douyin_video.png、publishes/screenshots/douyin_image.png、publishes/screenshots/douyin_article.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构（`results` 为逐模态数组，本技能含 `video` / `image` / `article`）：
+
+```json
+{
+  "skill": "doudou-douyin",
+  "platform": "抖音",
+  "platformSlug": "douyin",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "video",
+      "modeDesc": "视频",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/douyin_video.png",
+      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+    },
+    {
+      "mode": "image",
+      "modeDesc": "图文",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/douyin_image.png",
+      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+    },
+    {
+      "mode": "article",
+      "modeDesc": "文章",
+      "status": "success",
+      "statusText": "草稿已保存",
+      "title": "……",
+      "screenshot": "screenshots/douyin_article.png",
+      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
 
 ---
 
@@ -112,10 +203,16 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
 3. **随机微延迟**：在表单聚焦、输入、点击之间插入 200ms ~ 600ms 随机延迟（`sleep(ms + Math.random() * 200)`）。
 4. **原生事件与状态双向同步**：文本输入必须派发 `input` 与 `change` 事件；富文本调用 TipTap/Slate/Selection 状态同步；话题标签保持精准绑定。
 5. **真实鼠标交互**：点击操作前先将元素 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 再执行 `click`。
-6. **安全隔离与自动保存机制**：抖音创作者平台具备输入实时自动保存机制。**彻底移除点击「暂存离开」按钮的操作**（防止页面跳出当前编辑器回到内容管理列表），**严格禁止误触直接「发布」**。全流程表单与资产注入完成后，平滑滚动视口审阅，静候平台自动保存生效，并截取当前编辑页存证图片（`douyin_video_draft_proof.png` / `douyin_image_draft_proof.png` / `douyin_draft_proof.png`）。
+6. **安全隔离与自动保存机制**：抖音创作者平台具备输入实时自动保存机制。**彻底移除点击「暂存离开」按钮的操作**（防止页面跳出当前编辑器回到内容管理列表），**严格禁止误触直接「发布」**。全流程表单与资产注入完成后，平滑滚动视口审阅，轮询完成断言直至通过，并截取当前编辑页存证图片（`douyin_video.png` / `douyin_image.png` / `douyin_article.png`）。
 7. **发布完成后保留页面（严禁自动关闭）**：填入与截屏存证完成后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
 
 ---
+8. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+9. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
 
 ## 🚀 三模态自动化发布执行流程
 
@@ -138,9 +235,9 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
    - 默认采用平台智能抽帧推荐封面。
    - 若出现“设置横封面获更多流量”等弹窗，自动点击「暂不设置」跳过。
 6. **平滑滚动审阅与就绪存证**：
-   - 视口平滑滚动后，静候 2~3 秒待抖音原生自动保存生效；
+   - 视口平滑滚动后，按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
    - 严格绝不点击「暂存离开」（避免跳出编辑器），绝对禁止触碰「发布」；
-   - 截取当前视频编辑状态截图保存至 `douyin_video_draft_proof.png`，保留当前编辑页。
+   - 截取当前视频编辑状态截图保存至 `douyin_video.png`，保留当前编辑页。
 
 ---
 
@@ -158,9 +255,9 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
    - 填写标题（严格限制 20 字以内）至 `input[placeholder*="添加作品标题"]`。
    - 填写描述与话题（严格限制 1000 字以内）至 `.zone-container.editor-kit-container`。
 5. **平滑滚动审阅与就绪存证**：
-   - 视口平滑滚动后，静候 2~3 秒待抖音原生自动保存生效；
+   - 视口平滑滚动后，按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
    - 严格绝不点击「暂存离开」，绝对禁止触碰「发布」；
-   - 截取当前编辑状态截图保存至 `douyin_image_draft_proof.png`，保留当前编辑页。
+   - 截取当前编辑状态截图保存至 `douyin_image.png`，保留当前编辑页。
 
 ---
 
@@ -181,9 +278,9 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频,图文"  # 仅指�
 5. **话题标签设置**：
    - 定位 `.topicSelector-MJsOhh` 的 React Fiber 实例，通过 `setItem(prev => ({ ...prev, long_article_topic: topicList }))` 同步话题。
 6. **平滑滚动审阅与就绪存证**：
-   - 视口平滑滚动后，静候 2~3 秒待抖音原生自动保存生效；
+   - 视口平滑滚动后，按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
    - 严格绝不点击「暂存离开」，绝对禁止触碰「发布」；
-   - 截取当前文章编辑状态截图保存至 `douyin_draft_proof.png`，保留当前编辑页。
+   - 截取当前文章编辑状态截图保存至 `douyin_article.png`，保留当前编辑页。
 
 ---
 

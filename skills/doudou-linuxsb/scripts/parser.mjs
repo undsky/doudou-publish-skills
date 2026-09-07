@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 
 /**
  * 社区版块映射表 (fid -> 版块名称)
@@ -176,22 +177,10 @@ export function resolveCoverImage(markdownFilePath, content) {
   const manifestPath = path.join(artifactDir, 'cdn_manifest.json');
   if (fs.existsSync(manifestPath)) {
     try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (Array.isArray(manifest.assets)) {
-        const coverAssets = manifest.assets.filter(a => a.type === 'cover');
-        const mainCover = coverAssets.find(a => a.aspect_ratio === '2.35:1' || a.slug?.includes('2.35') || a.slug?.includes('main')) 
-          || coverAssets[0];
-        
-        if (mainCover) {
-          let localFullPath = mainCover.local_path ? path.resolve(artifactDir, mainCover.local_path) : undefined;
-          return {
-            type: 'cdn',
-            url: mainCover.cdn_url,
-            localPath: localFullPath && fs.existsSync(localFullPath) ? localFullPath : undefined,
-            mimeType: 'image/png'
-          };
-        }
-      }
+      // 统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
+      // 识别封面（真实清单无 type/slug/aspect_ratio 字段，旧逻辑在此静默跳过）。
+      const fromManifest = resolveCoverFromManifest(artifactDir);
+      if (fromManifest) return fromManifest;
     } catch {
       // ignore JSON parse error
     }
