@@ -1,5 +1,7 @@
 # doudou-publish-skills
 
+![doudou-publish-skills](./assets/cover.png)
+
 多平台自媒体与开发者社区文章草稿自动发布技能合集。基于 `chrome-devtools-mcp` 控制浏览器，支持将本地 Markdown 及其衍生资产（排版 HTML、宽屏封面、图文卡片、CDN 图片等）一键自动同步至各大平台草稿箱。
 
 ---
