@@ -170,9 +170,9 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 | :--- | :--- | :--- |
 | **源 Markdown 文章** | `path/to/article_name.md` | 原始文章 |
 | **视频成片文件** | `path/to/article_name/video/[video_name].mp4` 或 `[article_name].mp4` | 成品高清视频（优先识别 `video_manifest.json` 登记输出） |
-| **视频作品标题** | `<= 30 字`（严格截断） | 自动清洗 Markdown 符号与非规范标点，优先适配 manifestTitle，限制 5~30 字以内 |
+| **视频作品标题** | `<= 30 字`（AI 智能提炼，严禁硬截断） | 全角=1字、半角=0.5字；保留合规中文标点；若超 30 字由 Agent 结合主旨提炼新标题（`--title`） |
 | **视频作品描述/简介** | `<= 1000 字` | 核心要点梳理，保留多行分段排版（换行分段），严禁单行塌陷 |
-| **长文文章标题** | `<= 30 字`（严格截断） | 限制 2～30 字以内，自动清洗 Markdown 符号（`#`、`**` 等）并智能截断 |
+| **长文文章标题** | `<= 30 字`（AI 智能提炼，严禁硬截断） | 全角=1字、半角=0.5字；若原标题超长由 Agent 结合主旨提炼新标题（`--title`） |
 | **长文内容摘要** | `<= 100 字` | 提取首段精炼摘要，超长自动截断 |
 | **文章排版 HTML** | `path/to/article_name/[article_name]_cdn.md` | 纯排版正文，依据 `cdn_manifest.json` 替换为 Cloudflare R2 公开 CDN 链接 |
 | **文章封面图** | `path/to/article_name/cover/images/` | 优先读取 `xhs_images/images/01-cover.png` 或 `cover/images/` 下宽屏封面 |
@@ -257,7 +257,7 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 ### Agent 调用范式
 
 ```javascript
-import { parseAllAssets } from "./scripts/parser.mjs";
+import { parseAllAssets, calcPlatformWords } from "./scripts/parser.mjs";
 import {
   buildPublishBrowserScript,
   buildPrepareVideoUploadBrowserScript,
@@ -265,11 +265,18 @@ import {
   buildVideoPublishBrowserScript,
 } from "./scripts/toutiao_publisher.mjs";
 
-// 1. 解析目标 Markdown（parseAllAssets 为同步函数）
+// 1. 解析目标 Markdown 资产（parseAllAssets 为同步函数）
 //    requestedModes 留空 => 默认全模态；仅当用户明确点名模态时才传入
-const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
+let meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 
-// 2. 读取确定性模态计划，严禁自行推断要发哪些模态
+// 2. 标题字数与 AI 智能重构校验（严禁机械截断）
+//    平台规则：全角汉字/符号=1字，半角英文/数字/空格=0.5字，上限 30 字。
+//    若 calcPlatformWords(meta.articleTitle) > 30：
+//    执行 Agent 必须发挥自身 AI 语义理解能力，结合文章主旨智能提炼一个 <= 30 字的精炼新标题
+//    （保留核心框架/品牌名与主要动宾意图，语言吸睛且语义完整），重新注入：
+//    meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null, aiGeneratedTitle);
+
+// 3. 读取确定性模态计划，严禁自行推断要发哪些模态
 const { modes, skipped, summary } = meta.publishPlan;
 console.log(summary); // 例：用户未指定模态 => 默认发布全部可用模态｜将发布：视频 + 长文图文
 

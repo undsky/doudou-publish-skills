@@ -192,22 +192,23 @@ export function buildPublishBrowserScript(meta) {
           uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
           log('已向封面上传组件提交 File 对象');
 
-          // 等待裁剪/确认弹窗出现并点击「确定」
-          await sleep(1800);
-          const confirmBtn = Array.from(document.querySelectorAll('button, .byte-btn')).find(b => {
-            const txt = (b.innerText || '').trim();
-            return txt === '确定' || txt === '完成';
-          });
+          // 等待上传完成与确认按钮就绪（如出现“已上传 1 张图片”或确定按钮激活）
+          await sleep(2500);
+          const confirmBtn = document.querySelector('.byte-drawer .byte-btn-primary') || 
+            Array.from(document.querySelectorAll('.byte-drawer button, button, .byte-btn')).find(b => {
+              const txt = (b.innerText || '').trim();
+              return (txt === '确定' || txt === '完成') && b.offsetWidth > 0;
+            });
 
           if (confirmBtn) {
             await simulateClick(confirmBtn);
-            log('已点击封面确认/裁剪按钮');
+            log('已点击抽屉封面确认/完成按钮');
             coverUploaded = true;
           } else {
-            log('提示: 未出现额外的裁剪确定弹窗，封面可能已直接应用');
+            log('提示: 未找到抽屉确定按钮，封面可能已直接应用');
             coverUploaded = true;
           }
-          await sleep(1000);
+          await sleep(1500);
         } else {
           log('警告: 抽屉内未找到文件上传 input');
         }
@@ -311,7 +312,9 @@ export function buildVideoPublishBrowserScript(meta) {
   const meta = {
     title: ${JSON.stringify(meta.videoTitle || meta.articleTitle || '')},
     description: ${JSON.stringify(meta.videoDesc || '')},
-    tags: ${JSON.stringify(meta.tags || [])}
+    tags: ${JSON.stringify(meta.tags || [])},
+    coverBase64: ${JSON.stringify(meta.videoCover?.base64 || meta.cover?.base64 || '')},
+    coverFileName: ${JSON.stringify(meta.videoCover?.fileName || meta.cover?.fileName || 'cover-16x9.png')}
   };
 
   const logs = [];
@@ -322,9 +325,38 @@ export function buildVideoPublishBrowserScript(meta) {
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
 
+  const simulateHover = (el) => {
+    if (!el) return;
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    el.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
+  };
+
+  const simulateClick = async (el) => {
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(200);
+    simulateHover(el);
+    await sleep(200);
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  };
+
+  const makeFile = (base64Str, name = 'cover.png') => {
+    const parts = base64Str.split(';base64,');
+    const mime = parts[0].replace('data:', '') || 'image/png';
+    const raw = atob(parts[1] || parts[0]);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    const blob = new Blob([arr], { type: mime });
+    return new File([blob], name, { type: mime });
+  };
+
   // 1. 拟真输入视频标题（<=30字）
   log('正在填写视频标题: ' + meta.title);
-  const titleInput = document.querySelector('input.xigua-input, input[placeholder*="0～30"]');
+  const titleInput = document.querySelector('input.xigua-input, input[placeholder*="0～30"], input[placeholder*="1～30"]');
   if (titleInput && meta.title) {
     titleInput.focus();
     await sleep(200);
@@ -345,13 +377,122 @@ export function buildVideoPublishBrowserScript(meta) {
   }
   await sleep(400);
 
-  // 2. 模拟视口平滑滚动人工核验
+  // 2. 填写视频简介/描述
+  if (meta.description) {
+    log('正在填写视频简介...');
+    const descArea = document.querySelector('textarea.abstract, textarea[placeholder*="视频简介"], .byte-textarea.abstract');
+    if (descArea) {
+      descArea.focus();
+      await sleep(200);
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+      if (setter) {
+        setter.call(descArea, meta.description);
+      } else {
+        descArea.value = meta.description;
+      }
+      descArea.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      descArea.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      await sleep(250);
+      descArea.blur();
+      log('视频简介填写完成');
+    } else {
+      log('提示: 未找到视频简介输入框');
+    }
+  }
+  await sleep(400);
+
+  // 3. 上传与设置视频封面
+  let coverUploaded = false;
+  if (meta.coverBase64) {
+    log('正在上传视频封面: ' + meta.coverFileName);
+    try {
+      const coverTrigger = document.querySelector('.fake-upload-trigger, .cover-upload, .upload-btn, .cover-preview, .cover, .cover-box');
+      if (coverTrigger) {
+        await simulateClick(coverTrigger);
+        await sleep(800);
+
+        // 切换到「本地上传」Tab
+        const tabs = Array.from(document.querySelectorAll('.byte-tabs-header-title, [role="tab"], .tab-item'));
+        const localTab = tabs.find(t => (t.innerText || '').trim().includes('本地上传'));
+        if (localTab) {
+          localTab.click();
+          await sleep(500);
+        }
+
+        const fileInput = document.querySelector('.byte-modal input[type="file"], .arco-modal input[type="file"], input[type="file"][accept*="image"]');
+        if (fileInput) {
+          const file = makeFile(meta.coverBase64, meta.coverFileName);
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          fileInput.files = dt.files;
+
+          const propsKey = Object.keys(fileInput).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+          if (propsKey && fileInput[propsKey] && typeof fileInput[propsKey].onChange === 'function') {
+            fileInput[propsKey].onChange({
+              target: fileInput,
+              currentTarget: fileInput,
+              nativeEvent: new Event('change'),
+              persist: () => {}
+            });
+          }
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          log('视频封面已提交至上传组件');
+
+          // 等待裁剪弹窗并点击确认
+          await sleep(2000);
+          const confirmBtn = Array.from(document.querySelectorAll('button, .byte-btn')).find(b => {
+            const txt = (b.innerText || '').trim();
+            return (txt === '确定' || txt === '完成') && b.offsetWidth > 0;
+          });
+          if (confirmBtn) {
+            await simulateClick(confirmBtn);
+            log('已点击视频封面确定裁剪按钮');
+          }
+
+          // 二次确认弹窗处理（例如"完成后无法继续编辑，是否确定完成？"）
+          await sleep(1500);
+          const secondConfirm = Array.from(document.querySelectorAll('.byte-modal button, .arco-modal button')).find(b => {
+            const txt = (b.innerText || '').trim();
+            return txt === '确定' && b.offsetWidth > 0;
+          });
+          if (secondConfirm) {
+            await simulateClick(secondConfirm);
+            log('已点击二次确认完成按钮');
+          }
+          coverUploaded = true;
+        } else {
+          log('警告: 未找到封面文件上传 input');
+        }
+      } else {
+        log('提示: 未找到封面上传触发按钮');
+      }
+    } catch (e) {
+      log('视频封面上传异常: ' + e.message);
+    }
+  }
+  await sleep(600);
+
+  // 4. 模拟视口平滑滚动人工核验
   window.scrollTo({ top: 300, behavior: 'smooth' });
   await sleep(400);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(300);
 
-  // 3. 检查当前发布按钮与就绪态
+  // 5. 点击「存草稿」按钮暂存
+  log('正在点击存草稿按钮...');
+  const draftBtn = Array.from(document.querySelectorAll('button, .byte-btn')).find(b => {
+    const txt = (b.innerText || '').trim();
+    return txt === '存草稿' && b.offsetWidth > 0;
+  });
+  if (draftBtn) {
+    await simulateClick(draftBtn);
+    log('已点击「存草稿」按钮');
+    await sleep(2000);
+  } else {
+    log('提示: 未找到「存草稿」按钮，保持就绪状态');
+  }
+
+  // 6. 检查当前发布按钮与就绪态
   const submitBtn = document.querySelector('.action-footer-btn.submit, button.submit');
   const isSubmitVisible = submitBtn && submitBtn.offsetWidth > 0 && submitBtn.offsetHeight > 0;
   log('发布按钮状态: ' + (isSubmitVisible ? '就绪可见（严格规约：保留就绪态供人工最终确认，绝不自动触碰发布）' : '未就绪'));
@@ -360,22 +501,36 @@ export function buildVideoPublishBrowserScript(meta) {
     success: true,
     mode: 'video',
     title: meta.title,
-    isReady: isSubmitVisible,
+    coverUploaded,
+    isReady: isSubmitVisible || !!draftBtn,
     status: 'ready_auto_saved',
     logs
   };
-}`;
+};`;
 }
 
 // 命令行直接测试支持
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('toutiao_publisher.mjs'))) {
-  const targetFile = process.argv[2];
+  const args = process.argv.slice(2);
+  const targetFile = args[0];
   if (!targetFile) {
-    console.error('❌ 缺少必要参数！用法: node toutiao_publisher.mjs <Markdown文件路径>');
+    console.error('❌ 缺少必要参数！用法: node toutiao_publisher.mjs <Markdown文件路径> [--title "自定义新标题"]');
     process.exit(1);
   }
+
+  let overrideTitle = null;
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--title' && args[i + 1]) {
+      overrideTitle = args[i + 1];
+      i++;
+    }
+  }
+
   console.log(`[toutiao_publisher] 正在为文章解析元数据: ${targetFile}`);
-  const meta = parseAllAssets(targetFile);
+  if (overrideTitle) {
+    console.log(`[toutiao_publisher] 🎯 使用外部传入标题: "${overrideTitle}"`);
+  }
+  const meta = parseAllAssets(targetFile, 'undsky', null, overrideTitle);
   if (meta.video && meta.video.hasVideo) {
     console.log(`[toutiao_publisher] 检测到视频成片，生成视频发布脚本: ${meta.video.videoPath}`);
     const script = buildVideoPublishBrowserScript(meta);

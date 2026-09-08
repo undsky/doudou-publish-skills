@@ -4,52 +4,105 @@ import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
- * 提取并清洗文章标题（头条号图文文章标题限制 5～30 字）
+ * 计算头条/西瓜平台的字数
+ * 规则：
+ * 1. 汉字、中文全角标点、全角符号算 1 个字；
+ * 2. 半角英文字母、半角数字、半角空格、半角标点算 0.5 个字。
+ * @param {string} str 
+ * @returns {number}
+ */
+export function calcPlatformWords(str) {
+  if (!str) return 0;
+  let words = 0;
+  for (const ch of str) {
+    const code = ch.charCodeAt(0);
+    if (code <= 127) {
+      words += 0.5;
+    } else {
+      words += 1.0;
+    }
+  }
+  return words;
+}
+
+/**
+ * 按头条/西瓜平台字数安全截断字符串（不超过 maxWords，默认 30 字）
+ * @param {string} str 
+ * @param {number} maxWords 默认 30
+ * @returns {string}
+ */
+export function truncateToPlatformWords(str, maxWords = 30) {
+  if (!str) return '';
+  let words = 0;
+  let result = '';
+  for (const ch of str) {
+    const w = ch.charCodeAt(0) <= 127 ? 0.5 : 1.0;
+    if (words + w > maxWords) {
+      break;
+    }
+    words += w;
+    result += ch;
+  }
+  return result.trim();
+}
+
+/**
+ * 清洗 Markdown 标题标记与空白符，保留合法全角/半角标点
+ * @param {string} str 
+ * @returns {string}
+ */
+export function cleanTitleText(str) {
+  if (!str) return '';
+  return str
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`~]/g, '')
+    .replace(/^[#\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 提取文章原始标题
  * @param {string} content 
  * @param {string} fallbackTitle 
  * @returns {string}
  */
-export function extractArticleTitle(content, fallbackTitle = '未命名文章') {
+export function extractRawTitle(content, fallbackTitle = '未命名文章') {
   const lines = content.split('\n');
-  let rawTitle = '';
-
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('# ')) {
-      rawTitle = trimmed.replace(/^#\s+/, '');
-      break;
+      return cleanTitleText(trimmed.replace(/^#\s+/, ''));
     }
   }
-
-  if (!rawTitle) {
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.length > 0 && !trimmed.startsWith('---') && !trimmed.startsWith('<!--')) {
-        rawTitle = trimmed.replace(/^[#\s*`~]+/, '');
-        break;
-      }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0 && !trimmed.startsWith('---') && !trimmed.startsWith('<!--')) {
+      return cleanTitleText(trimmed.replace(/^[#\s*`~]+/, ''));
     }
   }
+  return fallbackTitle;
+}
 
-  if (!rawTitle) {
-    rawTitle = fallbackTitle;
+/**
+ * 提取并校准文章标题（头条号平台限制 5～30 字，全角=1字，半角=0.5字）
+ * 核心规约：若原标题超长，由 AI Agent 智能提炼 <=30 字的新标题并通过 overrideTitle 传入，严禁机械截断。
+ * @param {string} content 
+ * @param {string} fallbackTitle 
+ * @param {string|null} overrideTitle AI 提炼或用户指定的新标题
+ * @returns {string}
+ */
+export function extractArticleTitle(content, fallbackTitle = '未命名文章', overrideTitle = null) {
+  if (overrideTitle && typeof overrideTitle === 'string' && overrideTitle.trim()) {
+    return cleanTitleText(overrideTitle);
   }
-
-  // 清洗 Markdown 格式符号
-  let cleanTitle = rawTitle
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/[*_`~]/g, '')
-    .replace(/^[#\s]+/, '')
-    .trim();
-
-  // 头条标题限制 5~30 个字（若超过 30 字则智能截断）
-  if (cleanTitle.length > 30) {
-    cleanTitle = cleanTitle.substring(0, 30);
-  } else if (cleanTitle.length < 5) {
-    cleanTitle = cleanTitle.padEnd(5, '！');
+  const raw = extractRawTitle(content, fallbackTitle);
+  const words = calcPlatformWords(raw);
+  if (words > 30) {
+    console.warn(`[parser] ⚠️ 原标题超长（当前 ${words} 字 > 30 字上限）："${raw}"`);
+    console.warn(`[parser] 💡 提示：头条号严禁生硬截断，建议由 AI Agent 结合主旨提炼 <=30 字新标题并通过 --title 传入。`);
   }
-
-  return cleanTitle;
+  return raw;
 }
 
 /**
@@ -375,22 +428,55 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
- * 提取并清洗头条视频标题（严格限制 30 字以内，最少 5 字）
+ * 为西瓜/头条视频解析专属封面（优先匹配 16:9 比例封面，格式支持 PNG/JPG）
+ * @param {string} markdownFilePath 
+ * @param {string} content 
+ * @returns {{ hasCover: boolean, url?: string, localPath?: string, base64?: string, mimeType?: string, fileName?: string }}
+ */
+export function resolveVideoCoverImage(markdownFilePath, content = '') {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const baseName = path.basename(absPath, path.extname(absPath));
+  const articleDir = path.join(dir, baseName);
+
+  // 1. 优先在 cover/images/ 下寻找 16:9 比例封面
+  const coverImagesDir = path.join(articleDir, 'cover', 'images');
+  if (fs.existsSync(coverImagesDir)) {
+    const allFiles = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+    const videoCoverFile = allFiles.find(f => f.includes('16x9') || f.includes('16:9'));
+    if (videoCoverFile) {
+      const localPath = path.join(coverImagesDir, videoCoverFile);
+      const buf = fs.readFileSync(localPath);
+      const mimeType = videoCoverFile.endsWith('.jpg') || videoCoverFile.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      return {
+        hasCover: true,
+        type: 'local',
+        localPath,
+        base64: `data:${mimeType};base64,${buf.toString('base64')}`,
+        mimeType,
+        fileName: videoCoverFile
+      };
+    }
+  }
+
+  // 2. 回退到通用封面解析
+  return resolveCoverImage(markdownFilePath, content);
+}
+
+/**
+ * 提取并清洗头条视频标题（严格限制 30 字以内，最少 5 字，全角=1字，半角=0.5字）
+ * 保留中文书名号、括号、冒号、逗号等合法标点，杜绝误切
  * @param {string} content 
  * @param {string} fallbackTitle 
  * @param {string} manifestTitle 
  * @returns {string}
  */
-export function extractVideoTitle(content, fallbackTitle = '未命名视频', manifestTitle = '') {
-  let target = manifestTitle || extractArticleTitle(content, fallbackTitle);
-  let cleanTitle = target.replace(/[【】《》「」：:，,。！!？?]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (cleanTitle.length > 30) {
-    cleanTitle = cleanTitle.substring(0, 29) + '…';
-    if (cleanTitle.length > 30) cleanTitle = cleanTitle.substring(0, 30);
-  } else if (cleanTitle.length < 5) {
-    cleanTitle = cleanTitle.padEnd(5, '！');
+export function extractVideoTitle(content, fallbackTitle = '未命名视频', manifestTitle = '', overrideTitle = null) {
+  if (overrideTitle && typeof overrideTitle === 'string' && overrideTitle.trim()) {
+    return cleanTitleText(overrideTitle);
   }
-  return cleanTitle;
+  let target = manifestTitle || extractArticleTitle(content, fallbackTitle);
+  return cleanTitleText(target);
 }
 
 /**
@@ -597,24 +683,24 @@ export function resolvePublishPlan(meta, requestedModes = null) {
   return { requested, userSpecified, modes, skipped, summary };
 }
 
-export function parseAllAssets(markdownFilePath, author = 'undsky', requestedModes = null) {
+export function parseAllAssets(markdownFilePath, author = 'undsky', requestedModes = null, overrideTitle = null) {
   const absPath = path.resolve(markdownFilePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`找不到指定的 Markdown 文件: ${absPath}`);
   }
 
   const rawContent = fs.readFileSync(absPath, 'utf-8');
-  const articleTitle = extractArticleTitle(rawContent);
+  const articleTitle = extractArticleTitle(rawContent, '未命名文章', overrideTitle);
   const articleSummary = extractArticleSummary(rawContent, articleTitle);
   // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
   const tags = inferTags(rawContent, articleTitle, 3);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
+  const videoCover = resolveVideoCoverImage(absPath, rawContent);
 
   // 视频资产解析
   const video = resolveVideoAsset(absPath);
-  const videoTitle = extractVideoTitle(rawContent, '未命名视频', video.manifestTitle);
+  const videoTitle = extractVideoTitle(rawContent, '未命名视频', video.manifestTitle, overrideTitle);
   const videoDesc = extractVideoDescription(rawContent, videoTitle, tags);
 
   const result = {
@@ -625,6 +711,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
     tags,
     articleHtml,
     cover,
+    videoCover,
     videoTitle,
     videoDesc,
     video
@@ -634,20 +721,37 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   return result;
 }
 
-// 命令行直接测试
+// 命令行直接测试支持
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
-  const targetFile = process.argv[2];
+  const args = process.argv.slice(2);
+  const targetFile = args[0];
   if (!targetFile) {
-    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径>');
+    console.error('❌ 缺少必要参数！用法: node parser.mjs <Markdown文件路径> [模态] [--title "自定义新标题"]');
     process.exit(1);
   }
+
+  let requestedModes = null;
+  let overrideTitle = null;
+
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--title' && args[i + 1]) {
+      overrideTitle = args[i + 1];
+      i++;
+    } else if (!args[i].startsWith('--')) {
+      requestedModes = args[i];
+    }
+  }
+
   console.log(`[parser] 正在解析: ${targetFile}`);
-  // 第三个参数可选：显式指定模态（如 "视频" / "文章"），留空则默认全模态发布
-  const result = parseAllAssets(targetFile, 'undsky', process.argv[3] || null);
+  if (overrideTitle) {
+    console.log(`[parser] 🎯 使用外部传入标题: "${overrideTitle}" (平台字数: ${calcPlatformWords(overrideTitle)})`);
+  }
+
+  const result = parseAllAssets(targetFile, 'undsky', requestedModes, overrideTitle);
   console.log(JSON.stringify({
     publishPlan: result.publishPlan,
     articleTitle: result.articleTitle,
-    titleLength: result.articleTitle.length,
+    titleWords: calcPlatformWords(result.articleTitle),
     author: result.author,
     articleSummary: result.articleSummary,
     tags: result.tags,
@@ -657,6 +761,7 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     coverFile: result.cover.fileName,
     coverLocalPath: result.cover.localPath,
     videoTitle: result.videoTitle,
+    videoWords: calcPlatformWords(result.videoTitle),
     videoDescLength: result.videoDesc?.length,
     hasVideo: result.video?.hasVideo,
     videoPath: result.video?.videoPath,
