@@ -191,9 +191,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const inline = argOf("--payload");
       const fromFile = argOf("--payload-file");
       if (!inline && !fromFile) throw new Error("需要 --payload 或 --payload-file");
-      const payload = JSON.parse(
-        inline ?? fs.readFileSync(path.resolve(fromFile), "utf8")
-      );
+      let rawJson;
+      if (inline) {
+        rawJson = inline;
+      } else {
+        let filePath = path.resolve(fromFile);
+        if (!fs.existsSync(filePath)) {
+          // 智能兼容：优先在 Markdown 对应的同名资产目录下寻找临时 payload 文件
+          const inArtifactDir = path.join(resolveArtifactDir(mdPath), fromFile);
+          if (fs.existsSync(inArtifactDir)) {
+            filePath = inArtifactDir;
+          }
+        }
+        if (!fs.existsSync(filePath)) {
+          throw new Error(`找不到 payload 文件: ${fromFile}（亦不在同名资产目录 ${resolveArtifactDir(mdPath)} 中）`);
+        }
+        rawJson = fs.readFileSync(filePath, "utf8");
+      }
+      const payload = JSON.parse(rawJson);
       const { receiptPath: p, receipt } = writeReceipt({
         markdownFilePath: mdPath,
         ...payload,

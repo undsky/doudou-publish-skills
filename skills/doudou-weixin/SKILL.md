@@ -115,6 +115,12 @@ node scripts/parser.mjs <Markdown文件绝对路径> "贴图"    # 仅指定模�
 
 必须存至 publishes/screenshots/weixin_article.png、publishes/screenshots/weixin_sticker.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
 
+### 临时脚本与中间文件存放规约（严禁污染工作区根目录）
+
+- **统一落盘位置**：自动化发文执行过程中，凡需生成的任何临时注入脚本（如浏览器富文本注入 `.mjs` / `.js`）、临时数据载荷（如 `--payload-file <json>`）、调试脚本或中间辅助文件，**严禁放置在当前工作区根目录、项目根目录或技能目录中**！
+- **强制同名资产目录**：所有临时文件**必须统一放置在目标 Markdown 文章对应的同名资产目录下**（即去除 `.md` 后缀的同名资产目录），文件名建议统一以 `scratch_` 为前缀。
+- **可追溯与可清理**：执行完毕且回执落盘后，临时中间文件安全留存于同名资产目录供事后复核排查，或由清理指令统一清空，彻底避免根目录污染。
+
 ### 回执落盘（收尾必调，异常也要写）
 
 ```bash
@@ -194,7 +200,7 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 
 ## 自动化执行全流程
 
-当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/dddownsmartedu.md`）时，依次执行以下阶段：
+当接收到用户指定的 Markdown 文件路径时，依次执行以下阶段：
 
 > 下图两个模态**不是「择一执行」的分支**，而是逐模态执行的操作手册：按「模态选择规约」得出的 `publishPlan.modes` 依次执行其中每一个模态（默认两种全发），执行顺序恒为 `article`（步骤 3）→ `sticker`（步骤 4）。
 
@@ -343,7 +349,7 @@ const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 
 // 2. 读取确定性模态计划，严禁自行推断要发哪些模态
 const { modes, skipped, summary } = meta.publishPlan;
-console.log(summary); // 例：用户未指定模态 => 默认发布全部可用模态｜将发布：图文文章 + 小绿书贴图
+console.log(summary); // 预期输出：用户未指定模态 => 默认发布全部可用模态｜将发布：图文文章 + 小绿书贴图
 
 // 3. 逐模态串行执行（article -> sticker）；单模态失败不影响后续模态
 const results = [];

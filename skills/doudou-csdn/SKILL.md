@@ -81,6 +81,12 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 
 必须存至 publishes/screenshots/csdn_article.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
 
+### 临时脚本与中间文件存放规约（严禁污染工作区根目录）
+
+- **统一落盘位置**：自动化发文执行过程中，凡需生成的任何临时注入脚本（如浏览器富文本注入 `.mjs` / `.js`）、临时数据载荷（如 `--payload-file <json>`）、调试脚本或中间辅助文件，**严禁放置在当前工作区根目录、项目根目录或技能目录中**！
+- **强制同名资产目录**：所有临时文件**必须统一放置在目标 Markdown 文章对应的同名资产目录下**（即去除 `.md` 后缀的同名资产目录），文件名建议统一以 `scratch_` 为前缀。
+- **可追溯与可清理**：执行完毕且回执落盘后，临时中间文件安全留存于同名资产目录供事后复核排查，或由清理指令统一清空，彻底避免根目录污染。
+
 ### 回执落盘（收尾必调，异常也要写）
 
 ```bash
@@ -117,7 +123,7 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 
 ## 自动化执行全流程
 
-当接收到用户指定的 Markdown 文件路径（例如 `mds/AICoding/ddagent.md`）时，依次执行以下 9 个阶段：
+当接收到用户指定的 Markdown 文件路径时，依次执行以下 9 个阶段：
 
 ```mermaid
 flowchart TD
