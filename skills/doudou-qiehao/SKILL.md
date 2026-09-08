@@ -158,9 +158,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ### 步骤 1：打开/聚焦发文页并检测登录态
 
-1. 调用 `list_pages` 检查是否已有企鹅号图文发文页面（URL 包含 `om.qq.com/main/creation/article`）。
-   - 若已有，调用 `select_page` 切换到该页面；
-   - 若无，调用 `new_page` 打开 `https://om.qq.com/main/creation/article`。
+1. **新建独立页面**：调用 `new_page` 打开 `https://om.qq.com/main/creation/article`（必须每次新建独立页面，严禁复用或覆盖已有页面）。
 2. 检测登录态：
    - 检查页面是否存在标题输入框 `.omui-articletitle__input1 .omui-inputautogrowing__inner` 与编辑器实例 `window.ExEditor`；
    - 若被重定向至登录页（如 `passport.qq.com` 或 `userReg`），向用户发出明确提示请用户在浏览器中登录创作者账号后再继续。
@@ -178,20 +176,19 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ---
 
-### 步骤 3：转存正文配图并注入 ProseMirror 富文本正文
+### 步骤 3：极速注入 ProseMirror 富文本正文
 
-1. **官方图床转存（防外链失效）**：遍历文章所有配图，通过触发官方上传通道注入真实 `File` 对象，自动获取腾讯官方内部图床链接（`https://inews.gtimg.com/...` / `https://image.om.qq.com/...`），并将正文 HTML 中的图片链接全部替换为官方内部链接，彻底规避因外部 CDN 防护拦截腾讯后台爬虫导致的草稿保存失败与再次编辑图片丢失。
-2. **解析 HTML 结构**：调用 `window.ExEditor.sliceFromHTML(finalInewsHtml)`；
-3. **调度事务注入**：调用 `window.ExEditor.view.dispatch(tr)` 注入带有官方高清配图和代码块的标准富文本；
-4. **状态同步等待**：停顿 600ms~1000ms 让 ProseMirror 完成节点渲染、字数统计与图片块组件化。
+1. **正文极速装配**：直接使用已由前序流程 R2 图床化的 `[article_name]_cdn.md` 生成的标准富文本 HTML，彻底无需逐张弹窗转存（立省 30~60 秒）；
+2. **解析 HTML 结构**：调用 `window.ExEditor.sliceFromHTML(meta.htmlContent)`；
+3. **调度事务注入**：调用 `window.ExEditor.view.dispatch(tr)` 极速注入正文；
+4. **状态同步等待**：停顿 300ms~500ms 让 ProseMirror 完成节点渲染与字数统计。
 
 ---
 
-### 步骤 4：模拟人工视口平滑滚动
+### 步骤 4：模拟人工视口轻度微调触发懒加载
 
-1. 平滑滚动到页面 400px，停顿 400ms~600ms；
-2. 平滑滚动到页面 900px，停顿 400ms~600ms；
-3. 平滑滚动到页面 1400px（底部设置区），停顿 400ms~600ms。
+1. 平滑微调滚动到 150px，停顿 200ms；
+2. 平滑回滚到顶部，触发组件懒加载与视口可见性检测。
 
 ---
 

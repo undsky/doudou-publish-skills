@@ -91,19 +91,34 @@ export function buildBrowserPublishScript(markdownFilePath) {
       instance.editor.viewer.render();
     }
   }
-  await randomDelay(800, 1500);
-
-  // 4. 模拟平滑滚动到页面下方
-  log('模拟平滑视口滚动...');
-  window.scrollTo({ top: 600, behavior: 'smooth' });
-  await randomDelay(500, 800);
-  window.scrollTo({ top: 900, behavior: 'smooth' });
   await randomDelay(400, 700);
 
-  // 5. 检查封面图状态
+  // 4. 单次轻度视口微调
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await delay(400);
+
+  // 5. 绑定封面图（固化方案：穿透 React Fiber 直接注入 CDN 封面并触发草稿保存，坚决杜绝 input.click 唤起系统弹窗）
+  const targetCoverUrl = data.cover?.cdnUrl || data.cover?.url;
+  if (targetCoverUrl) {
+    log('正在通过 React Fiber 绑定文章封面图: ' + targetCoverUrl);
+    instance.setState({
+      fileList: [{ imgURL: targetCoverUrl }]
+    });
+    if (typeof instance.aiDraftHandle === 'function') {
+      instance.aiDraftHandle();
+    }
+    await randomDelay(400, 600);
+  }
+
   const uploadItem = document.querySelector('.upload-item, [class*="upload-item"]');
   const coverUploaded = !!(uploadItem || (instance.state?.fileList && instance.state.fileList.length > 0));
   const coverUrl = instance.state?.fileList?.[0]?.imgURL || (uploadItem ? uploadItem.querySelector('img')?.src : null);
+  if (coverUploaded) {
+    window.__doudou_cover_status = 'uploaded';
+    window.__doudou_cover_url = coverUrl;
+  }
 
   return {
     success: true,
@@ -123,18 +138,8 @@ export function buildBrowserPublishScript(markdownFilePath) {
 export function buildSaveDraftScript() {
   return `(async () => {
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  console.log('[doudou-aliyun] 内容已全部注入，正在模拟视口滚动审阅并等待平台原生自动保存...');
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-  await randomDelay(500, 800);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(400, 700);
-
-  // 等待平台原生自动保存机制生效（绝不主动点击「存为草稿」或「发布」按钮）
-  await delay(2500);
-  const statusTexts = Array.from(document.querySelectorAll('p, span, div')).map(el => el.innerText.trim()).filter(t => t.includes('保存了草稿') || t.includes('成功'));
-
+  console.log('[doudou-aliyun] 内容与封面已注入，主动触发并等待草稿保存...');
   const formEl = document.querySelector('form.public-article-form');
   let fFiber = formEl ? formEl[Object.keys(formEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'))] : null;
   let instance = null;
@@ -146,12 +151,20 @@ export function buildSaveDraftScript() {
     fFiber = fFiber.return;
   }
 
+  if (instance && typeof instance.aiDraftHandle === 'function') {
+    instance.aiDraftHandle();
+  }
+
+  await delay(800);
+  const statusTexts = Array.from(document.querySelectorAll('p, span, div')).map(el => el.innerText.trim()).filter(t => t.includes('保存了草稿') || t.includes('成功'));
+
   return {
     success: true,
     isReady: true,
     status: 'ready_auto_saved',
     draftTime: instance?.state?.draftTime || new Date().toLocaleTimeString(),
     editAid: instance?.state?.editAid,
+    coverUrl: instance?.state?.fileList?.[0]?.imgURL,
     statusTexts
   };
 })()`;

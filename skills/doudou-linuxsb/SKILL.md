@@ -172,9 +172,7 @@ node scripts/parser.mjs <Markdown文件绝对路径> [可选指定fid]
 
 ### 步骤 1：打开/聚焦发帖页并检测登录态
 
-1. 调用 `list_pages` 检查是否已有烧饼社区发帖页（URL 包含 `linux.sb/topic_edit`）。
-   - 若已有，直接调用 `select_page` 切换到该页面；
-   - 若无，调用 `new_page` 打开 `https://linux.sb/topic_edit?fid=4`。
+1. **新建独立页面**：调用 `new_page` 打开 `https://linux.sb/topic_edit?fid=4`（必须每次新建独立页面，严禁复用或覆盖已有页面）。
 2. 等待页面加载完成。
 3. 执行脚本检测登录态：
    - 检查页面是否存在用户主页链接（`a[href*="/user/"]`）或表单元素 `form[action*="topic_edit"]`；

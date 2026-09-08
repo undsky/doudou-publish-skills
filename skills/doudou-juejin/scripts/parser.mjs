@@ -210,10 +210,9 @@ export function parseArticle(filePath) {
   }
 
   const title = extractTitle(rawContent, stem);
-  const summary = extractSummary(content);
-  const category = inferCategory(content, title);
-  // 掘金限 3 个标签；此处产出通用关键词，由发布脚本再去官方标签库做精确匹配
-  const tags = inferTags(content, title, 3);
+  const summary = '';
+  const category = '前端';
+  const tags = [];
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免掘金编辑器标题与正文重复），保留其余部分

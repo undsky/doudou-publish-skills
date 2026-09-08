@@ -2,10 +2,9 @@
  * 企鹅号（腾讯内容开放平台）自动化发布浏览器脚本生成器
  * 核心能力：
  * 1. 真实人工行为模拟：微随机时延抖动、全链路 DOM 事件派发、视口平滑滚动排版审阅、拟真悬停。
- * 2. 企鹅号 ExEditor (ProseMirror) 富文本双向同步：标题绑定、完整正文 HTML 注入（保留标题、代码块、列表、引用及 CDN 高清插图）。
+ * 2. 企鹅号 ExEditor (ProseMirror) 富文本极速双向同步：标题绑定、完整正文 HTML 注入。
  * 3. 弹窗式封面真实上传：模拟点击「设置封面」插槽，注入真实 File 对象并自动完成裁切弹窗确认。
- * 4. 标签与分类智能匹配：自动注入技术标签与推荐分类。
- * 5. 草稿安全隔离：严格限定为存草稿，捕获「已保存」通知，绝不触碰任何形式的公开发布。
+ * 4. 草稿安全隔离：严格限定为存草稿，绝不触碰任何形式的公开发布。
  */
 
 import path from 'node:path';
@@ -90,78 +89,84 @@ export function buildPublishBrowserScript(meta) {
 
   // 2. 拟真人机输入文章标题（5~64 字）
   log('✍️ 正在拟真人机输入文章标题: ' + meta.title);
-  titleEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-  titleEl.focus();
-  titleEl.dispatchEvent(new Event('focus', { bubbles: true }));
-  await sleep(200);
-  
-  titleEl.innerText = meta.title;
-  
-  const titleHandlers = getReactHandler(titleEl);
-  if (titleHandlers && typeof titleHandlers.onInput === 'function') {
-    try {
-      titleHandlers.onInput({ target: titleEl, currentTarget: titleEl });
-    } catch(e) {
-      log('title onInput 调用提示: ' + e.message);
-    }
+  if (titleEl) {
+    titleEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    titleEl.focus();
+    titleEl.innerText = meta.title;
+    titleEl.dispatchEvent(new Event('input', { bubbles: true }));
+    titleEl.dispatchEvent(new Event('change', { bubbles: true }));
+    log('文章标题 DOM 注入完成');
   }
-  titleEl.dispatchEvent(new Event('input', { bubbles: true }));
-  titleEl.dispatchEvent(new Event('change', { bubbles: true }));
-  await sleep(200);
-  titleEl.blur();
-  titleEl.dispatchEvent(new Event('blur', { bubbles: true }));
-  log('✅ 文章标题输入完成');
-  await sleep(400);
+  await sleep(300);
 
-  // 3. 将正文配图转存至腾讯官方图床（避免外链导致草稿保存失败与图片丢失）
-  let finalHtml = meta.htmlContent;
-  if (Array.isArray(meta.articleImages) && meta.articleImages.length > 0) {
-    log('🖼️ 正在检查并转存 ' + meta.articleImages.length + ' 张正文配图至腾讯官方图床...');
-    for (let i = 0; i < meta.articleImages.length; i++) {
-      const item = meta.articleImages[i];
-      let b64 = item.base64;
-      if (!b64 && item.src && item.src.startsWith('data:')) {
-        b64 = item.src;
-      }
-      
-      if (b64) {
-        try {
-          // 打开插入图片弹窗
-          let dialog = document.querySelector('.omui-dialog');
-          if (!dialog) {
-            const imgBtn = document.querySelector('exeditor-toolbar-button[data-toolbar-item-of="imagePlugin"]');
-            if (imgBtn) {
-              imgBtn.click();
-              await sleep(400);
-            }
+  // 3. 极速注入 ExEditor (ProseMirror) 富文本正文
+  log('📄 正在注入富文本正文 (' + meta.htmlContent.length + ' 字符)...');
+  try {
+    const view = window.ExEditor.view;
+    const slice = window.ExEditor.sliceFromHTML(meta.htmlContent);
+    const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, slice.content);
+    view.dispatch(tr);
+    log('✅ 已通过 ExEditor ProseMirror 引擎极速注入正文');
+  } catch (e) {
+    log('⚠️ ExEditor 注入异常: ' + e.message);
+  }
+  await sleep(500);
+
+  // 4. 封面上传与裁切弹窗确认
+  let coverUploaded = false;
+  if (meta.coverBase64) {
+    log('🖼️ 正在上传与绑定文章封面图: ' + meta.coverFileName + '...');
+    try {
+      // 4.1 点击「更换封面」或「添加封面」按钮
+      const replaceCoverBtn = Array.from(document.querySelectorAll('.omui-thumb__action span, .coverThumb-cls3RUR3 span, .cover-container span')).find(s => s.innerText?.trim() === '更换');
+      const addCoverBtn = document.querySelector('.addCoverBtn-cls3gyHX, button.omui-button--add, button[class*="addCover"]');
+      const triggerBtn = replaceCoverBtn || addCoverBtn || document.querySelector('.coverThumb-cls3RUR3, .cover-container figure');
+
+      if (triggerBtn) {
+        await simulateClick(triggerBtn);
+        await sleep(500);
+
+        // 4.2 切换至「本地上传」标签
+        const tabs = Array.from(document.querySelectorAll('.omui-tab__label'));
+        const localUploadTab = tabs.find(t => t.innerText?.includes('本地上传'));
+        if (localUploadTab) {
+          localUploadTab.click();
+          await sleep(400);
+        }
+
+        // 4.3 获取文件上传 input
+        const fileInput = document.querySelector('.omui-dialog-content input[type="file"], input[type="file"]');
+        if (fileInput) {
+          let file = null;
+          const candidateUrls = ['http://127.0.0.1:39281/cover.png', meta.coverCdnUrl].filter(Boolean);
+          for (const u of candidateUrls) {
+            try {
+              const resp = await fetch(u);
+              if (resp.ok) {
+                const blob = await resp.blob();
+                file = new File([blob], meta.coverFileName || 'cover.png', { type: blob.type || 'image/png' });
+                break;
+              }
+            } catch(e) {}
           }
-          
-          // 切换到本地上传
-          const tabs = Array.from(document.querySelectorAll('.omui-tab__label, .omui-tabs__item, .tab-item, span'));
-          const localTab = tabs.find(t => t.innerText?.trim() === '本地上传');
-          if (localTab) {
-            localTab.click();
-            await sleep(300);
-          }
-          
-          const fileInput = document.querySelector('.omui-dialog input[type="file"], input[type="file"]');
-          if (fileInput) {
+
+          if (!file && meta.coverBase64) {
+            let b64 = meta.coverBase64;
             if (b64.includes(',')) b64 = b64.split(',')[1];
             const byteCharacters = atob(b64);
             const byteNumbers = new Array(byteCharacters.length);
-            for (let j = 0; j < byteCharacters.length; j++) {
-              byteNumbers[j] = byteCharacters.charCodeAt(j);
-            }
+            for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
             const byteArray = new Uint8Array(byteNumbers);
-            const mimeType = item.fileName?.endsWith('.jpg') || item.fileName?.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+            const mimeType = meta.coverFileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
             const blob = new Blob([byteArray], { type: mimeType });
-            const file = new File([blob], item.fileName || \`img_\${i+1}.png\`, { type: mimeType });
-            
+            file = new File([blob], meta.coverFileName, { type: mimeType });
+          }
+
+          if (file) {
             const dt = new DataTransfer();
             dt.items.add(file);
             fileInput.files = dt.files;
-            
+
             const fileHandlers = getReactHandler(fileInput);
             if (fileHandlers && typeof fileHandlers.onChange === 'function') {
               fileHandlers.onChange({
@@ -174,158 +179,19 @@ export function buildPublishBrowserScript(meta) {
               });
             }
             fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-            
-            // 轮询等待获取腾讯官方图床 inews 链接
-            let inewsUrl = null;
-            for (let r = 0; r < 25; r++) {
-              await sleep(500);
-              const dialogImgs = Array.from(document.querySelectorAll('.omui-dialog img.omui-upload-image-item-thumb, .omui-dialog img'));
-              const match = dialogImgs.find(img => img.src && (img.src.includes('inews.gtimg.com') || img.src.includes('image.om.qq.com')));
-              if (match) {
-                inewsUrl = match.src;
+            log('已派发封面上传事件，等待处理...');
+
+            for (let retry = 0; retry < 12; retry++) {
+              await sleep(600);
+              const confirmBtn = Array.from(document.querySelectorAll('.omui-dialog button, button')).find(b => b.innerText?.trim() === '确认');
+              if (confirmBtn && !confirmBtn.disabled && !confirmBtn.className.includes('is--disabled')) {
+                await simulateClick(confirmBtn);
+                coverUploaded = true;
+                window.__doudou_cover_status = 'uploaded';
+                log('✅ 封面裁切确认完成');
                 break;
               }
             }
-            
-            if (inewsUrl) {
-              log('✅ [' + (i+1) + '/' + meta.articleImages.length + '] 已转存至腾讯图床: ' + inewsUrl);
-              finalHtml = finalHtml.replaceAll(item.src, inewsUrl);
-            }
-            
-            // 关闭弹窗
-            const cancelBtn = Array.from(document.querySelectorAll('.omui-dialog button, button')).find(b => b.innerText?.trim() === '取消');
-            const closeBtn = document.querySelector('.omui-dialog-close');
-            if (cancelBtn) cancelBtn.click();
-            else if (closeBtn) closeBtn.click();
-            await sleep(300);
-          }
-        } catch (e) {
-          log('⚠️ 配图转存提示: ' + e.message);
-        }
-      }
-    }
-  }
-
-  // 4. 注入 ExEditor (ProseMirror) 富文本正文
-  log('📄 正在注入富文本正文 (' + finalHtml.length + ' 字符)...');
-  try {
-    const view = window.ExEditor.view;
-    const slice = window.ExEditor.sliceFromHTML(finalHtml);
-    const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, slice.content);
-    view.dispatch(tr);
-    log('✅ 已通过 ExEditor ProseMirror 引擎注入正文与官方图床配图');
-  } catch (e) {
-    log('⚠️ ExEditor 注入异常: ' + e.message);
-  }
-  await sleep(800);
-
-  // 4. 模拟视口平滑滚动排版审阅
-  log('👀 模拟人工视口平滑滚动检查文章内容与排版...');
-  window.scrollTo({ top: 400, behavior: 'smooth' });
-  await sleep(500);
-  window.scrollTo({ top: 900, behavior: 'smooth' });
-  await sleep(500);
-  window.scrollTo({ top: 1400, behavior: 'smooth' });
-  await sleep(500);
-
-  // 5. 封面上传与裁切弹窗确认
-  let coverUploaded = false;
-  if (meta.coverBase64) {
-    log('🖼️ 正在上传与绑定文章封面图: ' + meta.coverFileName + '...');
-    try {
-      // 5.1 点击「更换封面」或「添加封面」按钮
-      const replaceCoverBtn = Array.from(document.querySelectorAll('.omui-thumb__action span, .coverThumb-cls3RUR3 span, .cover-container span')).find(s => s.innerText?.trim() === '更换');
-      const addCoverBtn = document.querySelector('.addCoverBtn-cls3gyHX, button.omui-button--add, button[class*="addCover"]');
-      const triggerBtn = replaceCoverBtn || addCoverBtn || document.querySelector('.coverThumb-cls3RUR3, .cover-container figure');
-
-      if (triggerBtn) {
-        await simulateClick(triggerBtn);
-        await sleep(600);
-
-        // 5.2 切换至「本地上传」标签
-        const tabs = Array.from(document.querySelectorAll('.omui-tab__label'));
-        const localUploadTab = tabs.find(t => t.innerText?.includes('本地上传'));
-        if (localUploadTab) {
-          localUploadTab.click();
-          await sleep(500);
-        }
-
-        // 5.3 获取文件上传 input
-        const fileInput = document.querySelector('.omui-dialog-content input[type="file"], input[type="file"]');
-        if (fileInput) {
-          let file = null;
-          if (meta.coverCdnUrl) {
-            try {
-              const resp = await fetch(meta.coverCdnUrl);
-              const blob = await resp.blob();
-              file = new File([blob], meta.coverFileName, { type: blob.type || 'image/png' });
-              log('已从 CDN 获取封面图像 Blob (' + file.size + ' 字节)');
-            } catch(e) {
-              log('Fetch CDN 异常，降级使用 Base64: ' + e.message);
-            }
-          }
-
-          if (!file && meta.coverBase64) {
-            // Base64 转 File
-            let b64 = meta.coverBase64;
-            if (b64.includes(',')) {
-              b64 = b64.split(',')[1];
-            }
-            const byteCharacters = atob(b64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const mimeType = meta.coverFileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
-            const blob = new Blob([byteArray], { type: mimeType });
-            file = new File([blob], meta.coverFileName, { type: mimeType });
-          }
-
-          if (!file) {
-            log('⚠️ 未能生成有效封面文件');
-            return;
-          }
-
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          fileInput.files = dt.files;
-
-          // 派发 React 合成事件
-          const fileHandlers = getReactHandler(fileInput);
-          if (fileHandlers && typeof fileHandlers.onChange === 'function') {
-            fileHandlers.onChange({
-              target: fileInput,
-              currentTarget: fileInput,
-              preventDefault() {},
-              stopPropagation() {},
-              persist() {},
-              nativeEvent: new Event('change')
-            });
-          }
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          log('已派发封面上传事件，等待处理...');
-
-          // 5.4 轮询等待确认按钮启用
-          let confirmed = false;
-          for (let retry = 0; retry < 15; retry++) {
-            await sleep(800);
-            const confirmBtn = Array.from(document.querySelectorAll('.omui-dialog button, button')).find(b => b.innerText?.trim() === '确认');
-            if (confirmBtn && !confirmBtn.disabled && !confirmBtn.className.includes('is--disabled')) {
-              await simulateClick(confirmBtn);
-              confirmed = true;
-              log('✅ 封面裁切确认完成');
-              break;
-            }
-          }
-
-          if (confirmed) {
-            coverUploaded = true;
-            await sleep(800);
-          } else {
-            log('⚠️ 封面上传确认超时，关闭弹窗');
-            const closeBtn = document.querySelector('.omui-dialog-close, button.omui-dialog-close');
-            if (closeBtn) closeBtn.click();
           }
         }
       }
@@ -334,15 +200,11 @@ export function buildPublishBrowserScript(meta) {
     }
   }
 
-  // 6. 模拟视口平滑滚动审阅排版并等待企鹅号原生自动保存生效（保留编辑页，绝不点击「存草稿」或「发表」）
-  log('正在模拟人工视口平滑滚动审阅排版...');
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-  await sleep(800);
+  // 5. 单次轻度视口微调触发懒加载
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await sleep(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(500);
-
-  log('正在等待企鹅号原生自动保存生效 (保留在编辑页)...');
-  await sleep(2500);
+  await sleep(600);
 
   // 提取正文字数
   const wordCountEl = document.querySelector('.tool_publish_buttons_text-cls3VQdb, .tool_message-cls1f3u-');

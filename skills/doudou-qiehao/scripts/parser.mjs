@@ -42,9 +42,9 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
     .replace(/^[#\s]+/, '')
     .trim();
 
-  // 企鹅号标题限制 5~30 个字（若超过 30 字则智能截断）
-  if (cleanTitle.length > 30) {
-    cleanTitle = cleanTitle.substring(0, 30);
+  // 企鹅号标题限制 5~64 个字（若超过 64 字则智能截断）
+  if (cleanTitle.length > 64) {
+    cleanTitle = cleanTitle.substring(0, 64);
   } else if (cleanTitle.length < 5) {
     cleanTitle = cleanTitle.padEnd(5, '！');
   }
@@ -155,9 +155,10 @@ export function markdownToSemanticHtml(markdown) {
       const escaped = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      const langClass = lang ? ` class="language-${lang}"` : '';
-      return `<pre><code${langClass}>${escaped}</code></pre>\n`;
+        .replace(/>/g, '&gt;')
+        .replace(/ /g, '&nbsp;')
+        .replace(/\n/g, '<br>');
+      return `<blockquote style="background: #f6f8fa; border-left: 4px solid #0077ff; padding: 12px 16px; margin: 14px 0; font-family: Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6;"><p style="font-family: Consolas, 'Courier New', monospace; margin: 0; color: #24292e;">${escaped}</p></blockquote>\n`;
     },
 
     image({ href, title, text }) {
@@ -327,7 +328,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
       // 统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
       // 识别封面（真实清单无 type/slug/aspect_ratio 字段，旧逻辑在此静默跳过）。
       // 企鹅号封面上传门槛是 `if (meta.coverBase64)`，故必须 preferBase64。
-      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: true });
+      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: false });
       if (fromManifest) return fromManifest;
     } catch (e) {
       console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
@@ -519,7 +520,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
   const category = inferCategory(rawContent, articleTitle);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
-  const articleImages = extractArticleImages(absPath, rawContent);
+  const articleImages = [];
 
   return {
     markdownFilePath: absPath,

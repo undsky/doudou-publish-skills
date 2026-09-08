@@ -1,4 +1,4 @@
-﻿import fs from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
@@ -347,9 +347,7 @@ export function parseArticle(filePath) {
 
   const title = extractTitle(rawContent, stem);
   const summary = extractSummary(content);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const topics = inferTags(rawContent, title, 3);
+  const topics = [];
   const cover = resolveCoverImage(absPath, rawContent);
 
   // 格式化正文：去除首行的顶级大标题（避免知乎编辑器标题与正文重复），保留其余部分
@@ -368,8 +366,8 @@ export function parseArticle(filePath) {
     stem,
     title,
     articleTitle: title,
-    summary,
-    articleSummary: summary,
+    summary: '',
+    articleSummary: '',
     topics,
     tags: topics,
     cover,

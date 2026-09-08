@@ -134,37 +134,41 @@ export function buildPublishBrowserScript(meta) {
   }
   await sleep(800);
 
-  // 3. 模拟人工视口平滑滚动（审阅排版）
-  log('正在模拟人工视口平滑滚动审阅排版...');
-  window.scrollTo({ top: 400, behavior: 'smooth' });
-  await sleep(600);
-  window.scrollTo({ top: 900, behavior: 'smooth' });
-  await sleep(600);
+  // 3. 视口轻微微调触发排版渲染
+  window.scrollBy({ top: 150, behavior: 'smooth' });
+  await sleep(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(400);
+  await sleep(200);
 
-  // 4. 强制锁定封面为「单图」（严禁切换到三图）
+  // 4. 强制锁定封面为「单图」（单图 value 为 2，三图为 3，无封面为 1，严禁三图）
   log('正在校验并锁定文章展示封面为「单图」模式（严禁三图）...');
-  try {
-    const singleRadioLabel = Array.from(document.querySelectorAll('label.byte-radio, .byte-radio')).find(l => (l.innerText || '').trim().includes('单图'));
-    if (singleRadioLabel) {
-      const isChecked = singleRadioLabel.querySelector('.byte-radio-inner.checked') || singleRadioLabel.querySelector('input:checked');
-      if (!isChecked) {
-        await simulateClick(singleRadioLabel);
-        const input = singleRadioLabel.querySelector('input[type="radio"]');
-        if (input) {
-          input.checked = true;
-          input.dispatchEvent(new Event('change', { bubbles: true }));
+  const lockSingleCoverMode = async () => {
+    try {
+      const singleRadioLabel = Array.from(document.querySelectorAll('.article-cover-radio-group label, label.byte-radio')).find(l => (l.innerText || '').trim().includes('单图'));
+      if (singleRadioLabel) {
+        // 穿透 React Fiber 直接调用 RadioGroup 的 onChange(2)
+        const fiberKey = Object.keys(singleRadioLabel).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+        let fiber = singleRadioLabel[fiberKey];
+        let triggered = false;
+        while (fiber) {
+          if (fiber.memoizedProps && typeof fiber.memoizedProps.onChange === 'function') {
+            try {
+              fiber.memoizedProps.onChange(2);
+              triggered = true;
+              break;
+            } catch (_) {}
+          }
+          fiber = fiber.return;
         }
-        await sleep(500);
-        log('已强制将文章展示封面切换为「单图」');
-      } else {
-        log('文章展示封面已确认处于「单图」模式');
+        await simulateClick(singleRadioLabel);
+        await sleep(300);
+        log(triggered ? '已穿透 React Fiber 成功锁定展示封面为「单图」模式' : '已模拟点击单图选项');
       }
+    } catch (e) {
+      log('锁定单图模式提示: ' + e.message);
     }
-  } catch (e) {
-    log('锁定单图模式提示: ' + e.message);
-  }
+  };
+  await lockSingleCoverMode();
   await sleep(400);
 
   // 5. 上传并绑定封面图片
@@ -228,11 +232,13 @@ export function buildPublishBrowserScript(meta) {
             await simulateClick(confirmBtn);
             log('已点击抽屉封面确认/完成按钮');
             coverUploaded = true;
+            window.__doudou_cover_status = 'uploaded';
           } else {
             log('提示: 未找到抽屉确定按钮，封面可能已直接应用');
             coverUploaded = true;
+            window.__doudou_cover_status = 'uploaded';
           }
-          await sleep(1500);
+          await sleep(1000);
         } else {
           log('警告: 抽屉内未找到文件上传 input');
         }
@@ -243,12 +249,14 @@ export function buildPublishBrowserScript(meta) {
       log('封面上传异常: ' + e.message);
     }
   }
-  await sleep(600);
+  // 封面上传完成后再次执行锁定单图校验，确保不被平台重置为三图
+  await lockSingleCoverMode();
+  await sleep(300);
 
   // 5. 滚动到页面底部并等待草稿云端同步保存
   log('正在滚动到底部并等待草稿云端保存...');
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-  await sleep(2500);
+  await sleep(800);
 
   // 检查底部草稿状态与字数
   const footerEl = document.querySelector('.publish-footer');
@@ -514,9 +522,11 @@ export function buildVideoPublishBrowserScript(meta) {
             );
             if (hasAppliedBg) {
               coverUploaded = true;
+              window.__doudou_cover_status = 'uploaded';
               log('✅ 视频封面强校验通过：主编辑器已成功挂载封面图！');
             } else {
               coverUploaded = true;
+              window.__doudou_cover_status = 'uploaded';
               log('视频封面处理完成');
             }
           } else {
@@ -532,13 +542,13 @@ export function buildVideoPublishBrowserScript(meta) {
       log('视频封面上传异常: ' + e.message);
     }
   }
-  await sleep(600);
-
-  // 4. 模拟视口平滑滚动人工核验
-  window.scrollTo({ top: 300, behavior: 'smooth' });
-  await sleep(400);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(300);
+
+  // 4. 视口轻微微调触发排版渲染
+  window.scrollBy({ top: 150, behavior: 'smooth' });
+  await sleep(200);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(200);
 
   // 4. 点击「存草稿」按钮暂存
   log('正在点击存草稿按钮...');

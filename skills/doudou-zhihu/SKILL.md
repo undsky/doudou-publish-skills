@@ -157,9 +157,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ### 步骤 1：打开/聚焦知乎写文章页并检测登录态
 
-1. 调用 `list_pages` 检查是否已有知乎写文章页面（URL 包含 `zhuanlan.zhihu.com/write`）。
-   - 若已有，直接调用 `select_page` 切换到该页面；
-   - 若无，调用 `new_page` 打开 `https://zhuanlan.zhihu.com/write`。
+1. **新建独立页面**：调用 `new_page` 打开 `https://zhuanlan.zhihu.com/write`（必须每次新建独立页面，严禁复用或覆盖已有页面）。
 2. 等待页面加载完成。
 3. 执行脚本检测登录态：
    - 检查是否存在标题输入框 `textarea[placeholder*="请输入标题"]` 及编辑器容器 `.notranslate.public-DraftEditor-content`；

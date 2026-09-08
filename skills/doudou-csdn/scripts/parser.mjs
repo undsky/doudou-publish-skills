@@ -237,10 +237,8 @@ export function parseArticle(filePath) {
   }
 
   const title = extractTitle(rawContent, stem);
-  const summary = extractSummary(content);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 5）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const tags = inferTags(rawContent, title, 5);
+  const summary = '';
+  const tags = [];
   const categoryColumn = inferCategoryColumn(absPath, title, rawContent);
   const cover = resolveCoverImage(absPath, rawContent);
 

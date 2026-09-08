@@ -221,10 +221,12 @@ export function buildSaveDraftBrowserScript(meta) {
         if (confirmBtn) {
           confirmBtn.click();
           coverUploaded = true;
+          window.__doudou_cover_status = 'uploaded';
           console.log('[doudou-shipinhao] 视频封面上传确认成功');
-          await sleep(1000);
+          await sleep(800);
         } else {
           coverUploaded = true;
+          window.__doudou_cover_status = 'uploaded';
           console.log('[doudou-shipinhao] 视频封面文件已注入');
         }
       }
@@ -233,20 +235,20 @@ export function buildSaveDraftBrowserScript(meta) {
     }
   }
 
-  // 5. 视口滚动模拟人工检查
+  // 5. 视口轻微微调触发渲染
   try {
     const scrollContainer = doc.querySelector('#container-wrap') || doc.documentElement || window;
-    if (scrollContainer.scrollTo) {
-      scrollContainer.scrollTo({ top: 300, behavior: 'smooth' });
-      await sleep(400);
+    if (scrollContainer.scrollBy) {
+      scrollContainer.scrollBy({ top: 150, behavior: 'smooth' });
+      await sleep(200);
       scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+      await sleep(200);
     }
   } catch (e) {}
-  await sleep(400);
 
   // 6. 等待平台就绪与自动保存（严格绝不点击「保存草稿」或「发表」按钮，保留编辑页现场）
   console.log('[doudou-shipinhao] 视频作品信息已填入完毕，等待平台原生自动保存与就绪 (保留在编辑页)...');
-  await sleep(2500);
+  await sleep(800);
 
   return {
     success: true,

@@ -151,9 +151,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ### 步骤 1：打开/聚焦发布页并检测登录态
 
-1. 调用 `list_pages` 检查是否已有 CSDN 编辑器页面（URL 包含 `editor.csdn.net/md`）。
-   - 若已有，调用 `select_page` 切换到该页面；
-   - 若无，调用 `new_page` 打开 `https://editor.csdn.net/md/`。
+1. **新建独立页面**：调用 `new_page` 打开 `https://editor.csdn.net/md/`（必须每次新建独立页面，严禁复用或覆盖已有页面）。
 2. 等待页面加载完成。
 3. 执行脚本检测登录态：
    - 检查是否存在标题输入框 `input.article-bar__title` 及编辑器内容区 `.editor__inner`；

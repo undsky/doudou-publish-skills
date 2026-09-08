@@ -95,13 +95,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
   }
   await randomDelay(1200, 2000);
 
-  // 4. 模拟人工视口平滑滚动检查排版
-  log('模拟人工视口平滑滚动检查文章内容...');
+  // 4. 视口轻微微调触发排版渲染
   try {
-    window.scrollTo({ top: 450, behavior: 'smooth' });
-    await randomDelay(600, 900);
+    window.scrollBy({ top: 150, behavior: 'smooth' });
+    await delay(200);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    await randomDelay(500, 800);
+    await delay(200);
   } catch (e) {
     // 忽略滚动异常
   }
@@ -185,6 +184,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
             const coverWrapper = document.querySelector('.UploadPicture-wrapper, [class*="WriteCover"], [class*="TitleImage"]');
             if (coverWrapper && (coverWrapper.innerText.includes('更换') || coverWrapper.innerText.includes('删除') || coverWrapper.querySelector('img'))) {
               coverUploaded = true;
+              window.__doudou_cover_status = 'uploaded';
               break;
             }
           }
@@ -194,13 +194,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
     } catch (e) {
       log('封面图处理异常: ' + e.message);
     }
-    await randomDelay(600, 1000);
+    await delay(300);
   }
-
 
   // 6. 等待草稿自动同步并校验状态
   log('等待知乎草稿箱自动同步完成...');
-  await delay(3000);
+  await delay(800);
 
   // 获取知乎草稿保存状态文字与字数
   const statusTexts = Array.from(document.querySelectorAll('header *, nav *, [class*="status"] *, [class*="Status"] *, [class*="css-"] *'))

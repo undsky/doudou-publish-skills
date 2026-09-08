@@ -80,14 +80,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   titleInput.blur();
   await randomDelay(800, 1500);
 
-  // 4. 模拟人工视口平滑滚动检查排版
-  log('👀 模拟人工视口平滑滚动检查文章内容与预览排版...');
-  window.scrollTo({ top: 500, behavior: 'smooth' });
-  await randomDelay(600, 900);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(500, 800);
-
-  // 5. 若有封面，打开发布抽屉仅上传封面图后关闭（严禁配置专栏、标签与摘要）
+  // 4. 若有封面，打开发布抽屉仅上传封面图后关闭（严禁配置专栏、标签与摘要）
   let coverSetStatus = 'none';
   if (data.cover && (data.cover.base64 || data.cover.url)) {
     log('⚙️ 正在打开发布设置面板上传封面...');
@@ -126,10 +119,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
               fileInput.files = dt.files;
               fileInput.dispatchEvent(new Event('change', { bubbles: true }));
               coverSetStatus = 'uploaded_local_file';
+              window.__doudou_cover_status = 'uploaded';
               log('✅ 已通过本地文件流上传文章封面');
             } else if (coverComp) {
               coverComp.currentImg = data.cover.url;
               coverSetStatus = 'bound_cdn_url';
+              window.__doudou_cover_status = 'uploaded';
               log('✅ 已通过 CoverImage 组件绑定封面 URL');
             }
           } catch (e) {
@@ -137,14 +132,16 @@ export function buildBrowserPublishScript(markdownFilePath) {
             if (coverComp && data.cover.url) {
               coverComp.currentImg = data.cover.url;
               coverSetStatus = 'bound_cdn_url_fallback';
+              window.__doudou_cover_status = 'uploaded';
             }
           }
         } else if (data.cover.url && coverComp) {
           coverComp.currentImg = data.cover.url;
           coverSetStatus = 'bound_cdn_url';
+          window.__doudou_cover_status = 'uploaded';
           log('✅ 已直接绑定封面 CDN URL: ' + data.cover.url);
         }
-        await randomDelay(600, 1200);
+        await randomDelay(300, 600);
 
         // 关闭发布弹窗，绝不点击确定发布
         log('💾 正在关闭发布设置面板并保留草稿...');
@@ -155,18 +152,16 @@ export function buildBrowserPublishScript(markdownFilePath) {
         } else if (closeBtn) {
           closeBtn.click();
         }
-        await randomDelay(500, 800);
+        await randomDelay(300, 500);
       }
     }
   }
 
-  await randomDelay(500, 800);
-
-  // 模拟平滑视口滚动审阅
-  window.scrollTo({ top: 300, behavior: 'smooth' });
-  await randomDelay(400, 700);
+  // 5. 单次轻度视口微调触发渲染
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await delay(2500);
+  await delay(800);
 
   // 获取保存后的 URL 与 articleId
   const currentUrl = window.location.href;
@@ -183,9 +178,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
     articleId,
     draftUrl: currentUrl,
     title: data.title,
-    categoryColumn: data.categoryColumn,
-    tags: data.tags,
-    summary: data.summary,
     coverStatus: coverSetStatus,
     savedAt: new Date().toISOString(),
     logs

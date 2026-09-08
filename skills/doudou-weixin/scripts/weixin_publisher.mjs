@@ -122,29 +122,30 @@ export function buildArticleBrowserScript(meta) {
           fileInput.files = dt.files;
           fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-          console.log('[doudou-weixin] 封面图片已提交上传，等待 3.5 秒处理...');
-          await sleep(3500);
+          console.log('[doudou-weixin] 封面图片已提交上传，等待 1.2 秒处理...');
+          await sleep(1200);
 
           // 5.3 选中第一张图片（最新上传的封面）
           const firstItem = dialog.querySelector('.weui-desktop-img-picker__list .weui-desktop-img-picker__item') || 
                             dialog.querySelector('.weui-desktop-img-picker__item');
           if (firstItem) {
             firstItem.click();
-            await sleep(600);
+            await sleep(400);
           }
 
           // 5.4 点击「下一步」进入裁切
           const nextBtn = Array.from(dialog.querySelectorAll('button')).find(b => b.innerText.trim() === '下一步');
           if (nextBtn && !nextBtn.disabled && !nextBtn.className.includes('disabled')) {
             nextBtn.click();
-            await sleep(1500);
+            await sleep(1000);
           }
 
           // 5.5 点击「完成」/「确定」确认裁切并绑定封面
           const doneBtn = Array.from(document.querySelectorAll('.weui-desktop-dialog button')).find(b => b.innerText.trim() === '完成' || b.innerText.trim() === '确定');
           if (doneBtn && !doneBtn.disabled && !doneBtn.className.includes('disabled')) {
             doneBtn.click();
-            await sleep(1000);
+            window.__doudou_cover_status = 'uploaded';
+            await sleep(800);
           }
           console.log('[doudou-weixin] 封面上传与裁切绑定完成！');
         }
@@ -153,17 +154,17 @@ export function buildArticleBrowserScript(meta) {
       console.warn('[doudou-weixin] 封面自动上传处理出现非阻塞异常:', coverErr);
     }
   }
-  await sleep(600);
+  await sleep(300);
 
-  // 6. 模拟自然视口滚动检查排版并等待微信原生自动保存
-  window.scrollTo({ top: 380, behavior: 'smooth' });
-  await sleep(500);
+  // 6. 视口轻微微调触发排版渲染
+  window.scrollBy({ top: 150, behavior: 'smooth' });
+  await sleep(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(400);
+  await sleep(200);
 
-  // 7. 依托微信公众号原生自动防抖保存（等待 2.5 秒，无需主动触发草稿保存按钮）
-  console.log('[doudou-weixin] 依托微信原生自动保存机制，等待 2.5 秒...');
-  await sleep(2500);
+  // 7. 依托微信公众号原生自动防抖保存（等待 800ms，无需主动触发草稿保存按钮）
+  console.log('[doudou-weixin] 依托微信原生自动保存机制，等待 800ms...');
+  await sleep(800);
 
   const finalUrl = location.href;
   const matchDraft = finalUrl.match(/appmsgid=(\d+)/);
@@ -236,15 +237,16 @@ export function buildStickerBrowserScript(meta) {
   }
   await sleep(600);
 
-  // 3. 模拟自然视口滚动检查并等待微信原生自动保存
-  window.scrollTo({ top: 300, behavior: 'smooth' });
-  await sleep(400);
+  // 3. 视口轻微微调触发排版渲染
+  window.scrollBy({ top: 150, behavior: 'smooth' });
+  await sleep(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(300);
+  await sleep(200);
+  window.__doudou_cover_status = 'uploaded';
 
-  // 4. 依托微信公众号原生自动防抖保存（等待 2.5 秒，无需主动触发草稿保存按钮）
-  console.log('[doudou-weixin] 依托微信原生自动保存机制，等待 2.5 秒...');
-  await sleep(2500);
+  // 4. 依托微信公众号原生自动防抖保存（等待 800ms，无需主动触发草稿保存按钮）
+  console.log('[doudou-weixin] 依托微信原生自动保存机制，等待 800ms...');
+  await sleep(800);
 
   const finalUrl = location.href;
   const matchDraft = finalUrl.match(/appmsgid=(\d+)/);

@@ -106,74 +106,92 @@ export async function buildBrowserPublishScript(markdownFilePath) {
     }
   }
 
-  // 3. 批量将正文中的所有配图转存至 B 站 BFS 图床
-  let finalHtml = data.html;
-  log('开始检查并转存正文配图 (共 ' + data.images.length + ' 张)...');
-
-  let successImgCount = 0;
-  for (let idx = 0; idx < data.images.length; idx++) {
-    const imgInfo = data.images[idx];
-    try {
-      let blob = null;
-      if (imgInfo.base64) {
-        blob = base64ToBlob(imgInfo.base64, imgInfo.mimeType || 'image/png');
-      } else if (imgInfo.src && imgInfo.src.startsWith('http')) {
-        // 网络图片拉取为 Blob
-        const imgResp = await fetch(imgInfo.src);
-        blob = await imgResp.blob();
-      }
-
-      if (blob) {
-        log('正在上传正文配图 [' + (idx + 1) + '/' + data.images.length + '] (' + (imgInfo.alt || '配图') + ') 至 B站 BFS...');
-        const bfsData = await uploadToBFS(blob, 'article_img_' + idx + '.png');
-        const hdslbUrl = bfsData.image_url.replace(/^http:/, 'https:');
-        log('配图 [' + (idx + 1) + '] 上传成功: ' + hdslbUrl);
-
-        const imgNodeHtml = '<img class="eva3-bili-image" data-eva3-scoped="" src="' + hdslbUrl + '" alt="' + (imgInfo.alt || '配图') + '" data-caption="' + (imgInfo.alt || '配图') + '" data-ai-gen-pic="0" data-eva-image="enhanced">';
-        finalHtml = finalHtml.replaceAll(imgInfo.placeholder, imgNodeHtml);
-        successImgCount++;
-      } else {
-        log('配图 [' + (idx + 1) + '] 未获取到有效数据，清除占位');
-        finalHtml = finalHtml.replaceAll(imgInfo.placeholder, '');
-      }
-      await randomDelay(250, 450);
-    } catch (e) {
-      log('正文配图 [' + (idx + 1) + '] 转存失败: ' + e.message + '，清除占位');
-      finalHtml = finalHtml.replaceAll(imgInfo.placeholder, '');
-    }
-  }
-  log('正文配图处理完成，成功转存: ' + successImgCount + '/' + data.images.length);
-
+  // 3. 极速正文配图装配（正文已为 CDN 图床，无需逐张网络转存，立省 15~30 秒）
   // 4. 拟真人机输入文章标题
   log('正在拟真输入文章标题: ' + data.title);
   const titleInput = targetDoc.querySelector('.title-input__inner');
   if (titleInput) {
     titleInput.focus();
-    await randomDelay(300, 600);
+    await randomDelay(200, 400);
     titleInput.value = data.title;
     titleInput.dispatchEvent(new Event('input', { bubbles: true }));
     titleInput.dispatchEvent(new Event('change', { bubbles: true }));
-    await randomDelay(200, 400);
+    await randomDelay(150, 300);
     titleInput.blur();
-  } else {
-    log('未找到标题输入框 .title-input__inner');
   }
 
-  await randomDelay(400, 700);
+  await randomDelay(300, 500);
 
-  // 5. 注入文章正文内容
+  // 5. 注入文章正文内容到 TipTap 编辑器
   log('正在注入文章正文到 TipTap 编辑器...');
-  editor.commands.setContent(finalHtml);
-  await randomDelay(800, 1400);
+  editor.commands.setContent(data.html);
+  await randomDelay(400, 600);
+
+  // 5.1 精准将占位符替换为 TipTap 原生 enhancedImage 节点（支持真实渲染与显示）
+  if (Array.isArray(data.images) && data.images.length > 0 && editor.schema.nodes.enhancedImage) {
+    log('正在通过 TipTap 原生 enhancedImage 节点绑定正文配图 (' + data.images.length + ' 张)...');
+    const doc = editor.state.doc;
+    const positions = [];
+    doc.descendants((node, pos) => {
+      if (node.isText) {
+        for (const img of data.images) {
+          if (!img.placeholder) continue;
+          const idx = node.text.indexOf(img.placeholder);
+          if (idx !== -1) {
+            positions.push({
+              pos: pos + idx,
+              len: img.placeholder.length,
+              img
+            });
+          }
+        }
+      }
+    });
+
+    // 从后向前倒序替换，防止前面的替换改变后续 pos
+    positions.sort((a, b) => b.pos - a.pos);
+    for (const item of positions) {
+      let imgSrc = item.img.src || (item.img.base64 ? 'data:' + (item.img.mimeType || 'image/png') + ';base64,' + item.img.base64 : '');
+      // 外部图片通过官方 upload_bfs 快速转存为 B站官方图床（避免保存草稿被拦截）
+      if (imgSrc && !imgSrc.includes('hdslb.com')) {
+        try {
+          const cResp = await fetch(imgSrc);
+          if (cResp.ok) {
+            const blob = await cResp.blob();
+            const bfsRes = await uploadToBFS(blob, 'content_' + (item.img.id || 'img') + '.png');
+            if (bfsRes && bfsRes.image_url) {
+              imgSrc = bfsRes.image_url.replace(/^http:/, 'https:');
+              log('已成功转存至 B站官方 BFS 图床: ' + imgSrc);
+            }
+          }
+        } catch (e) {
+          log('BFS 图床转存跳过: ' + e.message);
+        }
+      }
+
+      if (imgSrc) {
+        const imgNode = editor.schema.nodes.enhancedImage.create({
+          src: imgSrc,
+          alt: item.img.alt || '[图片]',
+          caption: item.img.alt || ''
+        });
+        editor.view.dispatch(
+          editor.state.tr.replaceWith(item.pos, item.pos + item.len, imgNode)
+        );
+        log('已成功注入正文配图: ' + (item.img.alt || item.img.placeholder));
+      }
+    }
+  }
+  await randomDelay(400, 600);
 
   // 6. 配置发布设置与封面图
   log('正在打开发布设置面板...');
   const settingsBtn = targetDoc.querySelector('.settings-button') || Array.from(targetDoc.querySelectorAll('button')).find(b => b.innerText.includes('发布设置'));
   if (settingsBtn) {
     settingsBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    await randomDelay(200, 400);
+    await randomDelay(150, 300);
     settingsBtn.click();
-    await randomDelay(600, 1000);
+    await randomDelay(400, 700);
 
     // 检查并开启「自定义封面」
     const formItems = Array.from(targetDoc.querySelectorAll('.publish-settings .form .form-item, .publish-settings .form-item'));
@@ -185,9 +203,8 @@ export async function buildBrowserPublishScript(markdownFilePath) {
       // 如果存在旧封面，先点击删除
       const deleteBtn = coverItem.querySelector('.selected-action button') || Array.from(coverItem.querySelectorAll('button')).find(b => b.innerText.includes('删除'));
       if (deleteBtn) {
-        log('检测到已有旧封面，先点击删除以更新新封面...');
         deleteBtn.click();
-        await randomDelay(500, 800);
+        await randomDelay(300, 500);
       }
 
       // 确保自定义封面开关处于开启状态
@@ -195,29 +212,34 @@ export async function buildBrowserPublishScript(markdownFilePath) {
       const isChecked = switchEl?.classList.contains('is-checked') || switchEl?.getAttribute('aria-checked') === 'true' || coverItem.querySelector('input.vui_switch-input')?.checked;
 
       if (!isChecked) {
-        log('点击开启自定义封面开关...');
         const switchCore = coverItem.querySelector('.vui_switch--switch') || coverItem.querySelector('.vui_switch-core') || coverItem.querySelector('.vui_switch-input');
         if (switchCore) {
           switchCore.click();
-          await randomDelay(600, 900);
+          await randomDelay(400, 600);
         }
       }
 
       // 获取封面 Blob
       let coverBlob = null;
-      if (data.cover.base64) {
+      const candidateUrls = ['http://127.0.0.1:39281/cover.png', data.cover.url].filter(Boolean);
+      for (const u of candidateUrls) {
+        try {
+          const resp = await fetch(u);
+          if (resp.ok) {
+            coverBlob = await resp.blob();
+            break;
+          }
+        } catch(e) {}
+      }
+      if (!coverBlob && data.cover.base64) {
         coverBlob = base64ToBlob(data.cover.base64, data.cover.mimeType || 'image/png');
-      } else if (data.cover.url) {
-        const cResp = await fetch(data.cover.url);
-        coverBlob = await cResp.blob();
       }
 
       if (coverBlob) {
-        // 点击「添加封面」/「重新上传」以唤起文件选择控件
         const uploadBtn = coverItem.querySelector('.upload-button') || Array.from(coverItem.querySelectorAll('div, button')).find(el => el.innerText?.trim() === '添加封面' || el.innerText?.trim() === '重新上传');
         if (uploadBtn) {
           uploadBtn.click();
-          await randomDelay(400, 700);
+          await randomDelay(300, 500);
         }
 
         const coverFile = new File([coverBlob], 'cover.png', { type: 'image/png' });
@@ -230,51 +252,35 @@ export async function buildBrowserPublishScript(markdownFilePath) {
           fileInput.dispatchEvent(new Event('change', { bubbles: true }));
           log('已注入封面文件至上传控件，等待裁切对话框...');
 
-          // 轮询等待裁切对话框出现
           let confirmBtn = null;
-          for (let waitCount = 0; waitCount < 15; waitCount++) {
-            await delay(400);
+          for (let waitCount = 0; waitCount < 12; waitCount++) {
+            await delay(300);
             confirmBtn = targetDoc.querySelector('.vui_dialog--btn-confirm') || Array.from(targetDoc.querySelectorAll('button')).find(b => b.innerText.trim() === '确定' && (b.className.includes('confirm') || b.className.includes('blue')));
             if (confirmBtn) break;
           }
 
           if (confirmBtn) {
             confirmBtn.click();
+            window.__doudou_cover_status = 'uploaded';
             log('已点击封面裁切确定按钮，封面绑定成功');
-            await randomDelay(800, 1400);
-          } else {
-            log('未检测到裁切弹窗确定按钮，尝试备用查找');
-            const anyConfirmBtn = Array.from(targetDoc.querySelectorAll('button')).find(b => b.innerText.trim() === '确定');
-            if (anyConfirmBtn) {
-              anyConfirmBtn.click();
-              await randomDelay(800, 1400);
-            }
+            await randomDelay(500, 800);
           }
-        } else {
-          log('未找到封面文件上传控件 input[type="file"]');
         }
       }
     }
   }
 
-  // 7. 模拟人工视口平滑滚动检查
-  log('模拟人工视口平滑滚动检查排版...');
-  targetWin.scrollTo({ top: 350, behavior: 'smooth' });
-  await randomDelay(400, 700);
+  // 7. 单次轻度视口微调触发懒加载
+  targetWin.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
   targetWin.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(300, 600);
-
-  // 8. 等待平台原生自动保存生效（B站专栏编辑器输入后自动保存，绝不主动点击「保存为草稿」或「发布」按钮）
-  log('内容已注入完成，正在等待 B站专栏原生自动保存生效 (保留在编辑页)...');
-  await delay(2500);
+  await delay(800);
 
   return {
     success: true,
     isReady: true,
     status: 'ready_auto_saved',
     title: data.title,
-    summary: data.summary,
-    topics: data.topics,
     coverState: data.cover ? (data.cover.localPath || data.cover.url ? '已配置' : '无') : '无',
     imagesCount: data.images.length,
     logs
@@ -441,8 +447,9 @@ export function buildFillVideoFormBrowserScript(meta) {
           if (completeBtn) {
             completeBtn.click();
             coverUploaded = true;
+            window.__doudou_cover_status = 'uploaded';
             log('已点击封面制作「完成」按钮，封面绑定成功！');
-            await delay(1200);
+            await delay(800);
           } else {
             log('未找到封面制作完成按钮');
           }
@@ -452,7 +459,7 @@ export function buildFillVideoFormBrowserScript(meta) {
       }
     }
   }
-  await randomDelay(400, 700);
+  await randomDelay(200, 400);
 
   // 3. 拟真输入视频标题（上限 80 字，使用 Vue 3 原生 setter 驱动）
   const titleInput = document.querySelector('input[placeholder*="标题"], .video-title input, input.title-input__inner, input[maxlength="80"]')
@@ -460,9 +467,8 @@ export function buildFillVideoFormBrowserScript(meta) {
 
   if (titleInput) {
     log('定位到视频标题输入框，拟真填入标题: ' + meta.title);
-    titleInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
     titleInput.focus();
-    await randomDelay(200, 400);
+    await randomDelay(150, 300);
     try {
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       nativeSetter.call(titleInput, meta.title);
@@ -471,13 +477,13 @@ export function buildFillVideoFormBrowserScript(meta) {
     }
     titleInput.dispatchEvent(new Event('input', { bubbles: true }));
     titleInput.dispatchEvent(new Event('change', { bubbles: true }));
-    await randomDelay(200, 400);
+    await randomDelay(150, 300);
     titleInput.blur();
   } else {
     log('⚠️ 未定位到标题输入框');
   }
 
-  await randomDelay(400, 700);
+  await randomDelay(200, 400);
 
   // 4. 拟真填入视频简介（结构化多行文本，支持 Quill 富文本编辑器与 textarea 回退）
   const qlContainer = document.querySelector('.ql-container');
@@ -487,12 +493,11 @@ export function buildFillVideoFormBrowserScript(meta) {
   if (qlContainer && qlContainer.__quill) {
     log('定位到 Quill 简介编辑器，注入结构化简介...');
     qlContainer.__quill.setText(meta.description);
-    await randomDelay(300, 500);
+    await randomDelay(200, 400);
   } else if (descArea) {
     log('定位到视频简介 textarea，注入结构化简介...');
-    descArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
     descArea.focus();
-    await randomDelay(200, 400);
+    await randomDelay(150, 300);
     try {
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
       nativeSetter.call(descArea, meta.description);
@@ -501,24 +506,17 @@ export function buildFillVideoFormBrowserScript(meta) {
     }
     descArea.dispatchEvent(new Event('input', { bubbles: true }));
     descArea.dispatchEvent(new Event('change', { bubbles: true }));
-    await randomDelay(200, 400);
+    await randomDelay(150, 300);
     descArea.blur();
   } else {
     log('⚠️ 未定位到视频简介输入域');
   }
 
-  await randomDelay(500, 800);
-
-  // 5. 模拟人工视口平滑滚动检查
-  log('模拟人工视口平滑滚动检查表单填写...');
-  window.scrollTo({ top: document.body.scrollHeight / 2, behavior: 'smooth' });
-  await randomDelay(400, 600);
+  // 5. 单次轻度视口微调
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(300, 500);
-
-  // 6. 等待平台就绪与自动保存（严禁触碰「立即投稿」按钮，亦不主动点击存草稿，保留现场）
-  log('【安全红线检查】表单与视频已配置完成，等待平台自动同步就绪 (严格绝不点击「立即投稿」)');
-  await delay(2000);
+  await delay(800);
 
   return {
     success: true,

@@ -305,7 +305,23 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const baseName = path.basename(absPath, path.extname(absPath));
   const articleDir = path.join(dir, baseName);
 
-  // 1. 优先读取 cover/images/ 下的本地封面（遵循 baoyu-cover-image 规范，优先 2.35:1 宽屏主封面或 16:9 封面）
+  // 1. 优先读取 cdn_manifest.json 中的封面条目（获取公开 CDN URL，避免巨大 base64 膨胀）
+  const manifestPath = path.join(articleDir, 'cdn_manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: false });
+      if (fromManifest && (fromManifest.cdnUrl || fromManifest.url)) {
+        return {
+          ...fromManifest,
+          url: fromManifest.cdnUrl || fromManifest.url
+        };
+      }
+    } catch (e) {
+      console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
+    }
+  }
+
+  // 2. 备选读取 cover/images/ 下的本地封面
   const coverImagesDir = path.join(articleDir, 'cover', 'images');
   if (fs.existsSync(coverImagesDir)) {
     const allFiles = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
@@ -333,19 +349,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
     }
   }
 
-  // 2. 备选：读取 cdn_manifest.json 中的封面条目（type 为 cover）
-  const manifestPath = path.join(articleDir, 'cdn_manifest.json');
-  if (fs.existsSync(manifestPath)) {
-    try {
-      // 统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
-      // 识别封面（真实清单无 type/slug/aspect_ratio 字段，旧逻辑在此静默跳过）。
-      // 百家号把 base64 内联进浏览器脚本、没有 URL 分支，故必须 preferBase64。
-      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: true });
-      if (fromManifest) return fromManifest;
-    } catch (e) {
-      console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
-    }
-  }
+
 
   // 3. 备选：读取 xhs_images/images/ 下的第一张封面卡片（如 01-cover.png）
   const xhsImagesDir = path.join(articleDir, 'xhs_images', 'images');

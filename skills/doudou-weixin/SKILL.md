@@ -255,9 +255,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 
 ### 步骤 1：打开微信公众平台并进入草稿箱
 
-1. 调用 `list_pages` 检查是否已有微信公众平台后台页面（URL 包含 `mp.weixin.qq.com`）。
-   - 若已有，调用 `select_page` 切换到该页面；
-   - 若无，调用 `new_page` 打开 `https://mp.weixin.qq.com`。
+1. **新建独立页面**：调用 `new_page` 打开 `https://mp.weixin.qq.com`（必须每次新建独立页面，严禁复用或覆盖已有页面）。
 2. 检测登录态：
    - 检查页面是否存在 `.weui-desktop-menu` 或左侧「内容管理」菜单；
    - 若被重定向至登录页，向用户发出提示请用户在浏览器中微信扫码登录。

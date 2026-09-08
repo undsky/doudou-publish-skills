@@ -112,16 +112,9 @@ export function buildBrowserPublishScript(markdownFilePath) {
     cherryCompFiber.memoizedProps.onChange(data.bodyContent);
   }
 
-  await randomDelay(800, 1500);
-
-  // 4. 模拟人类作者自然视口平滑滚动检查排版
-  log('模拟平滑视口滚动检查文章排版...');
-  window.scrollTo({ top: 350, behavior: 'smooth' });
   await randomDelay(400, 700);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(300, 600);
 
-  // 5. 若有封面图，打开发布设置抽屉仅上传封面并收起
+  // 4. 若有封面图，打开发布设置抽屉仅上传封面并收起
   let coverLoaded = false;
   if (data.cover && data.cover.type !== 'none') {
     log('检测到封面图资产，打开发布设置抽屉上传封面...');
@@ -197,26 +190,27 @@ export function buildBrowserPublishScript(markdownFilePath) {
         log('检测到裁剪确认按钮，模拟点击确认...');
         const targetCropBtn = cropConfirmBtns[cropConfirmBtns.length - 1];
         targetCropBtn.click();
-        await randomDelay(500, 1000);
+        window.__doudou_cover_status = 'uploaded';
+        await randomDelay(300, 500);
       }
 
-      await randomDelay(500, 1000);
+      await randomDelay(300, 500);
 
       // 安全隔离：收起发布抽屉
       log('正在收起发布抽屉并保留配置...');
       const closeDrawerBtn = drawer.querySelector('button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)');
       if (closeDrawerBtn) {
         closeDrawerBtn.click();
-        await randomDelay(400, 600);
+        await randomDelay(300, 500);
       }
     }
   }
 
-  // 6. 模拟人工视口平滑滚动排版审阅
-  window.scrollTo({ top: 300, behavior: 'smooth' });
-  await randomDelay(400, 700);
+  // 5. 单次轻度视口微调触发渲染与懒加载
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await delay(2500);
+  await delay(800);
 
   const currentUrl = window.location.href;
   const draftIdMatch = currentUrl.match(/[?&]draftId=([^&]+)/);

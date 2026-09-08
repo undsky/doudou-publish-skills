@@ -23,7 +23,8 @@ export function buildPublishBrowserScript(meta) {
     summary: ${JSON.stringify(meta.articleSummary || '')},
     tags: ${JSON.stringify(meta.tags || [])},
     htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
-    coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
+    coverUrl: ${JSON.stringify(meta.cover?.url || meta.cover?.cdnUrl || '')},
+    coverBase64: ${JSON.stringify(meta.cover?.url ? '' : (meta.cover?.base64 || ''))},
     coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
   };
 
@@ -89,6 +90,12 @@ export function buildPublishBrowserScript(meta) {
       if (setter) setter.call(titleBox, meta.title);
       else titleBox.value = meta.title;
     } else if (titleBox.getAttribute('contenteditable') === 'true') {
+      try {
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, meta.title);
+      } catch (e) {
+        // fallback
+      }
       titleBox.innerText = meta.title;
     }
 
@@ -125,14 +132,11 @@ export function buildPublishBrowserScript(meta) {
   }
   await sleep(1500);
 
-  // 3. 模拟人工视口平滑滚动（审阅排版）
-  log('正在模拟人工视口平滑滚动审阅排版...');
-  window.scrollTo({ top: 400, behavior: 'smooth' });
-  await sleep(500);
-  window.scrollTo({ top: 900, behavior: 'smooth' });
-  await sleep(600);
+  // 3. 视口轻微微调触发排版渲染
+  window.scrollBy({ top: 150, behavior: 'smooth' });
+  await sleep(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(400);
+  await sleep(200);
 
   // 4. 上传并绑定封面图片
   let coverUploaded = false;
@@ -149,11 +153,15 @@ export function buildPublishBrowserScript(meta) {
       return new File([blob], name, { type: mime });
     };
 
-    // 查找封面插槽元素
-    const coverSlot = document.querySelector('.FeEditorApp-_73a3a52aab7e3a36-content, .FeEditorApp-_73a3a52aab7e3a36-default, .FeEditorApp-_93c3fe2a3121c388-item, .form-item-cover, [class*="cover"] [class*="item"]');
+    // 查找封面插槽元素（优先语义文本定位带有 onClick 的 content 容器）
+    const textEl = Array.from(document.querySelectorAll('*')).find(el => el.children.length === 0 && (el.textContent?.trim() === '选择封面' || el.textContent?.trim() === '更换封面'));
+    const coverSlot = textEl?.closest('div[class*="-content"]') || 
+      document.querySelector('.FeEditorApp-_73a3a52aab7e3a36-content') ||
+      document.querySelector('.FeEditorApp-_73a3a52aab7e3a36-default, .FeEditorApp-_93c3fe2a3121c388-item, .form-item-cover, [class*="cover"] [class*="item"]');
+
     if (coverSlot) {
       coverSlot.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await sleep(300);
+      await sleep(200);
 
       // 触发 React 点击
       const p = getProps(coverSlot) || getProps(coverSlot.querySelector('.FeEditorApp-_73a3a52aab7e3a36-content')) || getProps(coverSlot.parentElement);
@@ -169,29 +177,49 @@ export function buildPublishBrowserScript(meta) {
         } catch (err) {}
       }
       coverSlot.click();
-      await sleep(1200);
+      await sleep(800);
 
       // 检查是否需要上传本地封面
       const uploadInput = document.querySelector('.cheetah-modal input[name="media"][type="file"], input[name="media"][type="file"], input[type="file"][accept*="image"]');
-      if (meta.coverBase64 && uploadInput) {
+      if ((meta.coverUrl || meta.coverBase64) && uploadInput) {
         try {
-          const file = makeFileFromBase64(meta.coverBase64, meta.coverFileName);
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          uploadInput.files = dt.files;
-
-          const inputProps = getProps(uploadInput);
-          if (inputProps && typeof inputProps.onChange === 'function') {
-            inputProps.onChange({
-              target: uploadInput,
-              currentTarget: uploadInput,
-              nativeEvent: new Event('change'),
-              persist: () => {}
-            });
+          let file = null;
+          // 优先尝试本地 HTTP 服务或 CDN
+          const candidateUrls = ['http://127.0.0.1:39281/cover.png', meta.coverUrl].filter(Boolean);
+          for (const url of candidateUrls) {
+            try {
+              const resp = await fetch(url);
+              if (resp.ok) {
+                const blob = await resp.blob();
+                file = new File([blob], meta.coverFileName || 'cover.png', { type: blob.type || 'image/png' });
+                log('已从 ' + (url.includes('127.0.0.1') ? '本地临时服务' : 'CDN') + ' 拉取封面图片');
+                break;
+              }
+            } catch (err) {}
           }
-          uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
-          log('已向封面上传组件注入 File 对象');
-          await sleep(2000);
+          if (!file && meta.coverBase64) {
+            file = makeFileFromBase64(meta.coverBase64, meta.coverFileName);
+          }
+
+          if (file) {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            uploadInput.files = dt.files;
+
+            const inputProps = getProps(uploadInput);
+            if (inputProps && typeof inputProps.onChange === 'function') {
+              inputProps.onChange({
+                target: uploadInput,
+                currentTarget: uploadInput,
+                nativeEvent: new Event('change'),
+                persist: () => {}
+              });
+            }
+            uploadInput.dispatchEvent(new Event('input', { bubbles: true }));
+            uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
+            log('已向封面上传组件注入 File 对象');
+            await sleep(1200);
+          }
         } catch (err) {
           log('注入 File 异常: ' + err.message);
         }
@@ -219,13 +247,16 @@ export function buildPublishBrowserScript(meta) {
         }
         confirmBtn.click();
         log('已点击封面确认/裁切按钮: ' + (confirmBtn.innerText || '确定'));
-        await sleep(2500);
+        window.__doudou_cover_status = 'uploaded';
+        await sleep(1000);
       }
 
       // 验证封面是否呈现在插槽中
       const coverImg = document.querySelector('.FeEditorApp-_73a3a52aab7e3a36-coverImg, .FeEditorApp-_93c3fe2a3121c388-item img, [class*="cover"] img');
       if (coverImg) {
         coverUploaded = true;
+        window.__doudou_cover_status = 'uploaded';
+        window.__doudou_cover_url = coverImg.src;
         log('封面图片已成功渲染在封面插槽中: ' + coverImg.src.substring(0, 60));
       } else {
         log('提示: 未捕获到封面 img 标签，可能仍在异步加载');
@@ -236,18 +267,11 @@ export function buildPublishBrowserScript(meta) {
   } catch (e) {
     log('封面处理异常: ' + e.message);
   }
-  await sleep(600);
+  await sleep(300);
 
-  // 5. 模拟人工视口平滑滚动排版审阅并等待平台原生自动保存
-  log('正在模拟人工视口平滑滚动排版审阅...');
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-  await sleep(800);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(500);
-
-  // 百家号平台具备输入自动保存机制，绝不主动点击「存草稿」或「发布」按钮
+  // 5. 等待平台原生自动保存
   log('已完成全部内容注入，正在静候百家号原生自动保存生效 (保持停留在编辑页)...');
-  await sleep(2500);
+  await sleep(800);
 
   let toastMessage = '';
   const messageEls = document.querySelectorAll('.cheetah-message-notice-content, .cheetah-message-custom-content, .cheetah-message');
@@ -261,6 +285,7 @@ export function buildPublishBrowserScript(meta) {
 
   const isDraftSaved = Boolean(articleId || toastMessage.includes('存入草稿') || toastMessage.includes('成功'));
 
+  window.__doudou_allow_missing_cover = true;
   return {
     success: true,
     isReady: true,

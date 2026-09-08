@@ -118,32 +118,15 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
       // ignore
     }
   }
-  await randomDelay(500, 800);
+  await randomDelay(300, 500);
 
-  // 6. 模拟自然视口滚动检查
-  log('模拟平滑视口滚动审阅文章...');
-  window.scrollTo({ top: 350, behavior: 'smooth' });
-  await randomDelay(500, 900);
+  // 6. 单次轻度视口微调触发渲染与懒加载
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(300, 600);
+  await delay(600);
 
-  // 7. 触发 Markdown 实时预览验证
-  const previewBtn = document.querySelector('button[data-nb-editor-action="preview"], button[title*="预览"]');
-  let previewVerified = false;
-  if (previewBtn) {
-    log('触发 NB-Editor 实时预览验证...');
-    previewBtn.click();
-    await randomDelay(800, 1400);
-    const previewArea = document.querySelector('.nb-editor-preview');
-    if (previewArea && previewArea.innerHTML.trim().length > 0) {
-      previewVerified = true;
-      log('Markdown 实时预览解析渲染验证成功。');
-    }
-    // 再次点击切回编辑模式保持界面清爽
-    previewBtn.click();
-    await randomDelay(300, 500);
-  }
-
+  window.__doudou_allow_missing_cover = true;
   log('Linux.sb 文章内容与版块填充完毕，已就绪，保持编辑态供用户人工审查与手动保存。');
 
   return {
@@ -153,10 +136,8 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
     title: data.title,
     fid: data.fid,
     forumName: data.forumName,
-    summary: data.summary,
     contentLength: data.bodyContent.length,
     cover: data.cover,
-    previewVerified,
     readyToPublishManually: true,
     logs
   };

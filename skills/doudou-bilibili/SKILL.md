@@ -214,7 +214,7 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
    - **正文配图官方 BFS 转存**：B 站专栏草稿强制校验图片域名必须为 `*.hdslb.com`。本技能在浏览器端通过 `/x/dynamic/feed/draw/upload_bfs`（带 CSRF `bili_jct`）自动将所有本地与网络配图转存为 B 站原生图床 URL。
    - **原创声明**：自动选择「自制」并勾选「声明此内容为原创，未经授权禁止转载」。
 6. **发布完成后保留页面（严禁自动关闭）**：
-   - 专栏文章或视频投稿表单就绪并完成截屏存证后，**严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场——页面即是创作者人工审阅后点击提交的唯一入口。
+   - 专栏文章或视频投稿表单就绪并完成截屏存证后，****每次执行必须无条件调用 `new_page` 新建独立标签页（严禁复用或覆盖已有页面）**；全流程完成后严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场——页面即是创作者人工审阅后点击提交的唯一入口。
    - 未登录、验证码拦截、上传超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
 
 ---
@@ -229,13 +229,12 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 flowchart TD
     S0[步骤 0: 解析 Markdown 资产与封面] --> S1[步骤 1: 打开/聚焦 B站专栏发布页]
     S1 --> S2[步骤 2: 拟真人机输入文章标题]
-    S2 --> S3[步骤 3: 批量转存正文配图至 B站 BFS 图床]
+    S2 --> S3[步骤 3: 极速装配正文配图与 HTML]
     S3 --> S4[步骤 4: 注入语义化 HTML 到 TipTap 编辑器]
     S4 --> S5[步骤 5: 打开发布设置并上传裁切封面]
-    S5 --> S6[步骤 6: 勾选原创声明]
-    S6 --> S7[步骤 7: 模拟人工视口平滑滚动检查]
-    S7 --> S8[步骤 8: 轮询完成断言直至通过]
-    S8 --> S9[步骤 9: 验证就绪状态并截屏存证]
+    S5 --> S6[步骤 6: 模拟人工视口轻度微调触发懒加载]
+    S6 --> S7[步骤 7: 轮询完成断言直至通过]
+    S7 --> S8[步骤 8: 验证就绪状态并截屏存证]
 ```
 
 1. **打开/聚焦专栏发布页并检测登录态**：
@@ -288,7 +287,7 @@ flowchart TD
    - 视口自上而下平滑滚动模拟人工核验排版；
    - 等待平台自动同步就绪，严格遵循安全隔离规约（**绝不主动点击「存草稿」，绝不点击「立即投稿」**）；
    - 在当前视频投稿页面截取就绪状态存证截图并保存至文章同名目录：`bilibili_video.png`；
-   - **严禁调用 `close_page` 或关闭当前页面**，原样保留页面现场供人工审阅。
+   - ****每次执行必须无条件调用 `new_page` 新建独立标签页（严禁复用或覆盖已有页面）**；全流程完成后严禁调用 `close_page` 或关闭当前页面**，原样保留页面现场供人工审阅。
 
 ---
 
@@ -350,7 +349,7 @@ await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
 // 5. 等待视频上传就绪
 await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(180) });
 
-// 6. 填充标题、简介、标签与类型
+// 6. 填充标题、简介与封面
 const fillRes = await evaluate_script({ pageId, function: buildFillVideoFormBrowserScript(meta) });
 
 // 7. 截屏存证

@@ -78,16 +78,9 @@ export function buildBrowserPublishScript(markdownFilePath) {
   if (parentVue.draft) {
     parentVue.draft.markdown = data.bodyContent;
   }
-  await randomDelay(900, 1600);
-
-  // 4. 模拟人工视口平滑滚动浏览
-  log('模拟人工视口平滑滚动检查文章内容...');
-  window.scrollTo({ top: 450, behavior: 'smooth' });
-  await randomDelay(500, 800);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(400, 700);
 
-  // 5. 若有封面图，打开发布面板仅上传封面图后关闭（严格不配置分类、标签与摘要）
+  // 4. 若有封面图，打开发布面板仅上传封面图后关闭（严格不配置分类、标签与摘要）
   let coverUploaded = false;
   let coverUrl = null;
   if (data.cover && data.cover.type !== 'none' && (data.cover.base64 || data.cover.url)) {
@@ -168,37 +161,32 @@ export function buildBrowserPublishScript(markdownFilePath) {
             if (uploaderVue) uploaderVue.$emit('changeCover', tosUrl);
             coverUploaded = true;
             coverUrl = tosUrl;
+            window.__doudou_cover_status = 'uploaded';
             log('封面图已成功上传至掘金官方 TOS 并完成绑定: ' + tosUrl);
           }
         }
       } catch (e) {
         log('封面图处理异常: ' + e.message);
       }
-      await randomDelay(400, 700);
+      await randomDelay(300, 500);
 
       // 关闭发布面板，绝不点击确定发布
       log('正在关闭发布设置面板并保留草稿...');
       const cancelBtn = Array.from(panel.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
       if (cancelBtn) {
-        cancelBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
         cancelBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        await randomDelay(200, 400);
+        await randomDelay(150, 300);
         cancelBtn.click();
       }
-      await randomDelay(600, 1000);
+      await randomDelay(400, 600);
     }
   }
 
-  // 11. 模拟人工视口平滑滚动审阅排版
-  log('模拟人工视口平滑滚动审阅排版...');
-  window.scrollTo({ top: 300, behavior: 'smooth' });
-  await randomDelay(400, 700);
+  // 5. 单次轻度视口微调触发渲染与懒加载
+  window.scrollTo({ top: 150, behavior: 'smooth' });
+  await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await randomDelay(300, 500);
-
-  // 12. 等待掘金平台原生自动保存生效（绝不点击「确定并发布」按钮，保留编辑页）
-  log('正在等待掘金原生自动保存生效 (保留在编辑页)...');
-  await delay(2500);
+  await delay(800);
 
   // 获取草稿保存状态反馈
   const statusTexts = Array.from(document.querySelectorAll('header *, nav *, [class*="status"] *'))
@@ -213,10 +201,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     status: 'ready_auto_saved',
     draftId,
     title: data.title,
-    category: data.category,
-    tags: parentVue?.draft?.tags?.map(t => t.title) || data.tags,
-    summary: data.summary,
-    coverUrl: parentVue?.draft?.cover_image || null,
+    coverUrl: parentVue?.draft?.cover_image || coverUrl || null,
     currentUrl: window.location.href,
     statusTexts: [...new Set(statusTexts)],
     logs
