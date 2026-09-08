@@ -143,7 +143,31 @@ export function buildPublishBrowserScript(meta) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(400);
 
-  // 4. 上传并绑定封面图片
+  // 4. 强制锁定封面为「单图」（严禁切换到三图）
+  log('正在校验并锁定文章展示封面为「单图」模式（严禁三图）...');
+  try {
+    const singleRadioLabel = Array.from(document.querySelectorAll('label.byte-radio, .byte-radio')).find(l => (l.innerText || '').trim().includes('单图'));
+    if (singleRadioLabel) {
+      const isChecked = singleRadioLabel.querySelector('.byte-radio-inner.checked') || singleRadioLabel.querySelector('input:checked');
+      if (!isChecked) {
+        await simulateClick(singleRadioLabel);
+        const input = singleRadioLabel.querySelector('input[type="radio"]');
+        if (input) {
+          input.checked = true;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        await sleep(500);
+        log('已强制将文章展示封面切换为「单图」');
+      } else {
+        log('文章展示封面已确认处于「单图」模式');
+      }
+    }
+  } catch (e) {
+    log('锁定单图模式提示: ' + e.message);
+  }
+  await sleep(400);
+
+  // 5. 上传并绑定封面图片
   let coverUploaded = false;
   if (meta.coverBase64) {
     log('开始上传并设置文章封面...');
@@ -406,62 +430,99 @@ export function buildVideoPublishBrowserScript(meta) {
   if (meta.coverBase64) {
     log('正在上传视频封面: ' + meta.coverFileName);
     try {
-      const coverTrigger = document.querySelector('.fake-upload-trigger, .cover-upload, .upload-btn, .cover-preview, .cover, .cover-box');
+      // 3.1 定位封面触发器并穿透 React 合成事件
+      const coverTrigger = document.querySelector('.fake-upload-trigger') ||
+        Array.from(document.querySelectorAll('*')).find(el => el.children.length === 0 && (el.innerText || '').trim() === '上传封面')?.closest('.fake-upload-trigger, .xigua-poster-editor, div');
+
       if (coverTrigger) {
-        await simulateClick(coverTrigger);
-        await sleep(800);
-
-        // 切换到「本地上传」Tab
-        const tabs = Array.from(document.querySelectorAll('.byte-tabs-header-title, [role="tab"], .tab-item'));
-        const localTab = tabs.find(t => (t.innerText || '').trim().includes('本地上传'));
-        if (localTab) {
-          localTab.click();
-          await sleep(500);
-        }
-
-        const fileInput = document.querySelector('.byte-modal input[type="file"], .arco-modal input[type="file"], input[type="file"][accept*="image"]');
-        if (fileInput) {
-          const file = makeFile(meta.coverBase64, meta.coverFileName);
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          fileInput.files = dt.files;
-
-          const propsKey = Object.keys(fileInput).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
-          if (propsKey && fileInput[propsKey] && typeof fileInput[propsKey].onChange === 'function') {
-            fileInput[propsKey].onChange({
-              target: fileInput,
-              currentTarget: fileInput,
-              nativeEvent: new Event('change'),
-              persist: () => {}
-            });
-          }
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          log('视频封面已提交至上传组件');
-
-          // 等待裁剪弹窗并点击确认
-          await sleep(2000);
-          const confirmBtn = Array.from(document.querySelectorAll('button, .byte-btn')).find(b => {
-            const txt = (b.innerText || '').trim();
-            return (txt === '确定' || txt === '完成') && b.offsetWidth > 0;
-          });
-          if (confirmBtn) {
-            await simulateClick(confirmBtn);
-            log('已点击视频封面确定裁剪按钮');
-          }
-
-          // 二次确认弹窗处理（例如"完成后无法继续编辑，是否确定完成？"）
-          await sleep(1500);
-          const secondConfirm = Array.from(document.querySelectorAll('.byte-modal button, .arco-modal button')).find(b => {
-            const txt = (b.innerText || '').trim();
-            return txt === '确定' && b.offsetWidth > 0;
-          });
-          if (secondConfirm) {
-            await simulateClick(secondConfirm);
-            log('已点击二次确认完成按钮');
-          }
-          coverUploaded = true;
+        const triggerPropsKey = Object.keys(coverTrigger).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+        if (triggerPropsKey && typeof coverTrigger[triggerPropsKey].onClick === 'function') {
+          coverTrigger[triggerPropsKey].onClick({ stopPropagation: () => {}, preventDefault: () => {}, target: coverTrigger, currentTarget: coverTrigger });
         } else {
-          log('警告: 未找到封面文件上传 input');
+          await simulateClick(coverTrigger);
+        }
+        await sleep(1000);
+
+        // 3.2 识别弹窗（支持西瓜专属 .m-xigua-dialog / .m-poster-upgrade）
+        const dialog = document.querySelector('.m-xigua-dialog, .m-poster-upgrade, .byte-modal, .arco-modal');
+        if (dialog) {
+          log('检测到封面设置弹窗: ' + dialog.className);
+
+          // 3.3 切换至「本地上传」Tab（西瓜弹窗内为 li 元素）
+          const localTab = Array.from(dialog.querySelectorAll('li, .byte-tabs-header-title, [role="tab"], span, div')).find(el => (el.innerText || '').trim() === '本地上传');
+          if (localTab) {
+            const tabPropsKey = Object.keys(localTab).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+            if (tabPropsKey && typeof localTab[tabPropsKey].onClick === 'function') {
+              localTab[tabPropsKey].onClick({ target: localTab, currentTarget: localTab });
+            } else {
+              localTab.click();
+            }
+            log('已切换至「本地上传」Tab');
+            await sleep(1000);
+          }
+
+          // 3.4 定位图片上传 input 并提交 File 对象
+          const fileInput = dialog.querySelector('input[type="file"][accept*="image"]') || document.querySelector('#doudou-xigua-cover-input') || dialog.querySelector('input[type="file"]');
+          if (fileInput) {
+            const file = makeFile(meta.coverBase64, meta.coverFileName);
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            fileInput.files = dt.files;
+
+            const inputPropsKey = Object.keys(fileInput).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+            if (inputPropsKey && fileInput[inputPropsKey] && typeof fileInput[inputPropsKey].onChange === 'function') {
+              fileInput[inputPropsKey].onChange({
+                target: fileInput,
+                currentTarget: fileInput,
+                nativeEvent: new Event('change'),
+                persist: () => {}
+              });
+            }
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            log('视频封面 File 对象已派发至 input');
+
+            // 3.5 等待封面编辑画布呈现并点击第一道确定按钮
+            await sleep(2500);
+            const confirmBtn = Array.from(dialog.querySelectorAll('button, .byte-btn')).find(b => {
+              const txt = (b.innerText || '').trim();
+              return (txt === '确定' || txt === '下一步' || txt === '完成') && b.offsetWidth > 0;
+            });
+            if (confirmBtn) {
+              await simulateClick(confirmBtn);
+              log('已点击封面编辑第一道确定按钮');
+              await sleep(1500);
+            }
+
+            // 3.6 处理二次确认弹窗（“完成后无法继续编辑，是否确定完成？”）
+            const secondConfirm = Array.from(document.querySelectorAll('.m-xigua-dialog button, .m-modal button, .byte-modal button, button')).find(b => {
+              const txt = (b.innerText || '').trim();
+              const modalText = b.closest('.m-modal, .m-xigua-dialog, .byte-modal, div')?.innerText || '';
+              return txt === '确定' && (modalText.includes('无法继续编辑') || modalText.includes('确定完成') || b.offsetWidth > 0);
+            });
+            if (secondConfirm) {
+              await simulateClick(secondConfirm);
+              log('已点击封面第二道确认完成按钮');
+              await sleep(1500);
+            }
+
+            // 3.7 封面强断言：验证主编辑器是否真正呈现背景图或已切换为编辑/替换状态
+            const posterEditor = document.querySelector('.xigua-poster-editor');
+            const hasAppliedBg = posterEditor && (
+              posterEditor.querySelector('.bg[style*="background-image"]') ||
+              posterEditor.querySelector('img') ||
+              (posterEditor.innerText.includes('编辑') && posterEditor.innerText.includes('替换'))
+            );
+            if (hasAppliedBg) {
+              coverUploaded = true;
+              log('✅ 视频封面强校验通过：主编辑器已成功挂载封面图！');
+            } else {
+              log('⚠️ 视频封面未检测到生效标志（主界面仍未渲染封面背景图）');
+            }
+          } else {
+            log('警告: 未找到封面图片上传 input');
+          }
+        } else {
+          log('警告: 未能唤起封面设置弹窗');
         }
       } else {
         log('提示: 未找到封面上传触发按钮');

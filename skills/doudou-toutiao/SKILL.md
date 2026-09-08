@@ -226,7 +226,8 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
    - 定位 `.ProseMirror` 内容可编辑区域并聚焦，通过 React Fiber 调用 `reactEditor.pasteContent` 注入正文。
 5. **视口平滑滚动排版审阅**：
    - 分步滚动视口模拟人工阅读。
-6. **抽屉式封面真实上传与确认**：
+6. **展示封面强制锁定「单图」并真实上传确认（硬规约，严禁切换到三图）**：
+   - 检查「展示封面」单选组件，强制确保选中「单图」（`label.byte-radio` / `input[value="2"]`），严禁自动切换或保留为「三图」或「无封面」。
    - 若存在封面图资产，点击 `.article-cover-add` 展开 `.byte-drawer` 抽屉，注入 `File` 对象并自动完成确认裁剪。
 7. **等待草稿云端保存并存证**：
    - 平滑滚动至页面底部，等待校验呈现「草稿已保存」，在草稿箱页面截图存证（`toutiao_article.png`）。
