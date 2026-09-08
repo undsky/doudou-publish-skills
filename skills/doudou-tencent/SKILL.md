@@ -129,12 +129,9 @@ flowchart TD
     S0[步骤 0: 解析 Markdown 资产与封面] --> S1[步骤 1: 打开/聚焦发布页并检测登录态]
     S1 --> S2[步骤 2: 拟真人机输入文章标题]
     S2 --> S3[步骤 3: 注入 Markdown 并触发 Cherry 渲染]
-    S3 --> S4[步骤 4: 模拟自然视口滚动检查排版]
-    S4 --> S5[步骤 5: 点击「去发布」打开发布设置抽屉]
-    S5 --> S6[步骤 6: 拟真配置文章来源与摘要]
-    S6 --> S7[步骤 7: 注入文章封面并激活 Cropper 绑定]
-    S7 --> S8[步骤 8: 拟真收起抽屉等待原生自动保存]
-    S8 --> S9[步骤 9: 捕获自动保存状态并截屏存证]
+    S3 --> S4[步骤 4: 若有封面图，打开发布抽屉上传封面后收起]
+    S4 --> S5[步骤 5: 模拟人工视口平滑滚动审阅排版]
+    S5 --> S6[步骤 6: 轮询完成断言、截屏存证并落盘回执]
 ```
 
 ### 步骤 0：解析 Markdown 资产与封面
@@ -215,50 +212,29 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 
 ---
 
-### 步骤 5：点击「去发布」打开发布设置抽屉
-
-1. 寻找「去发布」按钮（`.cdc-btn--primary`）：
-   `const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('去发布'));`
-2. 视口滚动至按钮可见区域，派发 `mouseover`/`mouseenter` 悬停 300~600ms 后点击：
-   `publishBtn.click();`
-3. 随机停顿 800ms~1400ms，等待 `.editor-publish-drawer` 抽屉展开。
-
----
-
-### 步骤 6：拟真配置文章来源与摘要
-
-在展开的发布抽屉中：
-1. **文章来源**：设置 `sourceType: 1`（原创），派发 DOM 点击并同步 React 状态。
-2. **文章摘要**：聚焦 `.editor-publish-drawer__textarea-main` 填入摘要文本并触发 React `userSummary` 状态同步。
-3. **技术标签与自定义关键词**：不自动填充，留由用户自行按需在发布抽屉中配置。
-4. 随机停顿 400ms~800ms。
-
----
-
-### 步骤 7：注入文章封面并激活 Cropper 绑定
+### 步骤 4：若有封面图，打开发布抽屉上传封面后收起
 
 若存在封面图资产（CDN URL 或本地 Base64）：
-1. 在浏览器端将图片转换为 `File` 对象（`new File([blob], 'cover.png', { type: blob.type })`）；
-2. 获取抽屉内的封面上传输入框 `.img-cover-input` 及其 React Fiber；
-3. 派发文件变更事件 `cInputFiber.memoizedProps.onChange({ target: { files: [file] } })`；
-4. 激活抽屉内的 `react-cropper` 裁剪组件，初始化 `cropperRef.current.cropper`；
-5. 随机停顿 800ms~1500ms。
+1. 寻找「去发布」按钮（`.cdc-btn--primary`）点击展开 `.editor-publish-drawer` 抽屉；
+2. 获取抽屉内的封面上传输入框 `.img-cover-input` 及其 React Fiber，派发 `File` 对象；
+3. 激活并确认裁剪弹窗（点击「确定」或「裁剪并使用」）；
+4. **极简原则**：严禁在抽屉中选择来源、填写摘要或配置标签；
+5. 点击抽屉右上角关闭图标安全收起抽屉。
 
 ---
 
-### 步骤 8：拟真收起抽屉等待原生自动保存
+### 步骤 5：模拟人工视口平滑滚动审阅排版
 
-1. 寻找抽屉的关闭/取消按钮或直接调用抽屉关闭机制（如点击抽屉遮罩或关闭图标）；
-2. 平滑滚动视口回到主编辑器，模拟作者自上而下复核文章正文；
-3. 拟真停顿 2500ms~3500ms，让腾讯云前端防抖定时器触发原生草稿自动同步（无需也不得点击「发布」或主动点击「存草稿」）。
+1. 平滑滚动视口，模拟作者自上而下复核文章正文；
+2. 拟真停顿 2500ms~3500ms，让腾讯云前端防抖定时器触发原生草稿自动同步（无需也不得点击「发布」或主动点击「存草稿」）。
 
 ---
 
-### 步骤 9：捕获自动保存状态并截屏存证
+### 步骤 6：轮询完成断言并截屏存证
 
-1. 检测页面状态文字（如「文章已于 刚刚 保存到草稿」或草稿参数）；
-2. 保持页面完全打开（严禁调用 `close_page`），调用 `take_screenshot` 保存当前页面截图作为存证；
-3. 输出结构化结果报告（文章标题、状态 `ready_auto_saved`、标签、摘要、封面状态等）。
+1. 检测页面状态文字（如「文章已于 刚刚 保存到草稿」或草稿参数 `draftId`）；
+2. 保持页面完全打开（严禁调用 `close_page`），调用 `take_screenshot` 保存当前页面截图作为存证（`publishes/screenshots/tencent_article.png`）；
+3. 输出结构化结果报告（文章标题、状态 `ready_auto_saved`、draftId、封面状态等）。
 
 ---
 

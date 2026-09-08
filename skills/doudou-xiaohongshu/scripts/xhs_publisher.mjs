@@ -108,7 +108,8 @@ export function buildVideoPostBrowserScript(meta) {
     title: ${JSON.stringify(meta.videoTitle || meta.title || '')},
     author: ${JSON.stringify(meta.author || 'undsky')},
     description: ${JSON.stringify(meta.videoDesc || meta.description || '')},
-    tags: ${JSON.stringify(meta.tags || [])}
+    tags: ${JSON.stringify(meta.tags || [])},
+    coverBase64: ${JSON.stringify(meta.coverBase64 || meta.cover?.base64 || meta.videoCover?.base64 || '')}
   };
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
@@ -189,13 +190,71 @@ export function buildVideoPostBrowserScript(meta) {
   }
   await sleep(600);
 
-  // 5. 视口平滑滚动模拟真实阅读检查
+  // 5. 上传视频封面（若提供了封面图）
+  let coverUploaded = false;
+  if (meta.coverBase64) {
+    console.log('[doudou-xiaohongshu] 检测到视频封面图，尝试设置视频封面...');
+    try {
+      const makeFile = (base64Str, name = 'cover.png') => {
+        const raw = atob(base64Str.replace(/^data:[^;]+;base64,/, ''));
+        const arr = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'image/png' });
+        return new File([blob], name, { type: 'image/png' });
+      };
+
+      const coverBtn = Array.from(document.querySelectorAll('button, span, div')).find(el => {
+        const txt = el.innerText?.trim();
+        return (txt === '设置封面' || txt === '修改封面' || txt === '更换封面') && el.offsetWidth > 0;
+      });
+
+      if (coverBtn) {
+        coverBtn.click();
+        await sleep(1000);
+
+        // 切换到「上传封面」Tab
+        const uploadTab = Array.from(document.querySelectorAll('.d-modal div, .d-modal span, .d-modal button, [class*="modal"] span, [class*="tab"] span')).find(el => {
+          const txt = el.innerText?.trim();
+          return txt === '上传封面' || txt === '本地上传';
+        });
+        if (uploadTab) {
+          uploadTab.click();
+          await sleep(600);
+        }
+
+        const coverInput = document.querySelector('.d-modal input[type="file"], [class*="modal"] input[type="file"], input[type="file"][accept*="image"]');
+        if (coverInput) {
+          const file = makeFile(meta.coverBase64, 'video-cover.png');
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          coverInput.files = dt.files;
+          coverInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          await sleep(1500);
+
+          const confirmBtn = Array.from(document.querySelectorAll('.d-modal button, [class*="modal"] button')).find(b => {
+            const txt = b.innerText?.trim();
+            return (txt === '确定' || txt === '完成') && !b.disabled;
+          });
+          if (confirmBtn) {
+            confirmBtn.click();
+            coverUploaded = true;
+            console.log('[doudou-xiaohongshu] 视频封面上传确认成功');
+            await sleep(1000);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[doudou-xiaohongshu] 视频封面上传异常:', e);
+    }
+  }
+
+  // 6. 视口平滑滚动模拟真实阅读检查
   window.scrollTo({ top: 350, behavior: 'smooth' });
   await sleep(500);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(400);
 
-  // 6. 依托平台原生自动保存，平滑停留在当前编辑页供人工复核（严禁点击暂存离开跳出页面，严禁触发发布）
+  // 7. 依托平台原生自动保存，平滑停留在当前编辑页供人工复核（严禁点击暂存离开跳出页面，严禁触发发布）
   console.log('[doudou-xiaohongshu] 依托小红书原生自动保存，等待 2.5 秒并保留编辑页面...');
   await sleep(2500);
 
@@ -205,6 +264,7 @@ export function buildVideoPostBrowserScript(meta) {
     status: 'ready_auto_saved',
     mode: 'video',
     title: cleanTitle,
+    coverUploaded,
     url: location.href,
     timestamp: Date.now()
   };

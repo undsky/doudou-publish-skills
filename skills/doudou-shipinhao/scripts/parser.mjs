@@ -224,20 +224,25 @@ export function parseAllAssets(markdownFilePath) {
     throw new Error(`Markdown 文件不存在: ${markdownFilePath}`);
   }
 
-  const content = fs.readFileSync(markdownFilePath, 'utf-8');
-  const video = resolveVideoAsset(markdownFilePath);
+  const absPath = path.resolve(markdownFilePath);
+  const content = fs.readFileSync(absPath, 'utf-8');
+  const video = resolveVideoAsset(absPath);
   const shortTitle = extractShortTitle(content, '未命名视频', video.manifestTitle);
   // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
   // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
   const tags = inferTags(content, shortTitle, 3);
   const videoDesc = extractVideoDescription(content, shortTitle, tags);
+  const articleDir = path.join(path.dirname(absPath), path.basename(absPath, path.extname(absPath)));
+  const cover = resolveCoverFromManifest(articleDir, { preferBase64: true }) || null;
 
   return {
-    markdownFilePath: path.resolve(markdownFilePath),
+    markdownFilePath: absPath,
     shortTitle,
     videoDesc,
     tags,
-    video
+    video,
+    cover,
+    coverBase64: cover?.base64
   };
 }
 

@@ -66,17 +66,6 @@ export function buildArticleBrowserScript(meta) {
   }
   await sleep(350);
 
-  // 2. 填写文章内容摘要（严格限制 <= 30 字）
-  const cleanSummary = meta.summary.length > 30 ? meta.summary.substring(0, 27) + '...' : meta.summary;
-  const summaryInput = document.querySelector('input[placeholder*="添加内容摘要"]');
-  if (summaryInput) {
-    summaryInput.focus();
-    await sleep(250);
-    setInputValue(summaryInput, cleanSummary);
-    summaryInput.blur();
-  }
-  await sleep(350);
-
   // 3. 注入富文本正文并同步 ProseMirror & TipTap 状态
   const pm = document.querySelector('.tiptap.ProseMirror') || document.querySelector('[contenteditable="true"]');
   if (pm) {
@@ -145,38 +134,13 @@ export function buildArticleBrowserScript(meta) {
       console.warn('[doudou-douyin] 头图上传异常:', e);
     }
   }
-  await sleep(400);
-
-  // 6. 话题标签设置（基于 React Fiber 状态双向同步）
-  try {
-    const topicSelector = document.querySelector('[class*="topicSelector"]');
-    if (topicSelector) {
-      const fiberKey = Object.keys(topicSelector).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-      if (fiberKey) {
-        let curr = topicSelector[fiberKey];
-        while (curr) {
-          if (curr.memoizedProps?.item && typeof curr.memoizedProps?.setItem === 'function') {
-            const setItem = curr.memoizedProps.setItem;
-            const topicList = (meta.tags || []).slice(0, 5).map(t => ({ hashtag_name: t }));
-            setItem(prev => ({ ...prev, long_article_topic: topicList }));
-            break;
-          }
-          curr = curr.return;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[doudou-douyin] 话题标签设置异常:', e);
-  }
-  await sleep(400);
-
-  // 7. 视口平滑滚动模拟真实阅读检查
+  // 4. 视口平滑滚动模拟真实阅读检查
   window.scrollTo({ top: 500, behavior: 'smooth' });
   await sleep(600);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await sleep(400);
 
-  // 8. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
+  // 5. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
   console.log('[doudou-douyin] 文章已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
   await sleep(2500);
 
@@ -185,7 +149,6 @@ export function buildArticleBrowserScript(meta) {
     isReady: true,
     status: 'ready_auto_saved',
     title: cleanTitle,
-    summary: cleanSummary,
     url: location.href,
     timestamp: Date.now()
   };
@@ -330,7 +293,7 @@ export function buildVideoPostEditorScript(meta) {
     title: ${JSON.stringify(meta.videoTitle || meta.articleTitle)},
     author: ${JSON.stringify(meta.author)},
     description: ${JSON.stringify(meta.videoDesc || meta.imagePostDesc)},
-    tags: ${JSON.stringify(meta.tags || [])}
+    coverBase64: ${JSON.stringify(meta.videoCover?.base64 || meta.cover?.base64 || '')}
   };
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
@@ -375,7 +338,7 @@ export function buildVideoPostEditorScript(meta) {
   }
   await sleep(400);
 
-  // 3. 填写作品简介与话题标签（严格限制 <= 1000 字，保留原生分段换行）
+  // 3. 填写作品简介与话题（严格限制 <= 1000 字，保留原生分段换行）
   const cleanDesc = meta.description.length > 1000 ? meta.description.substring(0, 990) + '...' : meta.description;
   const descEl = document.querySelector('.zone-container.editor-kit-container') || document.querySelector('[contenteditable="true"]');
   if (descEl) {
@@ -423,7 +386,60 @@ export function buildVideoPostEditorScript(meta) {
   }
   await sleep(600);
 
-  // 4. 处理横/竖封面弹窗提示（若出现“暂不设置”弹窗，自动点击跳过）
+  // 4. 自定义视频封面上传（若有配置且页面提供入口）
+  let coverUploaded = false;
+  if (meta.coverBase64) {
+    console.log('[doudou-douyin] 检测到视频封面图，尝试设置视频封面...');
+    try {
+      const makeFile = (base64Str, name = 'cover.png') => {
+        const raw = atob(base64Str.replace(/^data:[^;]+;base64,/, ''));
+        const arr = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'image/png' });
+        return new File([blob], name, { type: 'image/png' });
+      };
+
+      const coverBtn = Array.from(document.querySelectorAll('button, span, div')).find(el => {
+        const txt = el.innerText?.trim();
+        return (txt === '选择封面' || txt === '设置封面' || txt === '更换封面') && el.offsetWidth > 0;
+      });
+
+      if (coverBtn) {
+        coverBtn.click();
+        await sleep(1000);
+
+        const uploadTab = Array.from(document.querySelectorAll('.semi-modal div, .semi-modal span, .semi-modal button, [class*="modal"] span')).find(el => el.innerText?.trim() === '上传封面' || el.innerText?.trim() === '本地上传');
+        if (uploadTab) {
+          uploadTab.click();
+          await sleep(600);
+        }
+
+        const coverInput = document.querySelector('.semi-modal input[type="file"], [class*="modal"] input[type="file"], input[type="file"][accept*="image"]');
+        if (coverInput) {
+          const file = makeFile(meta.coverBase64, 'video-cover.png');
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          coverInput.files = dt.files;
+          coverInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(1500);
+
+          const confirmBtn = Array.from(document.querySelectorAll('.semi-modal button, [class*="modal"] button')).find(b => {
+            const txt = b.innerText?.trim();
+            return txt === '确定' || txt === '完成';
+          });
+          if (confirmBtn) {
+            confirmBtn.click();
+            coverUploaded = true;
+            await sleep(1000);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[doudou-douyin] 视频封面上传异常:', e);
+    }
+  }
+
+  // 若出现横封面弹窗提示，自动跳过
   const ignoreHoriCoverBtn = Array.from(document.querySelectorAll('button, span, div')).find(e => e.innerText?.trim() === '暂不设置');
   if (ignoreHoriCoverBtn) {
     ignoreHoriCoverBtn.click();
@@ -445,6 +461,7 @@ export function buildVideoPostEditorScript(meta) {
     isReady: true,
     status: 'ready_auto_saved',
     title: cleanTitle,
+    coverUploaded,
     uploadFinished,
     url: location.href,
     timestamp: Date.now()

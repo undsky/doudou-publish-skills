@@ -237,8 +237,8 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 4. **填充信息**：
    - 填写标题（严格限制 30 字以内）至 `input[placeholder*="填写作品标题"]`。
    - 填写作品简介与话题标签（严格限制 1000 字以内）至 `.zone-container.editor-kit-container`。
-5. **封面智能处理**：
-   - 默认采用平台智能抽帧推荐封面。
+5. **封面上传与设置**：
+   - 检测目标文章封面资产，唤起「选择封面」弹窗并切换至「本地上传」注入封面；若无自定义封面则复用平台原生抽帧推荐。
    - 若出现“设置横封面获更多流量”等弹窗，自动点击「暂不设置」跳过。
 6. **平滑滚动审阅与就绪存证**：
    - 视口平滑滚动后，按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
@@ -272,18 +272,15 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 1. **导航页面与进入发文**：
    - 访问 `https://creator.douyin.com/creator-micro/content/upload?default-tab=5`。
    - 若出现未发布提示点击「我要发文」进入 `post/article` 编辑页面。
-2. **填充基础信息**：
+2. **填写文章标题**：
    - 填写标题至 `input[placeholder*="请输入文章标题"]`（严格限制 30 字以内）。
-   - 填写摘要至 `input[placeholder*="添加内容摘要"]`（严格限制 30 字以内）。
 3. **正文富文本同步**：
    - 聚焦 `div.tiptap.ProseMirror`，执行 `pm.editor.commands.setContent(htmlContent, true)`。
    - 执行 `pm.editor.options.onUpdate({ editor: pm.editor })` 与 `pm.editor.emit('update')`，确保字数统计与 `long_article` 状态完全同步。
 4. **上传头图与封面图**：
    - 点击文章头图（`.addIcon-Whrj6F`），通过 `upload_file` 上传 `>= 500px` 高清 16:9 封面，并在弹窗出现后点击「确定/完成」。
    - 验证头图与封面设置（`.addIcon-WtgoEN`）已自动同步绑定。
-5. **话题标签设置**：
-   - 定位 `.topicSelector-MJsOhh` 的 React Fiber 实例，通过 `setItem(prev => ({ ...prev, long_article_topic: topicList }))` 同步话题。
-6. **平滑滚动审阅与就绪存证**：
+5. **平滑滚动审阅与就绪存证**：
    - 视口平滑滚动后，按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
    - 严格绝不点击「暂存离开」，绝对禁止触碰「发布」；
    - 截取当前文章编辑状态截图保存至 `douyin_article.png`，保留当前编辑页。

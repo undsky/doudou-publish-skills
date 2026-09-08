@@ -334,75 +334,7 @@ export function buildPublishBrowserScript(meta) {
     }
   }
 
-  // 6. 标签与分类配置
-  // 6.1 分类配置
-  try {
-    const catInput = document.querySelector('#articlePublish-category_id input.omui-suggestion__value');
-    const catControl = document.querySelector('#articlePublish-category_id .omui-suggestion__control');
-    if (catInput && catControl) {
-      const currentCat = document.querySelector('#articlePublish-category_id')?.innerText;
-      if (!currentCat || currentCat.includes('请选择分类')) {
-        catControl.click();
-        await sleep(200);
-        const catHandlers = getReactHandler(catInput);
-        if (catHandlers && typeof catHandlers.onChange === 'function') {
-          catHandlers.onChange({
-            target: { value: meta.category },
-            currentTarget: { value: meta.category },
-            persist() {}
-          });
-        }
-        await sleep(300);
-        const opt = Array.from(document.querySelectorAll('.omui-suggestion__option')).find(o => o.innerText?.trim() === meta.category);
-        if (opt) {
-          opt.click();
-          log('✅ 已配置文章分类: ' + meta.category);
-        }
-        await sleep(300);
-      }
-    }
-  } catch (e) {
-    log('分类配置提示: ' + e.message);
-  }
-
-  // 6.2 标签配置
-  if (Array.isArray(meta.tags) && meta.tags.length > 0) {
-    try {
-      const tagInput = document.querySelector('#articlePublish-tag input.omui-suggestion__value');
-      const suggestion = document.querySelector('#articlePublish-tag .omui-suggestion');
-      if (tagInput && suggestion) {
-        const inputHandlers = getReactHandler(tagInput);
-        const suggHandlers = getReactHandler(suggestion);
-        
-        for (const tag of meta.tags.slice(0, 5)) {
-          if (inputHandlers && typeof inputHandlers.onChange === 'function') {
-            inputHandlers.onChange({
-              target: { value: tag },
-              currentTarget: { value: tag },
-              persist() {}
-            });
-            await sleep(150);
-          }
-          if (suggHandlers && typeof suggHandlers.onKeyDown === 'function') {
-            suggHandlers.onKeyDown({
-              key: 'Enter',
-              keyCode: 13,
-              which: 13,
-              preventDefault() {},
-              stopPropagation() {},
-              persist() {}
-            });
-            await sleep(250);
-          }
-        }
-        log('✅ 已注入话题标签: ' + meta.tags.slice(0, 5).join(', '));
-      }
-    } catch (e) {
-      log('标签配置提示: ' + e.message);
-    }
-  }
-
-  // 7. 模拟视口平滑滚动审阅排版并等待企鹅号原生自动保存生效（保留编辑页，绝不点击「存草稿」或「发表」）
+  // 6. 模拟视口平滑滚动审阅排版并等待企鹅号原生自动保存生效（保留编辑页，绝不点击「存草稿」或「发表」）
   log('正在模拟人工视口平滑滚动审阅排版...');
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   await sleep(800);
@@ -424,8 +356,6 @@ export function buildPublishBrowserScript(meta) {
     status: 'ready_auto_saved',
     title: meta.title,
     wordCount: wordCount,
-    category: meta.category,
-    tags: meta.tags,
     coverUploaded: coverUploaded,
     logs
   };

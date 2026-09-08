@@ -259,14 +259,13 @@ export function buildPublishBrowserScript(meta) {
   const urlObj = new URL(currentUrl);
   const articleId = urlObj.searchParams.get('article_id') || '';
 
+  const isDraftSaved = Boolean(articleId || toastMessage.includes('存入草稿') || toastMessage.includes('成功'));
+
   return {
     success: true,
     isReady: true,
     status: 'ready_auto_saved',
     title: meta.title,
-    author: meta.author,
-    summary: meta.summary,
-    tags: meta.tags,
     coverUploaded,
     articleId,
     currentUrl,

@@ -84,7 +84,8 @@ export function buildSaveDraftBrowserScript(meta) {
   const meta = {
     shortTitle: ${JSON.stringify(meta.shortTitle || '')},
     description: ${JSON.stringify(meta.videoDesc || meta.description || '')},
-    tags: ${JSON.stringify(meta.tags || [])}
+    tags: ${JSON.stringify(meta.tags || [])},
+    coverBase64: ${JSON.stringify(meta.coverBase64 || meta.cover?.base64 || meta.videoCover?.base64 || '')}
   };
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
@@ -173,7 +174,66 @@ export function buildSaveDraftBrowserScript(meta) {
   }
   await sleep(500);
 
-  // 4. 视口滚动模拟人工检查
+  // 4. 自定义视频封面上传（若提供了封面图）
+  let coverUploaded = false;
+  if (meta.coverBase64) {
+    console.log('[doudou-shipinhao] 检测到视频封面图，尝试设置视频封面...');
+    try {
+      const makeFile = (base64Str, name = 'cover.png') => {
+        const raw = atob(base64Str.replace(/^data:[^;]+;base64,/, ''));
+        const arr = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'image/png' });
+        return new File([blob], name, { type: 'image/png' });
+      };
+
+      // 寻找更换封面/设置封面按钮或直接寻找图片上传 input
+      let coverInput = doc.querySelector('input[type="file"][accept*="image"]');
+      if (!coverInput) {
+        const coverBtn = Array.from(doc.querySelectorAll('button, span, div, a')).find(el => {
+          const txt = el.innerText?.trim();
+          return (txt === '设置封面' || txt === '更换封面' || txt === '选择封面' || txt === '修改封面') && el.offsetWidth > 0;
+        });
+        if (coverBtn) {
+          coverBtn.click();
+          await sleep(1000);
+          coverInput = doc.querySelector('input[type="file"][accept*="image"]') || document.querySelector('input[type="file"][accept*="image"]');
+        }
+      }
+
+      if (coverInput) {
+        const file = makeFile(meta.coverBase64, 'cover.png');
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        coverInput.files = dt.files;
+        coverInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        await sleep(1500);
+
+        // 如果有确认弹窗/裁剪确定按钮
+        const confirmBtn = Array.from(doc.querySelectorAll('button, .weui-desktop-btn, [class*="dialog"] button')).find(b => {
+          const txt = b.innerText?.trim();
+          return (txt === '确定' || txt === '完成') && !b.disabled;
+        }) || Array.from(document.querySelectorAll('button, [class*="dialog"] button')).find(b => {
+          const txt = b.innerText?.trim();
+          return (txt === '确定' || txt === '完成') && !b.disabled;
+        });
+
+        if (confirmBtn) {
+          confirmBtn.click();
+          coverUploaded = true;
+          console.log('[doudou-shipinhao] 视频封面上传确认成功');
+          await sleep(1000);
+        } else {
+          coverUploaded = true;
+          console.log('[doudou-shipinhao] 视频封面文件已注入');
+        }
+      }
+    } catch (e) {
+      console.warn('[doudou-shipinhao] 视频封面上传异常:', e);
+    }
+  }
+
+  // 5. 视口滚动模拟人工检查
   try {
     const scrollContainer = doc.querySelector('#container-wrap') || doc.documentElement || window;
     if (scrollContainer.scrollTo) {
@@ -184,7 +244,7 @@ export function buildSaveDraftBrowserScript(meta) {
   } catch (e) {}
   await sleep(400);
 
-  // 5. 等待平台就绪与自动保存（严格绝不点击「保存草稿」或「发表」按钮，保留编辑页现场）
+  // 6. 等待平台就绪与自动保存（严格绝不点击「保存草稿」或「发表」按钮，保留编辑页现场）
   console.log('[doudou-shipinhao] 视频作品信息已填入完毕，等待平台原生自动保存与就绪 (保留在编辑页)...');
   await sleep(2500);
 
@@ -193,7 +253,8 @@ export function buildSaveDraftBrowserScript(meta) {
     isReady: true,
     status: 'ready_auto_saved',
     shortTitle: cleanTitle,
-    descLength: meta.description.length
+    descLength: meta.description.length,
+    coverUploaded
   };
 })()`;
 }

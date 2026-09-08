@@ -121,92 +121,25 @@ export function buildBrowserPublishScript(markdownFilePath) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(300, 600);
 
-  // 5. 点击「去发布」打开发布设置抽屉
-  log('模拟点击「去发布」打开发布设置抽屉...');
-  let drawer = document.querySelector('.editor-publish-drawer');
-  if (!drawer) {
-    const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('去发布'));
-    if (publishBtn) {
-      publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-      await randomDelay(300, 600);
-      publishBtn.click();
-    }
-    await randomDelay(800, 1400);
-    drawer = document.querySelector('.editor-publish-drawer');
-  }
-
-  if (!drawer) {
-    log('警告: 未找到展开的发布抽屉，尝试直接在顶栏保存草稿');
-  }
-
-  let drawerFiber = null;
-  if (drawer) {
-    const dFiberKey = Object.keys(drawer).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-    let df = drawer[dFiberKey];
-    while (df && !(df.memoizedProps && df.memoizedProps.onSaveDraftArticle)) {
-      df = df.return;
-    }
-    drawerFiber = df;
-  }
-
-  // 6. 设置文章来源 (原创)（标签与关键词留给用户自行填写）
-  if (drawer) {
-    log('正在配置文章来源 (原创)...');
-    
-    // 模拟点击并选中「原创」单选框 (value 为 1)
-    const originalRadioLabel = Array.from(drawer.querySelectorAll('label.t-radio, .t-radio')).find(l => l.innerText.includes('原创'));
-    if (originalRadioLabel) {
-      originalRadioLabel.click();
-      const input = originalRadioLabel.querySelector('input');
-      if (input) {
-        input.checked = true;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+  // 5. 若有封面图，打开发布设置抽屉仅上传封面并收起
+  let coverLoaded = false;
+  if (data.cover && data.cover.type !== 'none') {
+    log('检测到封面图资产，打开发布设置抽屉上传封面...');
+    let drawer = document.querySelector('.editor-publish-drawer');
+    if (!drawer) {
+      const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('去发布'));
+      if (publishBtn) {
+        publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        await randomDelay(300, 600);
+        publishBtn.click();
       }
+      await randomDelay(800, 1400);
+      drawer = document.querySelector('.editor-publish-drawer');
     }
 
-    if (drawerFiber && drawerFiber.memoizedProps && typeof drawerFiber.memoizedProps.onFieldChange === 'function') {
-      drawerFiber.memoizedProps.onFieldChange('sourceType', 1); // 1 为原创 (2 为转载, 3 为翻译)
-    }
-    await randomDelay(400, 700);
-
-    // 7. 填写文章摘要
-    log('正在填写文章摘要 (字符数: ' + data.summary.length + ')...');
-    const summaryEl = drawer.querySelector('.editor-publish-drawer__textarea-main') || drawer.querySelector('textarea[placeholder*="摘要"]');
-    if (summaryEl) {
-      summaryEl.focus();
-      await randomDelay(200, 400);
-
-      const nativeTextareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-      if (nativeTextareaSetter) {
-        nativeTextareaSetter.call(summaryEl, data.summary);
-      } else {
-        summaryEl.value = data.summary;
-      }
-      if (summaryEl._valueTracker) {
-        summaryEl._valueTracker.setValue('');
-      }
-      summaryEl.dispatchEvent(new Event('input', { bubbles: true }));
-      summaryEl.dispatchEvent(new Event('change', { bubbles: true }));
-
-      // 同步 Fiber
-      const sFiberKey = Object.keys(summaryEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-      const sFiber = summaryEl[sFiberKey];
-      if (sFiber && sFiber.memoizedProps && typeof sFiber.memoizedProps.onChange === 'function') {
-        sFiber.memoizedProps.onChange({ target: { value: data.summary }, currentTarget: { value: data.summary } });
-      }
-      summaryEl.blur();
-    }
-    if (drawerFiber && drawerFiber.memoizedProps && typeof drawerFiber.memoizedProps.onFieldChange === 'function') {
-      drawerFiber.memoizedProps.onFieldChange('userSummary', data.summary);
-    }
-    await randomDelay(400, 800);
-
-    // 8. 封面图注入与 Cropper 初始化
-    let coverLoaded = false;
-    if (data.cover && data.cover.type !== 'none') {
+    if (drawer) {
       log('正在处理文章封面图 (' + (data.cover.type === 'cdn' ? data.cover.url : '本地Base64') + ')...');
       try {
         let file = null;
@@ -244,7 +177,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
         log('封面图加载异常: ' + e.message);
       }
       
-      // 等待封面上传和裁剪器渲染完毕（检测上传中提示消失）
+      // 等待封面上传和裁剪器渲染完毕
       log('等待封面上传与 Cropper 准备就绪...');
       for (let i = 0; i < 15; i++) {
         await delay(500);
@@ -268,18 +201,18 @@ export function buildBrowserPublishScript(markdownFilePath) {
       }
 
       await randomDelay(500, 1000);
+
+      // 安全隔离：收起发布抽屉
+      log('正在收起发布抽屉并保留配置...');
+      const closeDrawerBtn = drawer.querySelector('button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)');
+      if (closeDrawerBtn) {
+        closeDrawerBtn.click();
+        await randomDelay(400, 600);
+      }
     }
   }
 
-    // 9. 安全隔离：收起发布抽屉并等待平台原生自动保存生效（保留编辑页现场，绝不点击「发布」）
-  log('💾 正在收起发布抽屉并保留配置（依托腾讯云原生自动保存，绝不触碰发布）...');
-  const closeDrawerBtn = drawer ? drawer.querySelector('button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)') : null;
-  if (closeDrawerBtn) {
-    closeDrawerBtn.click();
-    await randomDelay(400, 600);
-  }
-
-  // 10. 模拟人工视口平滑滚动排版审阅
+  // 6. 模拟人工视口平滑滚动排版审阅
   window.scrollTo({ top: 300, behavior: 'smooth' });
   await randomDelay(400, 700);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -298,7 +231,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
     draftId,
     url: currentUrl,
     title: data.title,
-    summary: data.summary,
     coverState: data.cover ? '已配置' : '无',
     logs
   };

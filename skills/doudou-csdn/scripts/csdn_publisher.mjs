@@ -10,9 +10,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const articleData = parseArticle(markdownFilePath);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
-    summary: articleData.summary,
-    categoryColumn: articleData.categoryColumn,
-    tags: articleData.tags,
     cover: articleData.cover,
     bodyContent: articleData.bodyContent,
     stem: articleData.stem
@@ -28,7 +25,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  log('🚀 开始执行 CSDN 博客文章草稿箱拟真发布流程...');
+  log('🚀 开始执行 CSDN 博客文章草稿箱拟真发布流程（极简流：正文 + 标题 + 封面）...');
 
   // 1. 检查页面元素与登录状态
   const titleInput = document.querySelector('input.article-bar__title') || document.querySelector('input.article-bar__title--input');
@@ -90,166 +87,77 @@ export function buildBrowserPublishScript(markdownFilePath) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(500, 800);
 
-  // 5. 拟真悬停并点击「发布文章」打开发布设置面板
-  log('⚙️ 正在打开发布设置抽屉面板...');
-  const publishBtn = document.querySelector('.btn-publish');
-  if (!publishBtn) {
-    return {
-      success: false,
-      error: '未能找到顶部「发布文章」按钮',
-      logs
-    };
-  }
-
-  publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-  await randomDelay(300, 500);
-  publishBtn.click();
-  await randomDelay(1000, 1600);
-
-  const modal = document.querySelector('.modal__publish-article');
-  if (!modal) {
-    return {
-      success: false,
-      error: '发布设置面板弹窗未正常弹出',
-      logs
-    };
-  }
-
-  // 6. 拟真配置文章标签 (Mark Selection Vue Component)
-  if (Array.isArray(data.tags) && data.tags.length > 0) {
-    log('🏷️ 正在配置文章标签: ' + data.tags.join(', '));
-    const tagBtn = modal.querySelector('.tag__btn-tag');
-    if (tagBtn) {
-      tagBtn.click();
-      await randomDelay(400, 700);
-    }
-
-    const markSelectionEl = modal.querySelector('.mark_selection');
-    const msVue = markSelectionEl ? markSelectionEl.__vue__ : null;
-
-    if (msVue && typeof msVue.handleSelect === 'function') {
-      for (const tag of data.tags) {
-        try {
-          msVue.handleSelect({ value: tag });
-          await randomDelay(200, 400);
-        } catch (e) {
-          log('添加标签 [' + tag + '] 异常: ' + e.message);
-        }
-      }
-    } else {
-      // 备用：通过 input 模拟回车添加标签
-      const tagInput = modal.querySelector('input[placeholder*="请输入文字搜索"]');
-      if (tagInput) {
-        for (const tag of data.tags) {
-          tagInput.focus();
-          tagInput.value = tag;
-          tagInput.dispatchEvent(new Event('input', { bubbles: true }));
-          tagInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-          tagInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-          await randomDelay(300, 500);
-        }
-      }
-    }
-    await randomDelay(400, 800);
-  }
-
-  // 7. 拟真配置分类专栏
-  if (data.categoryColumn) {
-    log('📁 正在匹配分类专栏: ' + data.categoryColumn);
-    const columnEntry = Array.from(modal.querySelectorAll('.form-entry')).find(e => e.innerText.includes('分类专栏'));
-    if (columnEntry) {
-      const labels = Array.from(columnEntry.querySelectorAll('.el-checkbox, label, span'));
-      const targetLabel = labels.find(l => l.innerText.trim() === data.categoryColumn);
-      if (targetLabel) {
-        const chkInput = targetLabel.querySelector('input[type="checkbox"]') || targetLabel.parentElement?.querySelector('input[type="checkbox"]');
-        if (!chkInput || !chkInput.checked) {
-          targetLabel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          targetLabel.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-          await randomDelay(200, 400);
-          targetLabel.click();
-          log('✅ 已勾选分类专栏: ' + data.categoryColumn);
-        }
-      } else {
-        log('ℹ️ 未找到完全匹配的专栏 [' + data.categoryColumn + ']，保留现有专栏设置');
-      }
-    }
-    await randomDelay(400, 700);
-  }
-
-  // 8. 拟真绑定/上传文章封面
+  // 5. 若有封面，打开发布抽屉仅上传封面图后关闭（严禁配置专栏、标签与摘要）
   let coverSetStatus = 'none';
   if (data.cover && (data.cover.base64 || data.cover.url)) {
-    log('🖼️ 正在设置文章封面...');
-    const allElements = Array.from(modal.querySelectorAll('*'));
-    const coverCompEl = allElements.find(el => el.__vue__?.$options?.name === 'CoverImage');
-    const coverComp = coverCompEl ? coverCompEl.__vue__ : null;
+    log('⚙️ 正在打开发布设置面板上传封面...');
+    const publishBtn = document.querySelector('.btn-publish');
+    if (publishBtn) {
+      publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      await randomDelay(300, 500);
+      publishBtn.click();
+      await randomDelay(1000, 1600);
 
-    if (data.cover.base64) {
-      try {
-        const byteCharacters = atob(data.cover.base64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const mimeType = data.cover.mimeType || 'image/png';
-        const blob = new Blob([byteArray], { type: mimeType });
-        const file = new File([blob], 'cover.png', { type: mimeType });
+      const modal = document.querySelector('.modal__publish-article');
+      if (modal) {
+        log('🖼️ 正在设置文章封面...');
+        const allElements = Array.from(modal.querySelectorAll('*'));
+        const coverCompEl = allElements.find(el => el.__vue__?.$options?.name === 'CoverImage');
+        const coverComp = coverCompEl ? coverCompEl.__vue__ : null;
 
-        const fileInput = modal.querySelector('input[type="file"].el-upload__input');
-        if (fileInput) {
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          fileInput.files = dt.files;
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          coverSetStatus = 'uploaded_local_file';
-          log('✅ 已通过本地文件流上传文章封面');
-        } else if (coverComp) {
+        if (data.cover.base64) {
+          try {
+            const byteCharacters = atob(data.cover.base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const mimeType = data.cover.mimeType || 'image/png';
+            const blob = new Blob([byteArray], { type: mimeType });
+            const file = new File([blob], 'cover.png', { type: mimeType });
+
+            const fileInput = modal.querySelector('input[type="file"].el-upload__input');
+            if (fileInput) {
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              fileInput.files = dt.files;
+              fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+              coverSetStatus = 'uploaded_local_file';
+              log('✅ 已通过本地文件流上传文章封面');
+            } else if (coverComp) {
+              coverComp.currentImg = data.cover.url;
+              coverSetStatus = 'bound_cdn_url';
+              log('✅ 已通过 CoverImage 组件绑定封面 URL');
+            }
+          } catch (e) {
+            log('⚠️ 上传本地封面异常: ' + e.message);
+            if (coverComp && data.cover.url) {
+              coverComp.currentImg = data.cover.url;
+              coverSetStatus = 'bound_cdn_url_fallback';
+            }
+          }
+        } else if (data.cover.url && coverComp) {
           coverComp.currentImg = data.cover.url;
           coverSetStatus = 'bound_cdn_url';
-          log('✅ 已通过 CoverImage 组件绑定封面 URL');
+          log('✅ 已直接绑定封面 CDN URL: ' + data.cover.url);
         }
-      } catch (e) {
-        log('⚠️ 上传本地封面异常: ' + e.message);
-        if (coverComp && data.cover.url) {
-          coverComp.currentImg = data.cover.url;
-          coverSetStatus = 'bound_cdn_url_fallback';
+        await randomDelay(600, 1200);
+
+        // 关闭发布弹窗，绝不点击确定发布
+        log('💾 正在关闭发布设置面板并保留草稿...');
+        const cancelBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
+        const closeBtn = modal.querySelector('.modal__close-button');
+        if (cancelBtn) {
+          cancelBtn.click();
+        } else if (closeBtn) {
+          closeBtn.click();
         }
+        await randomDelay(500, 800);
       }
-    } else if (data.cover.url && coverComp) {
-      coverComp.currentImg = data.cover.url;
-      coverSetStatus = 'bound_cdn_url';
-      log('✅ 已直接绑定封面 CDN URL: ' + data.cover.url);
     }
-    await randomDelay(600, 1200);
-  }
-
-  // 9. 拟真填写文章摘要
-  if (data.summary) {
-    log('📝 正在填写文章摘要 (' + data.summary.length + ' 字)...');
-    const summaryTextarea = modal.querySelector('textarea');
-    if (summaryTextarea) {
-      summaryTextarea.focus();
-      await randomDelay(200, 400);
-      summaryTextarea.value = data.summary;
-      summaryTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-      summaryTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-      await randomDelay(200, 400);
-      summaryTextarea.blur();
-    }
-    await randomDelay(500, 800);
-  }
-
-  // 10. 安全隔离：关闭发布设置面板并等待平台原生自动保存生效（绝不点击「保存为草稿」或「发布」按钮）
-  log('💾 正在关闭发布设置面板并保留配置（依托平台原生自动保存，绝不触碰发布）...');
-  const cancelBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
-  const closeBtn = modal.querySelector('.modal__close-button');
-  if (cancelBtn) {
-    cancelBtn.click();
-  } else if (closeBtn) {
-    closeBtn.click();
   }
 
   await randomDelay(500, 800);

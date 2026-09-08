@@ -10,9 +10,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const articleData = parseArticle(markdownFilePath);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
-    summary: articleData.summary,
-    category: articleData.category,
-    tags: articleData.tags,
     cover: articleData.cover,
     bodyContent: articleData.bodyContent
   });
@@ -27,7 +24,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  log('开始执行掘金文章草稿箱拟真发布流程...');
+  log('开始执行掘金文章草稿箱拟真发布流程（极简流：标题 + 正文 + 封面）...');
 
   // 1. 检查页面与 Vue / CodeMirror 实例
   const editorEl = document.querySelector('.markdown-editor');
@@ -90,76 +87,25 @@ export function buildBrowserPublishScript(markdownFilePath) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(400, 700);
 
-  // 5. 点击顶部「发布」按钮打开发布设置面板
-  log('正在打开发布设置面板...');
-  const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '发布');
-  if (publishBtn) {
-    publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-    await randomDelay(300, 500);
-    publishBtn.click();
-    await randomDelay(800, 1300);
-  }
-
-  const panel = document.querySelector('.publish-popup');
-  const panelVue = panel ? panel.__vue__ : null;
-
-  if (!panel || !panelVue) {
-    log('警告: 未能获取发布面板 Vue 实例，尝试直接在主编辑区触发保存');
-  } else {
-    // 6. 选择文章分类
-    log('正在配置文章分类: ' + data.category);
-    const catItems = Array.from(panel.querySelectorAll('.category-list .item'));
-    const targetCat = catItems.find(it => it.innerText.trim() === data.category) || catItems[0];
-    if (targetCat) {
-      targetCat.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      targetCat.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      await randomDelay(200, 400);
-      targetCat.click();
-    }
-    await randomDelay(500, 800);
-
-    // 7. 搜索并选择技术标签
-    if (Array.isArray(data.tags) && data.tags.length > 0) {
-      log('正在搜索并匹配技术标签: ' + data.tags.join(', '));
-      const tagInputVue = panel.querySelector('.tag-input')?.__vue__;
-      const selectedTagObjects = [];
-
-      for (const tagText of data.tags) {
-        try {
-          if (tagInputVue && typeof tagInputVue.handleSearch === 'function') {
-            await tagInputVue.handleSearch(tagText);
-            await randomDelay(400, 700);
-            if (Array.isArray(tagInputVue.dataList) && tagInputVue.dataList.length > 0) {
-              const matchedTag = tagInputVue.dataList.find(t => t.title?.toLowerCase() === tagText.toLowerCase() || t.alias?.toLowerCase().includes(tagText.toLowerCase())) || tagInputVue.dataList[0];
-              if (matchedTag && !selectedTagObjects.some(s => s.id === matchedTag.id)) {
-                selectedTagObjects.push(matchedTag);
-              }
-            }
-          }
-        } catch (e) {
-          log('搜索标签 [' + tagText + '] 异常: ' + e.message);
-        }
-      }
-
-      if (selectedTagObjects.length > 0) {
-        if (tagInputVue && typeof tagInputVue.handleChange === 'function') {
-          tagInputVue.handleChange(selectedTagObjects);
-        }
-        if (panelVue.handleTagsChange) {
-          panelVue.handleTagsChange(selectedTagObjects);
-        }
-        log('已绑定标签: ' + selectedTagObjects.map(t => t.title).join(', '));
-      }
-      await randomDelay(400, 800);
+  // 5. 若有封面图，打开发布面板仅上传封面图后关闭（严格不配置分类、标签与摘要）
+  let coverUploaded = false;
+  let coverUrl = null;
+  if (data.cover && data.cover.type !== 'none' && (data.cover.base64 || data.cover.url)) {
+    log('正在打开发布面板上传封面图...');
+    const publishBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '发布');
+    if (publishBtn) {
+      publishBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      publishBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      publishBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      await randomDelay(300, 500);
+      publishBtn.click();
+      await randomDelay(800, 1300);
     }
 
-    // 8. 官方通道上传文章封面图
-    let coverUploaded = false;
-    let coverUrl = null;
-    if (data.cover && data.cover.type !== 'none') {
-      log('正在通过掘金官方 TOS 通道上传封面图...');
+    const panel = document.querySelector('.publish-popup');
+    const panelVue = panel ? panel.__vue__ : null;
+
+    if (panel && panelVue) {
       try {
         let file = null;
         if (data.cover.base64) {
@@ -179,7 +125,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
             const ext = mimeType.includes('png') ? 'png' : 'jpg';
             file = new File([blob], 'cover.' + ext, { type: mimeType });
           } catch (fetchErr) {
-            log('拉取网络封面图异常 (可能受CORS限制): ' + fetchErr.message);
+            log('拉取网络封面图异常: ' + fetchErr.message);
           }
         }
 
@@ -188,7 +134,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
         if (file) {
           let tosUrl = null;
-          // 优先调用 editorVue.uploadImages([file]) 直接获取官方 TOS 链接
           if (editorVue && typeof editorVue.uploadImages === 'function') {
             try {
               const uploadRes = await editorVue.uploadImages([file]);
@@ -200,7 +145,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
             }
           }
 
-          // 降级调用 uploaderVue.onFileSelected
           if (!tosUrl && uploaderVue && typeof uploaderVue.onFileSelected === 'function') {
             try {
               uploaderVue.onFileSelected({ target: { files: [file] } });
@@ -219,15 +163,9 @@ export function buildBrowserPublishScript(markdownFilePath) {
           }
 
           if (tosUrl) {
-            if (panelVue.post) {
-              panelVue.post.cover_image = tosUrl;
-            }
-            if (parentVue.draft) {
-              parentVue.draft.cover_image = tosUrl;
-            }
-            if (uploaderVue) {
-              uploaderVue.$emit('changeCover', tosUrl);
-            }
+            if (panelVue.post) panelVue.post.cover_image = tosUrl;
+            if (parentVue.draft) parentVue.draft.cover_image = tosUrl;
+            if (uploaderVue) uploaderVue.$emit('changeCover', tosUrl);
             coverUploaded = true;
             coverUrl = tosUrl;
             log('封面图已成功上传至掘金官方 TOS 并完成绑定: ' + tosUrl);
@@ -236,37 +174,19 @@ export function buildBrowserPublishScript(markdownFilePath) {
       } catch (e) {
         log('封面图处理异常: ' + e.message);
       }
-      await randomDelay(500, 900);
-    }
-
-    // 9. 填写文章摘要
-    if (data.summary) {
-      log('正在填写文章摘要: ' + data.summary);
-      const summaryEl = panel.querySelector('.publish-popup textarea, .panel textarea');
-      if (summaryEl) {
-        summaryEl.focus();
-        await randomDelay(200, 400);
-        summaryEl.value = data.summary;
-        summaryEl.dispatchEvent(new Event('input', { bubbles: true }));
-        summaryEl.dispatchEvent(new Event('change', { bubbles: true }));
-        summaryEl.blur();
-      }
-      if (panelVue.post) {
-        panelVue.post.brief_content = data.summary;
-      }
       await randomDelay(400, 700);
-    }
 
-    // 10. 点击「取消」关闭发布面板（严格仅存为草稿，绝不触发公开发布）
-    log('正在关闭发布设置面板并保留草稿配置...');
-    const cancelBtn = Array.from(panel.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
-    if (cancelBtn) {
-      cancelBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      cancelBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      await randomDelay(200, 400);
-      cancelBtn.click();
+      // 关闭发布面板，绝不点击确定发布
+      log('正在关闭发布设置面板并保留草稿...');
+      const cancelBtn = Array.from(panel.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
+      if (cancelBtn) {
+        cancelBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        cancelBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        await randomDelay(200, 400);
+        cancelBtn.click();
+      }
+      await randomDelay(600, 1000);
     }
-    await randomDelay(600, 1000);
   }
 
   // 11. 模拟人工视口平滑滚动审阅排版

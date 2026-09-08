@@ -130,11 +130,9 @@ flowchart TD
     S0[步骤 0: 解析 Markdown 资产与封面] --> S1[步骤 1: 打开/聚焦发布页并检测登录态]
     S1 --> S2[步骤 2: 拟真人机输入标题并清除校验提示]
     S2 --> S3[步骤 3: 注入 Markdown 并触发 mditor 渲染]
-    S3 --> S4[步骤 4: 模拟自然视口滚动至下方]
-    S4 --> S5[步骤 5: 填写文章摘要并校验原创免责设置]
-    S5 --> S6[步骤 6: 官方通道上传并绑定文章封面]
-    S6 --> S7[步骤 7: 模拟人工视口平滑滚动审阅]
-    S7 --> S8[步骤 8: 轮询完成断言、截屏存证并落盘回执]
+    S3 --> S4[步骤 4: 官方通道上传并绑定文章封面]
+    S4 --> S5[步骤 5: 模拟人工视口平滑滚动审阅]
+    S5 --> S6[步骤 6: 轮询完成断言、截屏存证并落盘回执]
 ```
 
 ### 步骤 0：解析 Markdown 资产与封面
@@ -226,44 +224,7 @@ if (formInstance && formInstance.editor) {
 
 ---
 
-### 步骤 4：模拟自然视口滚动至下方
-
-模拟人类作者自上而下检查排版效果：
-1. 平滑滚动到页面 600px 处，等待 500ms；
-2. 平滑滚动到页面 900px 处（表单底部区域），等待 600ms：
-```javascript
-window.scrollTo({ top: 900, behavior: 'smooth' });
-```
-
----
-
-### 步骤 5：填写文章摘要并校验原创设置
-
-1. 聚焦摘要输入框 `textarea[placeholder*="摘要"]` 并填入摘要：
-```javascript
-const summaryEl = document.querySelector('textarea[placeholder*="摘要"]');
-if (summaryEl) {
-  summaryEl.focus();
-  const nativeTextareaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-  if (nativeTextareaSetter) {
-    nativeTextareaSetter.call(summaryEl, articleSummary);
-  } else {
-    summaryEl.value = articleSummary;
-  }
-  summaryEl.dispatchEvent(new Event('input', { bubbles: true }));
-  summaryEl.dispatchEvent(new Event('change', { bubbles: true }));
-  summaryEl.blur();
-}
-if (formInstance && formInstance.field) {
-  formInstance.field.setValue('abstractContent', articleSummary);
-}
-```
-2. 检查原创设置（默认值通常为 `type: 1` 即原创），确保 `agreeDisclaimer: true`（免责声明勾选）。
-3. 随机停顿 500ms~800ms。
-
----
-
-### 步骤 6：官方通道上传并绑定文章封面
+### 步骤 4：官方通道上传并绑定文章封面
 
 若存在封面图资产：
 
@@ -281,7 +242,7 @@ if (formInstance && formInstance.field) {
 
 ---
 
-### 步骤 7：模拟人工视口平滑滚动审阅
+### 步骤 5：模拟人工视口平滑滚动审阅
 
 1. 模拟人工自上而下审阅已排版的正文与封面：
    - 滚动到底部：`window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });`
@@ -293,7 +254,7 @@ if (formInstance && formInstance.field) {
 
 ---
 
-### 步骤 8：轮询完成断言、截屏存证并落盘回执
+### 步骤 6：轮询完成断言、截屏存证并落盘回执
 
 1. 按「完成断言与回执协议」以 1.5s 间隔轮询完成断言，最长 45s（**严禁以固定等待代替断言**）；
 2. 捕获页面状态（如检查 `instance?.state?.draftTime` 或检测页面是否出现 `保存了草稿`）；

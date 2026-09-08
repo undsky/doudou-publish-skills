@@ -100,28 +100,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   window.scrollTo({ top: 900, behavior: 'smooth' });
   await randomDelay(400, 700);
 
-  // 5. 填写文章摘要
-  log('正在设置文章摘要...');
-  const summaryEl = document.querySelector('textarea[placeholder*="摘要"]');
-  if (summaryEl) {
-    summaryEl.focus();
-    await randomDelay(200, 400);
-    const nativeTextareaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-    if (nativeTextareaSetter) {
-      nativeTextareaSetter.call(summaryEl, data.summary);
-    } else {
-      summaryEl.value = data.summary;
-    }
-    summaryEl.dispatchEvent(new Event('input', { bubbles: true }));
-    summaryEl.dispatchEvent(new Event('change', { bubbles: true }));
-    summaryEl.blur();
-  }
-  if (instance.field) {
-    instance.field.setValue('abstractContent', data.summary);
-  }
-  await randomDelay(500, 800);
-
-  // 6. 检查封面图状态
+  // 5. 检查封面图状态
   const uploadItem = document.querySelector('.upload-item, [class*="upload-item"]');
   const coverUploaded = !!(uploadItem || (instance.state?.fileList && instance.state.fileList.length > 0));
   const coverUrl = instance.state?.fileList?.[0]?.imgURL || (uploadItem ? uploadItem.querySelector('img')?.src : null);
@@ -129,7 +108,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
   return {
     success: true,
     title: data.title,
-    summary: data.summary,
     bodyLength: data.bodyContent.length,
     cover: data.cover,
     coverUploaded,

@@ -255,21 +255,6 @@ export async function buildBrowserPublishScript(markdownFilePath) {
         }
       }
     }
-
-    // 勾选「原创声明」
-    const originItem = formItems.find(item => item.querySelector('.form-item-label')?.innerText?.includes('创作声明') || item.innerText?.includes('创作声明'));
-    if (originItem) {
-      const checkbox = originItem.querySelector('.vui_checkbox');
-      const isChecked = checkbox?.classList.contains('is-checked') || originItem.querySelector('input[type="checkbox"]')?.checked;
-      if (!isChecked) {
-        const boxInput = originItem.querySelector('.vui_checkbox--input-box') || originItem.querySelector('.vui_checkbox') || originItem.querySelector('input[type="checkbox"]');
-        if (boxInput) {
-          boxInput.click();
-          log('已勾选文章原创声明');
-          await randomDelay(300, 500);
-        }
-      }
-    }
   }
 
   // 7. 模拟人工视口平滑滚动检查
@@ -372,18 +357,10 @@ export function buildWaitVideoUploadReadyBrowserScript(maxWaitSeconds = 180) {
 }`;
 }
 
-/**
- * 构建填写视频作品信息并进行防风控检查的浏览器注入脚本
- * @param {object} meta 
- * @returns {string}
- */
 export function buildFillVideoFormBrowserScript(meta) {
-  // 标签一律取解析结果（parser.inferTopics 从文章自身派生），不注入与内容无关的固定标签；
-  // 留空时由 publisher 记录提示，交人工在页面补填。
   const metaJson = JSON.stringify({
     title: meta.videoTitle || meta.title || '',
     description: meta.videoDesc || meta.description || '',
-    tags: Array.isArray(meta.topics) ? meta.topics : [],
     cover: meta.cover || null
   });
 
@@ -399,7 +376,7 @@ export function buildFillVideoFormBrowserScript(meta) {
   const delay = ms => new Promise(r => setTimeout(r, ms));
   const randomDelay = (min, max) => delay(Math.floor(Math.random() * (max - min + 1)) + min);
 
-  log('开始填充 B站视频投稿表单元数据...');
+  log('开始填充 B站视频投稿表单元数据（视频 + 封面 + 标题 + 简介）...');
 
   // 1. 关闭可能的弹窗或新功能引导
   const popups = Array.from(document.querySelectorAll('button, .vui_dialog, .vui_modal, .guide-mask, .dialog-footer button')).filter(el => {
@@ -413,7 +390,8 @@ export function buildFillVideoFormBrowserScript(meta) {
     } catch (e) {}
   }
 
-  // 2. 自定义封面上传与裁切绑定（优先使用同名目录 cover/images 下的封面产物）
+  // 2. 自定义封面上传与裁切绑定
+  let coverUploaded = false;
   if (meta.cover && (meta.cover.base64 || meta.cover.url)) {
     log('检测到自定义封面图配置，准备上传设置封面...');
     const coverTrigger = document.querySelector('.cover-empty-pill, .cover-empty') 
@@ -424,10 +402,11 @@ export function buildFillVideoFormBrowserScript(meta) {
       coverTrigger.click();
       await delay(800);
 
-      // 获取封面 Blob
       let coverBlob = null;
       if (meta.cover.base64) {
-        const byteCharacters = atob(meta.cover.base64);
+        let b64 = meta.cover.base64;
+        if (b64.includes(',')) b64 = b64.split(',')[1];
+        const byteCharacters = atob(b64);
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -445,8 +424,6 @@ export function buildFillVideoFormBrowserScript(meta) {
 
       if (coverBlob) {
         const coverFile = new File([coverBlob], 'cover.png', { type: meta.cover.mimeType || 'image/png' });
-        
-        // 查找封面弹窗中的上传 input[type="file"]
         const imageInputs = Array.from(document.querySelectorAll('input[type="file"]')).filter(i => i.accept && i.accept.includes('image'));
         const targetCoverInput = imageInputs.find(i => i.closest('.cover-upload')) || imageInputs[imageInputs.length - 1];
 
@@ -459,11 +436,11 @@ export function buildFillVideoFormBrowserScript(meta) {
           log('已注入封面文件至弹窗控件，等待裁切预览渲染...');
           await delay(1800);
 
-          // 查找并点击弹窗中的「完成」按钮
           const completeBtn = document.querySelector('.cover-editor-button .button.submit') 
             || Array.from(document.querySelectorAll('div, button, span')).find(el => el.innerText?.trim() === '完成' && (el.className.includes('submit') || el.className.includes('button')));
           if (completeBtn) {
             completeBtn.click();
+            coverUploaded = true;
             log('已点击封面制作「完成」按钮，封面绑定成功！');
             await delay(1200);
           } else {
@@ -473,11 +450,8 @@ export function buildFillVideoFormBrowserScript(meta) {
           log('未找到封面上传 input 控件');
         }
       }
-    } else {
-      log('未找到「添加封面」入口按钮');
     }
   }
-
   await randomDelay(400, 700);
 
   // 3. 拟真输入视频标题（上限 80 字，使用 Vue 3 原生 setter 驱动）
@@ -505,65 +479,7 @@ export function buildFillVideoFormBrowserScript(meta) {
 
   await randomDelay(400, 700);
 
-  // 3. 设置类型为「自制」（原创声明）
-  const typeRadios = Array.from(document.querySelectorAll('.video-type-item, .vui_radio, label.radio, .type-wrp label'));
-  const originalRadio = typeRadios.find(r => r.innerText?.includes('自制') || r.innerText?.includes('原创'));
-  if (originalRadio) {
-    log('点击选择投稿类型为「自制」');
-    originalRadio.click();
-    await randomDelay(400, 600);
-  }
-
-  // 4. 选择分区（若有自动推荐分区标签，点击第一个适宜推荐）
-  const categoryChips = Array.from(document.querySelectorAll('.rec-type-item, .category-chip, .type-item, .f-type-item'));
-  if (categoryChips.length > 0) {
-    const techChip = categoryChips.find(c => c.innerText.includes('科技') || c.innerText.includes('软件') || c.innerText.includes('人工智能') || c.innerText.includes('计算机') || c.innerText.includes('知识')) || categoryChips[0];
-    if (techChip) {
-      log('点击选择推荐分区: ' + techChip.innerText?.trim());
-      techChip.click();
-      await randomDelay(400, 600);
-    }
-  }
-
-  // 5. 填写视频标签（TAG）与推荐标签
-  const tagInput = document.querySelector('.tag-input-wrp input, input[placeholder*="按回车键Enter创建标签"], input[placeholder*="标签"], .tag-wrp input, .tag-input input');
-  if (tagInput && Array.isArray(meta.tags) && meta.tags.length > 0) {
-    log('开始输入视频标签: ' + meta.tags.join(', '));
-    tagInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    for (const tag of meta.tags.slice(0, 5)) {
-      tagInput.focus();
-      try {
-        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        nativeSetter.call(tagInput, tag);
-      } catch (e) {
-        tagInput.value = tag;
-      }
-      tagInput.dispatchEvent(new Event('input', { bubbles: true }));
-      await randomDelay(150, 300);
-      tagInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      tagInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      await randomDelay(300, 500);
-    }
-    tagInput.blur();
-  } else if (tagInput) {
-    log('提示: 未从文章派生出标签，已跳过标签填写（B 站要求至少一个标签，请人工在页面补填）');
-  }
-
-  // 顺带点击推荐标签
-  const recTags = Array.from(document.querySelectorAll('.label-item, .rec-tag, [class*="recommend"] span, [class*="tag-item"]')).filter(el => {
-    const text = el.innerText.trim();
-    return text === 'undsky' || text === '人工智能' || text === '生活记录' || text === '开源先锋计划';
-  }).slice(0, 2);
-  for (const rt of recTags) {
-    try {
-      rt.click();
-      await randomDelay(200, 400);
-    } catch (e) {}
-  }
-
-  await randomDelay(400, 700);
-
-  // 6. 拟真填入视频简介（结构化多行文本，支持 Quill 富文本编辑器与 textarea 回退）
+  // 4. 拟真填入视频简介（结构化多行文本，支持 Quill 富文本编辑器与 textarea 回退）
   const qlContainer = document.querySelector('.ql-container');
   const descArea = document.querySelector('textarea[placeholder*="简介"], .desc-input textarea, textarea.content-desc, textarea[maxlength*="2000"]')
     || Array.from(document.querySelectorAll('textarea')).find(t => t.placeholder?.includes('简介') || t.className.includes('desc'));
@@ -593,14 +509,14 @@ export function buildFillVideoFormBrowserScript(meta) {
 
   await randomDelay(500, 800);
 
-  // 7. 模拟人工视口平滑滚动检查
+  // 5. 模拟人工视口平滑滚动检查
   log('模拟人工视口平滑滚动检查表单填写...');
   window.scrollTo({ top: document.body.scrollHeight / 2, behavior: 'smooth' });
   await randomDelay(400, 600);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   await randomDelay(300, 500);
 
-  // 8. 等待平台就绪与自动保存（严禁触碰「立即投稿」按钮，亦不主动点击存草稿，保留现场）
+  // 6. 等待平台就绪与自动保存（严禁触碰「立即投稿」按钮，亦不主动点击存草稿，保留现场）
   log('【安全红线检查】表单与视频已配置完成，等待平台自动同步就绪 (严格绝不点击「立即投稿」)');
   await delay(2000);
 
@@ -609,11 +525,11 @@ export function buildFillVideoFormBrowserScript(meta) {
     isReady: true,
     status: 'ready_auto_saved',
     title: meta.title,
-    tags: meta.tags,
+    coverUploaded,
     draftUrl: window.location.href,
     logs
   };
-}`;
+};`;
 }
 
 /**

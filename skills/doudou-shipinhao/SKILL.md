@@ -22,6 +22,7 @@ description: "通过 chrome-devtools-mcp 实现微信视频号自动填入视频
 | :--- | :--- | :--- |
 | **源 Markdown 文章** | `path/to/article_name.md` | 原始文章 |
 | **视频成片文件** | `path/to/article_name/video/[video_name].mp4` 或 `[article_name].mp4` | 成品高清视频（优先识别 `video_manifest.json` 登记输出） |
+| **视频封面图** | `path/to/article_name/cover.png` 或 `video_cover.png` | 视频自定义封面图，优先解析本地同名目录下封面 |
 | **视频作品短标题** | `<= 16 字`（严格截断） | 自动清洗 Markdown 符号与非规范标点，超长自动截断为 15 字 + `…`（共 16 字，对齐视频号短标题上限） |
 | **视频作品描述** | `<= 1000 字` | 核心要点梳理，保留多行分段排版（换行 `<p>` 或 `<div>` 分段），严禁单行塌陷 |
 | **标签处理约定** | `tags = inferTags(...)`（上限 3） | 由 `asset_resolver.inferTags` 从标题与正文推断，拼入描述末尾的 `#话题`；旧版固定为空数组导致话题串永远为空 |
@@ -150,7 +151,9 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
 4. **注入短标题与分段描述**：
    - 填入清洗后的短标题（<= 16 字）至短标题输入框并触发数据同步。
    - 填入多行结构化描述（<= 1000 字）至 `.input-editor`，确保每行分段清晰无挤压。
-5. **平滑滚动审阅与就绪存证**：
+5. **上传自定义视频封面**：
+   - 若存在封面资产（`meta.cover` / `meta.coverBase64`），定位「设置封面」/「更换封面」按钮或文件输入框上传封面图片，确认保存。
+6. **平滑滚动审阅与就绪存证**：
    - 视口平滑滚动模拟人工阅读检查；
    - 轮询完成断言直至通过，严格绝不点击「保存草稿」或「发表」按钮；
    - 截图保存至目标文章同名目录：`shipinhao_video.png`，保留当前页面。

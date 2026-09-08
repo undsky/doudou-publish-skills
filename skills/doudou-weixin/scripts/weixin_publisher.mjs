@@ -12,8 +12,6 @@ import { parseAllAssets } from './parser.mjs';
 export function buildArticleBrowserScript(meta) {
   const payload = {
     title: meta.title,
-    author: meta.author || 'undsky',
-    summary: meta.summary,
     htmlContent: meta.articleHtml.htmlContent,
     hasCover: !!(meta.cover && meta.cover.hasCover && meta.cover.base64),
     coverBase64: meta.cover?.base64 || null,
@@ -26,33 +24,9 @@ export function buildArticleBrowserScript(meta) {
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.random() * 200));
 
-  console.log('[doudou-weixin] 开始拟真人机发布文章草稿...');
+  console.log('[doudou-weixin] 开始拟真人机发布文章草稿（极简流：标题 + 正文 + 封面）...');
 
-  // 1. 设置作者
-  const authorInput = document.querySelector('#author');
-  if (authorInput) {
-    authorInput.focus();
-    await sleep(200);
-    authorInput.value = meta.author;
-    authorInput.dispatchEvent(new Event('input', { bubbles: true }));
-    authorInput.dispatchEvent(new Event('change', { bubbles: true }));
-    authorInput.blur();
-  }
-  await sleep(300);
-
-  // 2. 设置摘要（微信公众号限制 120 字以内）
-  const digestInput = document.querySelector('#js_description');
-  if (digestInput) {
-    digestInput.focus();
-    await sleep(200);
-    digestInput.value = meta.summary;
-    digestInput.dispatchEvent(new Event('input', { bubbles: true }));
-    digestInput.dispatchEvent(new Event('change', { bubbles: true }));
-    digestInput.blur();
-  }
-  await sleep(300);
-
-  // 3. 拟真输入标题
+  // 1. 拟真输入标题
   const titleHidden = document.querySelector('#title');
   if (titleHidden) {
     titleHidden.value = meta.title;
@@ -222,7 +196,6 @@ export function buildArticleBrowserScript(meta) {
 export function buildStickerBrowserScript(meta) {
   const payload = {
     title: meta.title.length > 20 ? meta.title.substring(0, 18) + '...' : meta.title,
-    author: meta.author || 'undsky',
     description: meta.stickerDesc,
     stickerCount: meta.stickerImages ? meta.stickerImages.length : 0
   };
@@ -232,7 +205,7 @@ export function buildStickerBrowserScript(meta) {
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.random() * 200));
 
-  console.log('[doudou-weixin] 开始拟真人机设置贴图文案并保存草稿...');
+  console.log('[doudou-weixin] 开始拟真人机设置贴图文案并保存草稿（极简流：卡片 + 标题 + 简介）...');
 
   // 1. 拟真输入贴图标题（选填，20 字以内）
   const titleHidden = document.querySelector('#title');

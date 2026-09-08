@@ -7,7 +7,7 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生
 
 本技能通过 `chrome-devtools-mcp` 控制浏览器，将用户指定的本地 Markdown 文章及其衍生资产发布至**微信公众平台（https://mp.weixin.qq.com ）的草稿箱**。
 
-技能原生支持**「图文文章 (Article)」**与**「图文贴图 (Sticker)」**双模态创作发布，严格遵循**真实人工行为模拟与防风控规约**，通过自然的事件派发、微小随机时延抖动、ProseMirror 原生富文本解析、视口平滑滚动及悬停交互，避免被微信平台风控拦截。自动提取文章标题、作者、摘要、排版 HTML 正文、宽屏封面图以及小红书/微信图文卡片集。
+技能原生支持**「图文文章 (Article)」**与**「图文贴图 (Sticker)」**双模态创作发布。**效率深度优化铁律**：流程全面固化，严格杜绝多余思考。文章模态**只需要**填写标题、文章正文、上传封面图（坚决不填作者、不填摘要）；贴图模态**只需要**填写标题、简介描述、上传卡片图片。严格遵循真实人机行为防风控与微信原生自动保存机制。
 
 ---
 
@@ -209,21 +209,21 @@ flowchart TD
     S0[步骤 0: 解析 Markdown 衍生资产与封面/排版] --> S1[步骤 1: 打开微信公众平台并进入草稿箱]
     S1 --> S2[步骤 2: 点击「新的创作」下拉菜单]
 
-    subgraph 模态一: 图文文章草稿
+    subgraph 模态一: 图文文章草稿（极简三步）
         S2 --> A1[点击「文章」打开图文编辑器页面]
-        A1 --> A2[拟真人机输入标题、作者与摘要]
-        A2 --> A3[聚焦正文 ProseMirror 注入 gzh-design 纯排版 HTML]
-        A3 --> A4[打开图片库上传 2.35:1 缩略主封面并裁切确认]
-        A4 --> A5[平滑视口滚动模拟视觉排版审查]
+        A1 --> A2[拟真人机输入文章标题]
+        A2 --> A3[聚焦正文 ProseMirror 注入纯排版 HTML]
+        A3 --> A4[打开图片库上传 2.35:1 封面并裁切确认]
+        A4 --> A5[平滑视口滚动模拟排版审查]
         A5 --> A6[等待微信原生自动防抖保存就绪]
         A6 --> A7[验证状态并截屏存证]
     end
 
-    subgraph 模态二: 小绿书贴图草稿
+    subgraph 模态二: 小绿书贴图草稿（极简三步）
         S2 --> B1[点击「贴图」打开贴图编辑器页面 createType=8]
         B1 --> B2[批量上传 xhs_images 卡片图片集]
         B2 --> B3[拟真人机输入贴图标题 20字以内]
-        B3 --> B4[拟真输入卡片描述正文与 #话题标签]
+        B3 --> B4[拟真输入卡片描述简介正文]
         B4 --> B5[平滑视口滚动检查卡片轮播]
         B5 --> B6[等待微信原生自动防抖保存就绪]
         B6 --> B7[验证状态并截屏存证]
@@ -280,10 +280,10 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 2. 浏览器将自动新开图文编辑器页面（URL 包含 `appmsg_edit_v2` 或 `type=10`）；
 3. 调用 `list_pages` 与 `select_page` 聚焦到文章编辑器页面；
 4. 调用 `evaluate_script` 执行 `buildArticleBrowserScript(meta)`：
-   - 拟真输入作者 `#author` 与摘要 `#js_description`；
    - 拟真输入标题 ProseMirror 并同步 `#title`；
-   - 聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入 `gzh-design` 排版 HTML（`insertHTML` 保底）；
+   - 聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入纯排版 HTML（`insertHTML` 保底）；
    - 若存在封面图，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
+   - **严禁填写作者或摘要**，减少一切多余操作；
    - 模拟平滑向下滚动 380px 审查排版后滚回顶部；
    - 依托微信原生自动防抖存草稿机制，轮询完成断言（1.5s 间隔，最长 45s）直至通过；
    - 捕获 `appmsgid` 与页面就绪状态；

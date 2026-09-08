@@ -197,94 +197,8 @@ export function buildBrowserPublishScript(markdownFilePath) {
     await randomDelay(600, 1000);
   }
 
-  // 6. 打开发布设置抽屉
-  log('正在打开「发布设置」抽屉...');
-  let drawerOpened = false;
-  try {
-    const publishSettingBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === '发布设置');
-    if (publishSettingBtn) {
-      publishSettingBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      publishSettingBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      publishSettingBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-      await randomDelay(200, 400);
-      publishSettingBtn.click();
-      drawerOpened = true;
-      await randomDelay(800, 1400);
-    }
-  } catch (e) {
-    log('打开发布设置异常: ' + e.message);
-  }
 
-  // 7. 拟真搜索并添加知乎话题
-  const addedTopics = [];
-  if (Array.isArray(data.topics) && data.topics.length > 0) {
-    log('正在搜索并匹配知乎话题: ' + data.topics.join(', '));
-    for (const topicName of data.topics) {
-      try {
-        // 查找“添加话题”按钮
-        const addTopicBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim().includes('添加话题'));
-        if (addTopicBtn) {
-          addTopicBtn.click();
-          await randomDelay(300, 600);
-        }
-
-        const topicInput = document.querySelector('input[placeholder*="搜索话题"], input[aria-label="搜索话题"]');
-        if (topicInput) {
-          topicInput.focus();
-          await randomDelay(200, 400);
-
-          const keys = Object.keys(topicInput);
-          const reactPropKey = keys.find(k => k.startsWith('__reactProps'));
-          const props = reactPropKey ? topicInput[reactPropKey] : null;
-
-          if (props && typeof props.onChange === 'function') {
-            props.onChange({ target: { value: topicName }, currentTarget: { value: topicName } });
-          } else {
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            nativeInputValueSetter.call(topicInput, topicName);
-            topicInput.dispatchEvent(new Event('input', { bubbles: true }));
-            topicInput.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-
-          // 等待下拉候选列表呈现
-          await randomDelay(800, 1400);
-
-          // 寻找匹配的话题按钮
-          const suggestionBtns = Array.from(document.querySelectorAll('button.css-gfrh4c, [class*="Suggest"] button, [class*="AutoComplete"] button'));
-          const matchedBtn = suggestionBtns.find(b => (b.innerText || '').trim().toLowerCase() === topicName.toLowerCase())
-            || suggestionBtns.find(b => (b.innerText || '').trim().includes(topicName))
-            || suggestionBtns[0];
-
-          if (matchedBtn) {
-            const chosenText = (matchedBtn.innerText || '').trim();
-            matchedBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            matchedBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-            await randomDelay(200, 400);
-            matchedBtn.click();
-            addedTopics.push(chosenText);
-            log('已绑定话题: ' + chosenText);
-            await randomDelay(400, 800);
-          }
-        }
-      } catch (e) {
-        log('添加话题 [' + topicName + '] 异常: ' + e.message);
-      }
-    }
-  }
-
-  // 8. 安全隔离收起抽屉（知乎为实时自动保存草稿机制，严格绝不点击最终“发布”按钮）
-  log('正在收起发布设置抽屉并保留草稿配置...');
-  try {
-    const publishSettingBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === '发布设置');
-    if (publishSettingBtn) {
-      publishSettingBtn.click();
-    }
-    await randomDelay(500, 800);
-  } catch (e) {
-    // 忽略
-  }
-
-  // 9. 等待草稿自动同步并校验状态
+  // 6. 等待草稿自动同步并校验状态
   log('等待知乎草稿箱自动同步完成...');
   await delay(3000);
 
@@ -300,9 +214,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     isReady: true,
     status: 'ready_auto_saved',
     title: data.title,
-    topics: addedTopics.length > 0 ? addedTopics : data.topics,
     coverUploaded,
-    summary: data.summary,
     currentUrl: window.location.href,
     statusTexts: uniqueStatus,
     logs
