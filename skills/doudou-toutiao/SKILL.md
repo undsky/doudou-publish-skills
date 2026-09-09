@@ -1,117 +1,70 @@
 ---
 name: doudou-toutiao
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联视频（video/*.mp4）自动发布到今日头条/头条号创作者平台草稿箱（文章：https://mp.toutiao.com/profile_v4/graphic/publish ，视频：https://mp.toutiao.com/profile_v4/xigua/upload-video ）。用户未明确指定模态时默认发布全部可用模态（视频 + 长文图文），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。严格遵循真实人工行为模拟与防风控规约（微随机时延抖动、全链路 DOM 事件派发、ProseMirror/Sylph 富文本双向同步、视口平滑滚动排版审阅、异步上传转码就绪等待、抽屉式封面真实上传与弹窗确认），智能解析同名资产目录与 CDN 映射表，支持草稿保存状态验证与存证。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及关联视频（video/*.mp4）自动发布到今日头条/头条号创作者平台草稿箱（文章：https://mp.toutiao.com/profile_v4/graphic/publish ，视频：https://mp.toutiao.com/profile_v4/xigua/upload-video ）。默认发布全部可用模态（视频 + 长文图文），严格遵循真实人机行为模拟、ProseMirror/Sylph 富文本双向同步、单图封面强制锁定、视频异步上传就绪等待与草稿存证规约。
 ---
 
-# 头条号自动化发布草稿技能规范 (doudou-toutiao)
+# 今日头条/头条号自动化发布草稿技能 (doudou-toutiao)
 
-本技能通过 `chrome-devtools-mcp` 控制浏览器，实现今日头条/头条号创作者平台（https://mp.toutiao.com ）的**长文图文文章**与**视频**双模态自动化发布全流程。
+本技能通过 `chrome-devtools-mcp` 控制浏览器，实现今日头条/头条号创作者平台（https://mp.toutiao.com ）的**视频投稿**与**长文图文**双模态自动化发布全流程。
 
----
-
-## 📌 核心发布入口
-
-- **发布文章入口**：`https://mp.toutiao.com/profile_v4/graphic/publish`
-- **发布视频入口**：`https://mp.toutiao.com/profile_v4/xigua/upload-video`
-- **草稿箱管理入口**：`https://mp.toutiao.com/profile_v4/manage/draft`
-- **西瓜内容管理入口**：`https://mp.toutiao.com/profile_v4/xigua/content-manage-v2`
+技能严格遵循**真实人工行为模拟与防风控规约**，视频优先上传并留存就绪态，长文草稿自动保存，双模态执行完成后原样保留页面现场供人工最终核验。
 
 ---
 
-## 🎯 模态选择规约（默认全模态发布）
+## 核心规约与防风控原则
 
-头条号同时支持**视频 / 长文图文**两种模态。模态的取舍**不允许由 Agent 自行揣测或随意挑一个执行**，必须严格遵循以下判定链：
-
-1. **用户未明确指定模态 => 默认发布全部可用模态**。
-   - 「把这篇发头条」「发布到头条号草稿箱」「发一下 xxx.md」等未点名模态的指令，一律理解为**视频 + 长文图文全发**，而非只发文章。
-   - **严禁**以「资产多、耗时长、担心风控」等理由自行缩减模态；也**严禁**中途反问用户「要发文章还是视频」——默认答案就是两种都发。
-2. **用户明确指定模态 => 严格只发指定的那些**。
-   - 如「只发文章」「仅发视频」，则严格按指定集合执行，不得擅自追加其他模态。
-3. **模态所需资产缺失 => 自动跳过该模态，其余照常发布**。
-   - 缺失不是失败：跳过并在最终报告里明确登记原因，**绝不因为某一模态缺资产而中断整个任务**。
-   - 若用户显式点名的模态恰好缺资产，同样跳过，并在报告中提示需要补齐的资产路径。
-
-### 模态可用性判定表
-
-| 模态 | 必需资产 | 缺失时的处置 |
-| :--- | :--- | :--- |
-| **视频（video）** | `video/*.mp4` 成片（`meta.video.hasVideo === true`） | 跳过视频模态，登记「未找到 video/*.mp4 视频成片」 |
-| **长文图文（article）** | 排版正文 HTML（`meta.articleHtml.htmlContent` 非空） | 跳过文章模态，登记「未解析出可用排版正文 HTML」 |
-
-> 两个模态的终点态不同，必须分别遵守：图文模态等待「草稿已保存」；视频模态**仅停在就绪态截屏存证，绝不点击发布**（详见防风控规约第 1 条）。
-
-### 确定性模态计划（由解析器给出，禁止手工推断）
-
-`parseAllAssets()` 已内置模态编排，直接读取 `meta.publishPlan`，**不要自行拼凑模态列表**：
-
-```javascript
-import { parseAllAssets } from "./scripts/parser.mjs";
-
-// requestedModes 留空 / null => 默认全模态；传入 "视频" 或 ["article"] => 只发指定模态
-const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
-
-meta.publishPlan;
-// {
-//   requested: [],                      // 归一化后的用户指定模态（空数组 = 用户未指定）
-//   userSpecified: false,               // false => 走默认全发
-//   modes: ["video", "article"],        // 本次实际要执行的模态（已按推荐顺序排序）
-//   skipped: [{ mode, label, reason }], // 被跳过的模态及原因
-//   summary: "用户未指定模态 => 默认发布全部可用模态｜将发布：视频 + 长文图文"
-// }
-```
-
-命令行同样可校验计划（第三个参数留空即默认全模态）：
-
-```bash
-node scripts/parser.mjs <Markdown文件绝对路径>          # 默认全模态
-node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模态
-```
-
-### 多模态串行执行规约
-
-- **执行顺序**：`video` → `article`（视频上传与转码最慢，优先启动；长文随后执行）。
-- **状态隔离**：每个模态**必须重新导航到自己的发布入口**，严禁复用上一模态的编辑器页面或残留内容。
-- **失败隔离**：单个模态失败（上传超时、验证码拦截、选择器失效等）**只标记该模态失败并继续下一个模态**，不得终止剩余模态。
-- **页面保留**：所有模态执行完毕后，**全部页面一律原样保留**（详见防风控规约第 3 条）——视频模态尤其关键，页面即创作者人工确认发布的唯一入口。
-- **统一汇总报告**：任务结束时输出逐模态结果表，含状态、标题、存证截图路径与跳过原因：
-
-  | 模态 | 状态 | 标题 | 存证截图 / 原因 |
-  | :--- | :--- | :--- | :--- |
-  | 视频 | ✅ 表单就绪待人工发布 | ... | `toutiao_video.png` |
-  | 长文图文 | ✅ 草稿已保存 | ... | `toutiao_article.png` |
+1. **发布入口**：
+   - 长文图文：`https://mp.toutiao.com/profile_v4/graphic/publish`
+   - 视频投稿：`https://mp.toutiao.com/profile_v4/xigua/upload-video`
+   - 草稿箱管理：`https://mp.toutiao.com/profile_v4/manage/draft`
+2. **模态判定与串行执行原则**：
+   - **默认全模态**：用户未明确指定模态时，默认发布全部可用模态（`video` + `article`）。执行顺序恒为 `video` → `article`。
+   - **显式指定**：用户明确指定（如「只发视频」或「只发文章」）时，仅执行指定模态。
+   - **资产缺失处理**：若缺少对应资产（如无 `video/*.mp4` 则跳过视频，无排版 HTML 则跳过文章），自动跳过并在回执中登记原因，继续执行其他可用模态。
+3. **草稿安全隔离（绝对底线）**：
+   - **长文图文**：等待页面自动提示「草稿已保存」，严禁点击「预览并发布」或「定时发布」。
+   - **视频投稿**：表单配置完成后点击「存草稿」暂存，保持就绪状态并截屏存证，**绝对严禁点击最终「发布」确认按钮**。
+4. **完成判定必须客观可断言**：
+   - 必须以客观断言求值为 `true` 判定完成，严禁以固定延时代替完成。超时则标记 `timeout` 并保留页面，严禁误报 `success`。
+5. **收尾必须落盘回执**：
+   - 执行完毕必须调用 `scripts/receipt.mjs write` 写入回执，供上层调度读取。
+6. **防风控与真实人机行为模拟**：
+   - **随机时延抖动**：输入前等待 200~500ms、步骤间 400~1000ms、悬停 200~400ms。
+   - **完整事件派发**：表单输入依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并使用 React 原生 Property Setter 同步状态。
+   - **视口平滑滚动**：模拟人类自上而下分步平滑滚动页面，触发视口可见性与排版渲染。
+7. **发布完成后保留页面（严禁自动关闭）**：
+   - 每次执行必须调用 `new_page` 新建独立标签页（严禁复用已有页面）；流程完成后严禁调用 `close_page`，原样保留页面供人工核验。
 
 ---
 
 ## 完成断言与回执协议 (Completion Assertion & Receipt)
 
-> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
-
 ### 完成断言
-
-**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
 
 | 项 | 值 |
 | :--- | :--- |
 | **断言规则** | 页面出现「已保存」/「草稿已保存」状态文字 |
 | **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
 | **通过** | 登记 `success` |
-| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+| **超时** | 登记 `timeout`（保留页面，严禁登记为 success） |
 
 ```javascript
-// 在 evaluate_script 中求值，返回结构化断言结果
+// 在 evaluate_script 中求值
 () => {
-  const t = document.body.innerText;
-  const saved = /草稿已保存|已保存|保存成功/.test(t);
-  return { passed: saved, savedTip: saved, draftUrl: location.href };
+  const footerEl = document.querySelector('.publish-footer');
+  const footerText = footerEl ? footerEl.innerText : '';
+  const bodyText = document.body ? document.body.innerText : '';
+  const saved = /草稿已保存|已保存|保存成功/.test(footerText) || /草稿已保存|已保存|保存成功/.test(bodyText);
+  return { passed: saved, footerText: footerText.replace(/\n/g, ' | '), draftUrl: location.href };
 };
 ```
 
-### 状态枚举（六个终态，仅此六种可写入回执）
+### 状态枚举（六个终态）
 
 | 状态 | 含义 |
 | :--- | :--- |
 | `success` | 草稿已保存且完成断言通过 |
-| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（今日头条不适用） |
+| `ready_for_review` | 内容已填入就绪（视频模态适用） |
 | `needs_login` | 登录态缺失/过期，已保留页面待补登 |
 | `failed` | 明确失败（选择器失效、注入异常） |
 | `timeout` | 完成断言在 45s 窗口内未成立 |
@@ -119,31 +72,38 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 
 ### 存证截图统一命名
 
-必须存至 publishes/screenshots/toutiao_article.png、publishes/screenshots/toutiao_video.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+统一存至同名文章目录下的 `publishes/screenshots/` 目录：
+- 长文图文：`publishes/screenshots/toutiao_article.png`
+- 视频投稿：`publishes/screenshots/toutiao_video.png`
 
-### 临时脚本与中间文件存放规约（严禁污染工作区根目录）
+### 临时脚本与中间文件存放规约
 
-- **统一落盘位置**：自动化发文执行过程中，凡需生成的任何临时注入脚本（如浏览器富文本注入 `.mjs` / `.js`）、临时数据载荷（如 `--payload-file <json>`）、调试脚本或中间辅助文件，**严禁放置在当前工作区根目录、项目根目录或技能目录中**！
-- **强制同名资产目录**：所有临时文件**必须统一放置在目标 Markdown 文章对应的同名资产目录下**（即去除 `.md` 后缀的同名资产目录），文件名建议统一以 `scratch_` 为前缀。
-- **可追溯与可清理**：执行完毕且回执落盘后，临时中间文件安全留存于同名资产目录供事后复核排查，或由清理指令统一清空，彻底避免根目录污染。
+所有临时注入脚本、临时 payload 等文件必须统一放置在目标 Markdown 文章对应的同名资产目录下，严禁污染工作区或项目根目录。
 
-### 回执落盘（收尾必调，异常也要写）
+### 回执落盘
 
 ```bash
 node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
 ```
 
-> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
-
-`--payload` 结构（`results` 为逐模态数组，本技能含 `article` / `video`）：
+`--payload` 结构示例：
 
 ```json
 {
   "skill": "doudou-toutiao",
   "platform": "今日头条",
   "platformSlug": "toutiao",
-  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "startedAt": "2026-09-09T08:00:00.000Z",
   "results": [
+    {
+      "mode": "video",
+      "modeDesc": "视频",
+      "status": "ready_for_review",
+      "statusText": "表单就绪待人工发布",
+      "title": "……",
+      "screenshot": "screenshots/toutiao_video.png",
+      "assertion": { "rule": "视频上传完成且表单就绪", "passed": true }
+    },
     {
       "mode": "article",
       "modeDesc": "长文图文",
@@ -152,117 +112,344 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
       "title": "……",
       "screenshot": "screenshots/toutiao_article.png",
       "assertion": { "rule": "页面出现「已保存」/「草稿已保存」状态文字", "passed": true }
-    },
-    {
-      "mode": "video",
-      "modeDesc": "视频",
-      "status": "success",
-      "statusText": "草稿已保存",
-      "title": "……",
-      "screenshot": "screenshots/toutiao_video.png",
-      "assertion": { "rule": "页面出现「已保存」/「草稿已保存」状态文字", "passed": true }
     }
   ]
 }
 ```
 
-脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
+---
+
+## 自动化执行全流程
+
+当接收到用户指定的 Markdown 文件路径时，依次执行以下阶段（默认按 `video` → `article` 顺序串行执行）：
+
+```mermaid
+flowchart TD
+    S0[步骤 0: 解析 Markdown 资产、标题与模态计划] --> MP{按计划串行执行}
+    
+    MP -->|模态 1: video| V1[步骤 V1: 打开视频发布页并暴露上传控件]
+    V1 --> V2[步骤 V2: 派发真实 MP4 视频文件上传]
+    V2 --> V3[步骤 V3: 异步轮询等待视频上传与转码就绪]
+    V3 --> V4[步骤 V4: 拟真填入视频标题与多行简介]
+    V4 --> V5[步骤 V5: 本地上传并绑定视频封面]
+    V5 --> V6[步骤 V6: 模拟视口滚动并点击「存草稿」]
+    V6 --> V7[步骤 V7: 截取就绪状态存证 toutiao_video.png]
+    
+    MP -->|模态 2: article| A1[步骤 A1: 打开长文发文页并检测登录态]
+    A1 --> A2[步骤 A2: 拟真人机输入文章标题]
+    A2 --> A3[步骤 A3: 注入 ProseMirror 富文本正文]
+    A3 --> A4[步骤 A4: 锁定单图模式并上传文章封面]
+    A4 --> A5[步骤 A5: 模拟视口滚动并等待草稿云端保存]
+    A5 --> A6[步骤 A6: 截取草稿存证 toutiao_article.png]
+    
+    V7 --> R0[步骤 7: 收尾落盘统一回执]
+    A6 --> R0
+```
+
+### 步骤 0：解析 Markdown 资产、标题字数与模态计划
+
+运行辅助解析脚本提取元数据：
+
+```bash
+node scripts/parser.mjs <Markdown文件绝对路径> [模态] [--title "自定义新标题"]
+```
+
+输出包含：
+- `publishPlan`: 模态执行计划（`modes`: `['video', 'article']`，`skipped` 被跳过模态及原因）
+- `articleTitle`: 清洗后的文章标题；`titleWords`: 平台计算字数
+- `articleSummary`: 纯文本摘要
+- `articleHtml`: 替换 CDN 后的语义化排版 HTML
+- `cover`: 封面信息（Base64 / 文件名）
+- `video`: 视频信息（成片路径 `videoPath`、标题 `videoTitle`、简介 `videoDesc`）
+
+> **标题字数规约**：平台全角汉字/符号=1字，半角英文/数字/标点=0.5字，上限 30 字。若 `titleWords > 30`，需结合文章主旨提炼不超过 30 字的精炼新标题，并通过 `--title "新标题"` 重新解析注入。
 
 ---
 
-## 🎨 资产规范与路径映射
+### 模式 A：发布视频草稿（video 模态，优先执行）
 
-| 资产类型 | 规范路径 / 规则 | 说明 |
+#### 步骤 V1：打开视频发布页并暴露上传控件
+
+1. **新建独立页面**：调用 `new_page` 打开 `https://mp.toutiao.com/profile_v4/xigua/upload-video`。
+2. 等待页面加载完成。
+3. 执行脚本将隐藏的 `input[type="file"]` 暴露给 accessibility tree：
+
+```javascript
+const fileInput = document.querySelector('input[type="file"]');
+if (fileInput) {
+  fileInput.id = 'doudou-toutiao-video-input';
+  fileInput.style.display = 'inline-block';
+  fileInput.style.position = 'fixed';
+  fileInput.style.top = '10px';
+  fileInput.style.right = '10px';
+  fileInput.style.zIndex = '999999';
+  fileInput.style.width = '120px';
+  fileInput.style.height = '36px';
+  fileInput.style.opacity = '0.05';
+}
+```
+
+---
+
+#### 步骤 V2：派发真实 MP4 视频文件上传
+
+调用 `upload_file` 将本地 `.mp4` 视频文件派发至上传控件：
+
+```javascript
+await upload_file({
+  pageId: targetPageId,
+  uid: fileInputUid,
+  filePaths: [meta.video.videoPath]
+});
+```
+
+---
+
+#### 步骤 V3：异步轮询等待视频上传与转码就绪
+
+异步轮询页面状态（间隔 2 秒，最长 120 秒），直到出现「上传成功」或「重新上传」且无「上传中」：
+
+```javascript
+// 在 evaluate_script 中轮询检测
+() => {
+  const text = document.body ? document.body.innerText : '';
+  const hasSuccess = text.includes('上传成功') || text.includes('重新上传');
+  const isUploading = text.includes('上传中') || text.includes('已上传:');
+  return { ready: hasSuccess && !isUploading };
+};
+```
+
+---
+
+#### 步骤 V4：拟真输入视频标题与多行简介
+
+使用 React 原生 property setter 写入视频标题与简介，并派发原生事件：
+
+```javascript
+// 1. 输入视频标题（<=30字）
+const titleInput = document.querySelector('input.xigua-input, input[placeholder*="0～30"], input[placeholder*="1～30"]');
+if (titleInput && meta.videoTitle) {
+  titleInput.focus();
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  if (setter) setter.call(titleInput, meta.videoTitle);
+  else titleInput.value = meta.videoTitle;
+  titleInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  titleInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  titleInput.blur();
+}
+
+// 2. 填写多行视频简介
+const descArea = document.querySelector('textarea.abstract, textarea[placeholder*="视频简介"], .byte-textarea.abstract');
+if (descArea && meta.videoDesc) {
+  descArea.focus();
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+  if (setter) setter.call(descArea, meta.videoDesc);
+  else descArea.value = meta.videoDesc;
+  descArea.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  descArea.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  descArea.blur();
+}
+```
+
+---
+
+#### 步骤 V5：本地上传并绑定视频封面
+
+若存在封面图资产（`meta.cover.base64` 或 `meta.videoCover.base64`）：
+
+1. 点击封面设置触发器 `.fake-upload-trigger`；
+2. 在弹出的 `.m-xigua-dialog` 中切换至「本地上传」Tab；
+3. 将图片转换为 `File` 对象并设置到文件上传 input，派发 `change` 事件；
+4. 等待封面编辑画布呈现，依次点击第一道「确定」按钮与二次确认弹窗；
+5. 验证 `.xigua-poster-editor` 已成功挂载封面图。
+
+---
+
+#### 步骤 V6：模拟视口滚动并点击「存草稿」
+
+1. 平滑滚动视口模拟人工审查：
+
+```javascript
+window.scrollBy({ top: 150, behavior: 'smooth' });
+// 延时后
+window.scrollTo({ top: 0, behavior: 'smooth' });
+```
+
+2. 查找并点击「存草稿」按钮暂存：
+
+```javascript
+const draftBtn = Array.from(document.querySelectorAll('button, .byte-btn')).find(b => (b.innerText || '').trim() === '存草稿' && b.offsetWidth > 0);
+if (draftBtn) draftBtn.click();
+```
+
+---
+
+#### 步骤 V7：截取就绪状态存证并保留页面
+
+1. 检查发布按钮可见性，确认表单已处于就绪态。
+2. **严禁点击最终「发布」按钮**，内容保留在当前页面供人工最终审阅。
+3. 调用 `take_screenshot` 保存截图至 `publishes/screenshots/toutiao_video.png`。
+4. 原样保留当前标签页，严禁关闭。
+
+---
+
+### 模式 B：发布长文图文草稿（article 模态）
+
+#### 步骤 A1：打开长文发文页并检测登录态
+
+1. **新建独立页面**：调用 `new_page` 打开 `https://mp.toutiao.com/profile_v4/graphic/publish`。
+2. 等待页面加载完成。
+3. 检测登录态：
+   - 检查是否存在标题输入框 `textarea, input[placeholder*="请输入文章标题"]` 及正文编辑区 `.ProseMirror`；
+   - 若未登录，向用户发送提示，等待扫码登录完成后继续。
+
+---
+
+#### 步骤 A2：拟真人机输入文章标题
+
+1. 聚焦标题输入框 `textarea, input[placeholder*="请输入文章标题"]`。
+2. 模拟微小随机延时（200~400ms）。
+3. 使用原生 property setter 写入标题（<=30字）并派发事件：
+
+```javascript
+const titleEl = document.querySelector('textarea, input[placeholder*="请输入文章标题"]');
+if (titleEl) {
+  titleEl.focus();
+  const descArea = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+  const descInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+  const setter = (descArea && descArea.set) || (descInput && descInput.set);
+  if (setter) setter.call(titleEl, meta.articleTitle);
+  else titleEl.value = meta.articleTitle;
+  titleEl.dispatchEvent(new Event('input', { bubbles: true }));
+  titleEl.dispatchEvent(new Event('change', { bubbles: true }));
+  titleEl.blur();
+}
+```
+
+---
+
+#### 步骤 A3：注入 ProseMirror / Sylph 富文本正文
+
+头条号采用 ProseMirror 富文本编辑器体系：
+
+1. 聚焦编辑器容器 `.ProseMirror`；
+2. 优先通过 React Fiber 上的 Editor 实例调用 `reactEditor.pasteContent(htmlContent)`；
+3. 降级方案：派发包含 `text/html` 的标准 `ClipboardEvent('paste')` 剪贴板事件：
+
+```javascript
+const pmEl = document.querySelector('.ProseMirror') || document.querySelector('[contenteditable="true"]');
+if (pmEl) {
+  pmEl.focus();
+  const fiberKey = Object.keys(pmEl.parentElement || {}).find(k => k.startsWith('__reactInternalInstance$') || k.startsWith('__reactFiber$'));
+  let fiber = pmEl.parentElement ? pmEl.parentElement[fiberKey] : null;
+  let reactEditor = null;
+  while (fiber) {
+    const propsEditor = fiber.memoizedProps && fiber.memoizedProps.editor;
+    const stateEditor = fiber.stateNode && (fiber.stateNode.editor || fiber.stateNode.view);
+    if (propsEditor || stateEditor) {
+      reactEditor = propsEditor || stateEditor;
+      break;
+    }
+    fiber = fiber.return;
+  }
+  if (reactEditor && typeof reactEditor.pasteContent === 'function') {
+    reactEditor.pasteContent(meta.articleHtml.htmlContent);
+  } else {
+    const dt = new DataTransfer();
+    dt.setData('text/html', meta.articleHtml.htmlContent);
+    dt.setData('text/plain', meta.articleTitle + '\n\n' + meta.articleSummary);
+    pmEl.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }
+}
+```
+
+---
+
+#### 步骤 A4：强制锁定「单图」并上传确认封面
+
+1. **锁定单图模式（严禁三图或无封面）**：
+   - 检查「展示封面」单选组件，穿透 React Fiber 直接调用 RadioGroup 的 `onChange(2)` 或模拟点击「单图」单选标签：
+
+```javascript
+const singleRadioLabel = Array.from(document.querySelectorAll('.article-cover-radio-group label, label.byte-radio')).find(l => (l.innerText || '').trim().includes('单图'));
+if (singleRadioLabel) {
+  const fiberKey = Object.keys(singleRadioLabel).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+  let fiber = singleRadioLabel[fiberKey];
+  while (fiber) {
+    if (fiber.memoizedProps && typeof fiber.memoizedProps.onChange === 'function') {
+      fiber.memoizedProps.onChange(2); // 2: 单图, 3: 三图, 1: 无封面
+      break;
+    }
+    fiber = fiber.return;
+  }
+  singleRadioLabel.click();
+}
+```
+
+2. **上传封面图片**：
+   - 点击 `.article-cover-add` 展开 `.byte-drawer` 抽屉；
+   - 切换至「上传图片」Tab；
+   - 提交封面 `File` 对象至上传 input 并派发 `change` 事件；
+   - 等待确认按钮激活并点击确定完成裁剪绑定；
+   - 再次校验单图模式未被重置。
+
+---
+
+#### 步骤 A5：模拟自然视口滚动并等待草稿云端保存
+
+1. 模拟人工自上而下审查排版，平滑滚动至页面底部：
+
+```javascript
+window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+```
+
+2. 轮询完成断言（1.5s 间隔，最长 45s），检查底部 `.publish-footer` 是否呈现「草稿已保存」：
+
+```javascript
+const footerEl = document.querySelector('.publish-footer');
+const footerText = footerEl ? footerEl.innerText : '';
+const isDraftSaved = footerText.includes('草稿已保存') || footerText.includes('草稿将自动保存') || footerText.includes('共');
+```
+
+---
+
+#### 步骤 A6：截取草稿存证并保留页面
+
+1. 确认断言通过后，调用 `take_screenshot` 保存当前页面截图至 `publishes/screenshots/toutiao_article.png`。
+2. 原样保留当前标签页，严禁关闭。
+
+---
+
+### 步骤 7：收尾落盘统一回执
+
+多模态全部执行完毕后（或出现不可恢复异常时），构造统一回执并落盘：
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+---
+
+## 异常与风控处理
+
+| 异常场景 | 表现特征 | 应对与恢复策略 |
 | :--- | :--- | :--- |
-| **源 Markdown 文章** | `path/to/article_name.md` | 原始文章 |
-| **视频成片文件** | `path/to/article_name/video/[video_name].mp4` 或 `[article_name].mp4` | 成品高清视频（优先识别 `video_manifest.json` 登记输出） |
-| **视频作品标题** | `<= 30 字`（AI 智能提炼，严禁硬截断） | 全角=1字、半角=0.5字；保留合规中文标点；若超 30 字由 Agent 结合主旨提炼新标题（`--title`） |
-| **视频作品描述/简介** | `<= 1000 字` | 核心要点梳理，保留多行分段排版（换行分段），严禁单行塌陷 |
-| **长文文章标题** | `<= 30 字`（AI 智能提炼，严禁硬截断） | 全角=1字、半角=0.5字；若原标题超长由 Agent 结合主旨提炼新标题（`--title`） |
-| **长文内容摘要** | `<= 100 字` | 提取首段精炼摘要，超长自动截断 |
-| **文章排版 HTML** | `path/to/article_name/[article_name]_cdn.md` | 纯排版正文，依据 `cdn_manifest.json` 替换为 Cloudflare R2 公开 CDN 链接 |
-| **文章封面图** | `path/to/article_name/cover/images/` | 优先读取 `xhs_images/images/01-cover.png` 或 `cover/images/` 下宽屏封面 |
-| **标签处理约定** | `tags = inferTags(...)`（上限 3） | 由 `asset_resolver.inferTags` 从标题与正文推断；旧版固定为空数组导致下游标签分支被判空跳过 |
+| **未登录 / 登录态过期** | 未找到标题输入框或正文编辑区 | 立即停止自动化输入，向用户发送提示，等待用户在浏览器中完成扫码登录后再继续。 |
+| **标题超长（>30字）** | 字数统计报红或超出上限 | 步骤 0 自动检测，结合主旨提炼精炼新标题（<=30字），通过 `--title` 重新注入。 |
+| **视频成片缺失** | 未检测到 `video/*.mp4` | 自动跳过视频模态并在回执中登记 `skipped`，正常继续执行长文图文模态。 |
+| **视频上传超时 / 网络波动** | 上传进度停滞超过 120 秒 | 标记该模态 `timeout`，保留当前页面，继续执行长文模态。 |
+| **ProseMirror 注入异常** | React Fiber 实例不可获取 | 降级使用标准 `ClipboardEvent('paste')` 派发富文本，确保内容注入。 |
+| **封面抽屉确定按钮未激活** | 抽屉打开后未找到确定按钮 | 等待 2~3 秒图片上传与后端裁切就绪后重试，或降级保留已有封面。 |
 
 ---
 
-## 🛡️ 防风控与真实人机行为模拟规约
-
-1. **草稿安全隔离与终点控制**：
-   - **图文发文**：严格限定为草稿保存（等待页面自动提示「草稿已保存」并在草稿箱列表验证），**绝对不点击「预览并发布」或「定时发布」**。
-   - **视频发布**：视频文件派发上传后异步轮询等待直至「上传成功」，填入精炼短标题（<=30字）并完成视口平滑滚动校验。由于西瓜/头条视频发布在当前页面仅提供「发布」按钮（无草稿暂存按钮），为了绝对安全，系统完成全套表单配置后**严格保持在就绪状态并截屏存证，绝不自动触碰发布按钮**，由创作者人工最终审阅后确认发布。
-2. **防风控与人机行为模拟 (Anti-Bot & Human Simulation)**：
-   - **随机时延抖动**：所有操作之间增加随机等待（输入前 200~500ms、步骤间 400~1000ms、点击悬停 200~400ms），严禁毫秒级瞬时操作。
-   - **真实事件完整性**：对于标题输入与表单交互，依次派发 `focus`、`keydown`、`input`、`keyup`、`change`、`blur`，并同步底层 React 状态。
-   - **ProseMirror / Sylph 富文本注入**：利用 React Fiber 上的 Editor 实例（`reactEditor.pasteContent`）及标准 `ClipboardEvent('paste')` 注入内容，完整保留标题、代码块、加粗、引用、列表及 CDN 配图。
-   - **平滑视口滚动**：模拟人类自上而下的视觉审阅，分步平滑滚动页面触发浏览器的视口可见性检测。
-   - **拟真悬停与点击**：点击元素前先将其 `scrollIntoView({ behavior: 'smooth' })`，派发 `mouseover`、`mouseenter` 悬停后再触发 `click`。
-3. **发布完成后保留页面（严禁自动关闭）**：
-   - 草稿保存或视频表单就绪并完成截屏存证后，****每次执行必须无条件调用 `new_page` 新建独立标签页（严禁复用或覆盖已有页面）**；全流程完成后严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场——视频模式尤其关键，页面即是创作者人工审阅后点击发布的唯一入口。
-   - 未登录、验证码拦截、上传超时等异常中断的场景同样适用：保留页面交由用户接管，不得清理关闭。
-
-4. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
-   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
-   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
-5. **收尾必须落盘回执（父级编排的唯一完成信号）**：
-   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
-   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
-
----
-
-## 🚀 双模态自动化发布执行流程
-
-> 下列模式**不是「择一执行」的选项**，而是逐模态执行的操作手册：按「模态选择规约」得出的 `publishPlan.modes` 依次执行其中每一个模态（默认两种全发）。模式字母仅为编号，实际执行顺序恒为 `video`（模式 B）→ `article`（模式 A）。
-
-### 模式 A：发布长文图文草稿（Long Article Post）
-
-1. **解析 Markdown 资产与封面**：
-   - 运行 `node scripts/parser.mjs <Markdown文件绝对路径>`。
-2. **打开/聚焦发文页并检测登录态**：
-   - 访问 `https://mp.toutiao.com/profile_v4/graphic/publish`。
-3. **拟真人机输入文章标题**：
-   - 定位 `textarea[placeholder*="请输入文章标题"]`，填入 2~30 字标题并派发原生事件。
-4. **注入 ProseMirror 富文本正文**：
-   - 定位 `.ProseMirror` 内容可编辑区域并聚焦，通过 React Fiber 调用 `reactEditor.pasteContent` 注入正文。
-5. **视口平滑滚动排版审阅**：
-   - 分步滚动视口模拟人工阅读。
-6. **展示封面强制锁定「单图」并真实上传确认（硬规约，严禁切换到三图）**：
-   - 检查「展示封面」单选组件，强制确保选中「单图」（`label.byte-radio` / `input[value="2"]`），严禁自动切换或保留为「三图」或「无封面」。
-   - 若存在封面图资产，点击 `.article-cover-add` 展开 `.byte-drawer` 抽屉，注入 `File` 对象并自动完成确认裁剪。
-7. **等待草稿云端保存并存证**：
-   - 平滑滚动至页面底部，等待校验呈现「草稿已保存」，在草稿箱页面截图存证（`toutiao_article.png`）。
-
----
-
-### 模式 B：发布视频草稿（Video Post）
-
-1. **导航至视频上传页**：
-   - 访问 `https://mp.toutiao.com/profile_v4/xigua/upload-video`。
-2. **暴露并定位文件上传控件**：
-   - 运行准备脚本将隐藏的 `input[type="file"]` 暴露给 accessibility tree，赋予 `id="doudou-toutiao-video-input"`。
-3. **派发真实视频文件上传**：
-   - 解析目标文章同名目录下的 `video/` 目录，获取真实 `.mp4` 文件路径（如 `video_manifest.json` 指定成片）。
-   - 通过 `upload_file` 工具将视频文件派发至上传 input。
-4. **异步轮询等待视频上传完成**：
-   - 异步轮询页面状态（10~120秒），直到页面呈现「上传成功」或出现「重新上传/删除」，且进度提示结束。
-5. **填入视频作品标题与简介**：
-   - 定位 `input.xigua-input` 填入清洗后的 5~30 字视频标题；
-   - 定位 `textarea.abstract` 填入视频描述/简介。
-6. **上传并绑定视频封面（若有）**：
-   - 点击封面上传触发器唤起设置弹窗，切换至「本地上传」Tab，派发封面图片 `File` 对象并自动完成确认绑定。
-7. **模拟视口滚动与就绪核验**：
-   - 视口平滑滚动模拟人工核验，点击「存草稿」按钮（若可见）。
-8. **就绪状态截图存证**：
-   - 严格遵循安全合规原则（不点击直接发布按钮），截取当前就绪状态截图保存至 `toutiao_video.png`。
-
----
-
-## 🛠️ 核心脚本
+## 脚本工具与使用方法
 
 以下路径均相对本技能目录（`SKILL.md` 所在目录）：
 
-- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、定位视频成片（.mp4）/长文标题（防超长截断）、摘要、排版 HTML、高清封面及视频描述，`tags` 保持 `[]`；并产出确定性模态计划 `publishPlan`（`PUBLISH_MODES` / `normalizeRequestedModes` / `resolvePublishPlan`）。
-- [scripts/toutiao_publisher.mjs](scripts/toutiao_publisher.mjs)：浏览器注入脚本生成器（涵盖长文图文 Sylph/ProseMirror 状态双向同步与视频上传就绪核验脚本）。
+- `scripts/parser.mjs`：解析 Markdown 资产、提炼标题、校验字数与生成确定性模态计划 `publishPlan`。
+- `scripts/toutiao_publisher.mjs`：浏览器端自包含注入脚本生成器（长文图文 Sylph/ProseMirror 注入、视频上传就绪核验与表单填充）。
+- `scripts/receipt.mjs`：标准化收尾回执落盘工具。
 
 ### Agent 调用范式
 
@@ -275,41 +462,32 @@ import {
   buildVideoPublishBrowserScript,
 } from "./scripts/toutiao_publisher.mjs";
 
-// 1. 解析目标 Markdown 资产（parseAllAssets 为同步函数）
-//    requestedModes 留空 => 默认全模态；仅当用户明确点名模态时才传入
+// 1. 解析目标 Markdown 资产（若原标题超 30 字，提炼后通过 overrideTitle 重新注入）
 let meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
+if (calcPlatformWords(meta.articleTitle) > 30) {
+  const conciseTitle = /* 提炼 <=30 字精炼新标题 */;
+  meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null, conciseTitle);
+}
 
-// 2. 标题字数与 AI 智能重构校验（严禁机械截断）
-//    平台规则：全角汉字/符号=1字，半角英文/数字/空格=0.5字，上限 30 字。
-//    若 calcPlatformWords(meta.articleTitle) > 30：
-//    执行 Agent 必须发挥自身 AI 语义理解能力，结合文章主旨智能提炼一个 <= 30 字的精炼新标题
-//    （保留核心框架/品牌名与主要动宾意图，语言吸睛且语义完整），重新注入：
-//    meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null, aiGeneratedTitle);
+// 2. 读取确定性模态计划（按 video -> article 顺序串行执行）
+const { modes, skipped } = meta.publishPlan;
 
-// 3. 读取确定性模态计划，严禁自行推断要发哪些模态
-const { modes, skipped, summary } = meta.publishPlan;
-console.log(summary); // 预期输出：用户未指定模态 => 默认发布全部可用模态｜将发布：视频 + 长文图文
-
-// 3. 逐模态串行执行（video -> article）；单模态失败不影响后续模态
-const results = [];
 for (const mode of modes) {
-  try {
-    if (mode === "video") {
-      // 视频：平台无草稿按钮，仅保留就绪态供人工确认发布
-      await navigate_page({ pageId, url: "https://mp.toutiao.com/profile_v4/xigua/upload-video" });
-      await evaluate_script({ pageId, function: buildPrepareVideoUploadBrowserScript() });
-      await upload_file({ pageId, uid: inputUid, filePaths: [meta.video.videoPath] });
-      await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(120) });
-      results.push(await evaluate_script({ pageId, function: buildVideoPublishBrowserScript(meta) }));
-    } else {
-      // 长文图文：等待页面提示「草稿已保存」
-      await navigate_page({ pageId, url: "https://mp.toutiao.com/profile_v4/graphic/publish" });
-      results.push(await evaluate_script({ pageId, function: buildPublishBrowserScript(meta) }));
-    }
-  } catch (e) {
-    results.push({ mode, ok: false, error: String(e) }); // 记录失败并继续下一模态
+  if (mode === "video") {
+    // 视频发布：新建页面 -> 暴露控件 -> 上传文件 -> 轮询就绪 -> 填充表单 -> 截屏存证
+    const pageId = await new_page({ url: "https://mp.toutiao.com/profile_v4/xigua/upload-video" });
+    await evaluate_script({ pageId, function: buildPrepareVideoUploadBrowserScript() });
+    await upload_file({ pageId, filePaths: [meta.video.videoPath] });
+    await evaluate_script({ pageId, function: buildWaitVideoUploadReadyBrowserScript(120) });
+    await evaluate_script({ pageId, function: buildVideoPublishBrowserScript(meta) });
+    await take_screenshot({ pageId, filePath: "publishes/screenshots/toutiao_video.png" });
+  } else if (mode === "article") {
+    // 长文发布：新建页面 -> 注入标题正文与封面 -> 轮询草稿保存 -> 截屏存证
+    const pageId = await new_page({ url: "https://mp.toutiao.com/profile_v4/graphic/publish" });
+    await evaluate_script({ pageId, function: buildPublishBrowserScript(meta) });
+    await take_screenshot({ pageId, filePath: "publishes/screenshots/toutiao_article.png" });
   }
 }
 
-// 4. 汇总逐模态结果 + skipped 跳过原因，输出统一报告（页面一律保留不关闭）
+// 3. 落盘统一回执（原样保留页面现场，严禁调用 close_page）
 ```

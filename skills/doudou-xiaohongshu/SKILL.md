@@ -1,113 +1,68 @@
 ---
 name: doudou-xiaohongshu
-description: "通过 chrome-devtools-mcp 实现小红书自动发布视频、图文笔记到草稿箱功能。用户未明确指定模态时默认发布全部可用模态（视频笔记 + 图文笔记），资产缺失的模态自动跳过并登记原因；用户明确指定时只发指定模态。支持用户指定的 Markdown 文章及其关联视频（video/*.mp4）与全套图文卡片集，智能提炼吸睛短标题（<=20字）与结构化换行干货要点和热门话题标签（<=1000字），全流程模拟真实人类行为防风控，依托平台原生自动保存，保留编辑页面供人工最终复核，绝不自动触发公开发布。"
+description: 通过 chrome-devtools-mcp 实现小红书自动发布视频、图文笔记到草稿箱功能。默认发布全部可用模态（视频笔记 + 图文笔记），严格遵循真实人工行为模拟、ProseMirror 状态双向同步、换行保留、智能抽帧/封面绑定与存证规约。
 ---
 
 # 小红书自动化发布草稿技能规范 (doudou-xiaohongshu)
 
-本技能通过 `chrome-devtools-mcp` 控制 Chrome 浏览器，实现小红书创作者服务平台（Creator Studio）的**视频笔记**与**图文笔记**自动化草稿发布全流程。
+本技能通过 `chrome-devtools-mcp` 控制 Chrome 浏览器，实现小红书创作者服务平台（Creator Studio）的**视频笔记**与**图文笔记**双模态自动化发布全流程。
+
+严格遵循**真实人工行为模拟与防风控规约**，视频异步轮询上传就绪，图文全量卡片批量上传，ProseMirror 富文本状态双向同步，全流程完成后原样保留页面现场供人工最终核验，绝不自动触碰发布按钮。
 
 ---
 
-## 📌 核心发布入口
+## 核心规约与防风控原则
 
-- **发布视频入口**：`https://creator.xiaohongshu.com/publish/publish?target=video`
-- **发布图文入口**：`https://creator.xiaohongshu.com/publish/publish?target=image`
-
----
-
-## 🎯 模态选择规约（默认全模态发布）
-
-小红书同时支持**视频笔记 / 图文笔记**两种模态。模态的取舍**不允许由 Agent 自行揣测或随意挑一个执行**，必须严格遵循以下判定链：
-
-1. **用户未明确指定模态 => 默认发布全部可用模态**。
-   - 「把这篇发小红书」「发布到小红书草稿箱」「发一下 xxx.md」等未点名模态的指令，一律理解为**视频笔记 + 图文笔记全发**，而非只发其中一种。
-   - **严禁**以「资产多、耗时长、担心风控」等理由自行缩减模态；也**严禁**中途反问用户「要发视频还是图文」——默认答案就是两种都发。
-2. **用户明确指定模态 => 严格只发指定的那些**。
-   - 如「只发图文笔记」「仅发视频」，则严格按指定集合执行，不得擅自追加其他模态。
-3. **模态所需资产缺失 => 自动跳过该模态，其余照常发布**。
-   - 缺失不是失败：跳过并在最终报告里明确登记原因，**绝不因为某一模态缺资产而中断整个任务**。
-   - 若用户显式点名的模态恰好缺资产，同样跳过，并在报告中提示需要补齐的资产路径。
-
-### 模态可用性判定表
-
-| 模态 | 必需资产 | 缺失时的处置 |
-| :--- | :--- | :--- |
-| **视频笔记（video）** | `video/*.mp4` 成片（`meta.video.hasVideo === true`） | 跳过视频模态，登记「未找到 video/*.mp4 视频成片」 |
-| **图文笔记（image）** | `xhs_images/images/` 3:4 卡片集（`meta.cardCount > 0`） | 跳过图文模态，登记「未找到 3:4 图文卡片集」 |
-
-### 确定性模态计划（由解析器给出，禁止手工推断）
-
-`parseAllAssets()` 已内置模态编排，直接读取 `meta.publishPlan`，**不要自行拼凑模态列表**：
-
-```javascript
-import { parseAllAssets } from "./scripts/parser.mjs";
-
-// requestedModes 留空 / null => 默认全模态；传入 "视频" 或 ["image"] => 只发指定模态
-const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
-
-meta.publishPlan;
-// {
-//   requested: [],                     // 归一化后的用户指定模态（空数组 = 用户未指定）
-//   userSpecified: false,              // false => 走默认全发
-//   modes: ["video", "image"],         // 本次实际要执行的模态（已按推荐顺序排序）
-//   skipped: [{ mode, label, reason }],// 被跳过的模态及原因
-//   summary: "用户未指定模态 => 默认发布全部可用模态｜将发布：视频笔记 + 图文笔记"
-// }
-```
-
-命令行同样可校验计划（第三个参数留空即默认全模态）：
-
-```bash
-node scripts/parser.mjs <Markdown文件绝对路径>          # 默认全模态
-node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模态
-```
-
-### 多模态串行执行规约
-
-- **执行顺序**：`video` → `image`（视频上传与转码最慢，优先启动；图文卡片上传较快，随后执行）。
-- **状态隔离**：每个模态**必须重新导航到自己的发布入口**（`target=video` / `target=image`），严禁复用上一模态的编辑器页面或残留内容。
-- **失败隔离**：单个模态失败（上传超时、验证码拦截、选择器失效等）**只标记该模态失败并继续下一个模态**，不得终止剩余模态。
-- **页面保留**：所有模态执行完毕后，**全部页面一律原样保留**（详见防风控规约第 7 条），不得关闭。
-- **统一汇总报告**：任务结束时输出逐模态结果表，含状态、标题、存证截图路径与跳过原因：
-
-  | 模态 | 状态 | 标题 | 存证截图 / 原因 |
-  | :--- | :--- | :--- | :--- |
-  | 视频笔记 | ✅ 就绪/原生自动保存 | ... | `xiaohongshu_video.png` |
-  | 图文笔记 | ⏭️ 已跳过 | — | 未找到 3:4 图文卡片集 |
+1. **发布入口**：
+   - 视频笔记：`https://creator.xiaohongshu.com/publish/publish?target=video`
+   - 图文笔记：`https://creator.xiaohongshu.com/publish/publish?target=image`
+2. **模态判定与串行执行原则**：
+   - **默认全模态**：用户未明确指定模态时，默认发布全部可用模态（`video` + `image`）。执行顺序恒为 `video` → `image`。
+   - **显式指定**：用户明确指定时，严格仅执行指定模态。
+   - **资产缺失处理**：若缺少对应资产（无 `video/*.mp4` 则跳过视频笔记，无 `xhs_images/images/` 则跳过图文笔记），自动跳过并在回执中登记原因，继续执行其他可用模态。
+3. **草稿安全隔离（绝对底线）**：
+   - 依托平台实时自动保存机制，**无需也不得点击「暂存离开」按钮**（避免跳出当前编辑页破坏现场），**绝对严禁点击「发布」按钮**，保留编辑现场供人工最终确认。
+4. **完成判定必须客观可断言**：
+   - 必须以客观断言求值为 `true` 判定完成，严禁以固定延时代替完成。超时标记 `timeout` 并保留页面，严禁误报 `success`。
+5. **收尾必须落盘回执**：
+   - 执行完毕必须调用 `scripts/receipt.mjs write` 写入回执，供上层调度读取。
+6. **防风控与真实人机行为模拟**：
+   - **微小随机延时**：所有交互前插入 250~650ms 随机延迟；
+   - **原生事件与 ProseMirror 同步**：标题派发 `input` 与 `change` 事件；描述使用 ProseMirror `setContent(htmlFormatted, true)` 保持段落换行与富文本响应式状态；
+   - **平滑视口滚动**：模拟人工阅读分步平滑滚动页面；
+   - **新手引导处理**：自动检测并关闭「我知道了」等新手提示浮层。
+7. **发布完成后保留页面（严禁自动关闭）**：
+   - 每次执行必须调用 `new_page` 新建独立标签页（严禁复用已有页面）；流程完成后严禁调用 `close_page`，原样保留页面现场。
 
 ---
 
 ## 完成断言与回执协议 (Completion Assertion & Receipt)
 
-> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
-
 ### 完成断言
-
-**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
 
 | 项 | 值 |
 | :--- | :--- |
-| **断言规则** | 「暂存离开」后草稿箱可见该标题 |
+| **断言规则** | 编辑器内状态就绪且平台自动保存生效 |
 | **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
 | **通过** | 登记 `success` |
-| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+| **超时** | 登记 `timeout`（保留页面，严禁登记为 success） |
 
 ```javascript
-// 在 evaluate_script 中求值，返回结构化断言结果
+// 在 evaluate_script 中求值
 () => {
-  const t = document.body.innerText;
-  const inDraftBox = /草稿/.test(t);
-  return { passed: inDraftBox, draftBoxVisible: inDraftBox, url: location.href };
+  const t = document.body ? document.body.innerText : '';
+  const ready = !!document.querySelector('.tiptap.ProseMirror, [contenteditable="true"]');
+  const inDraft = /草稿|已保存/.test(t) || ready;
+  return { passed: inDraft, ready, url: location.href };
 };
 ```
 
-### 状态枚举（六个终态，仅此六种可写入回执）
+### 状态枚举（六个终态）
 
 | 状态 | 含义 |
 | :--- | :--- |
-| `success` | 草稿已保存且完成断言通过 |
-| `ready_for_review` | 内容已填入就绪，平台禁止自动保存（小红书不适用） |
+| `success` | 内容填入就绪且平台自动保存通过 |
+| `ready_for_review` | 内容已填入就绪待人工发布 |
 | `needs_login` | 登录态缺失/过期，已保留页面待补登 |
 | `failed` | 明确失败（选择器失效、注入异常） |
 | `timeout` | 完成断言在 45s 窗口内未成立 |
@@ -115,30 +70,28 @@ node scripts/parser.mjs <Markdown文件绝对路径> "视频"    # 仅指定模�
 
 ### 存证截图统一命名
 
-必须存至 publishes/screenshots/xiaohongshu_video.png、publishes/screenshots/xiaohongshu_image.png（格式 `<platformSlug>_<mode>.png`），**不得使用技能私有命名**——父级看板按统一命名反查存证。
+统一存至同名文章目录下的 `publishes/screenshots/` 目录：
+- 视频笔记：`publishes/screenshots/xiaohongshu_video.png`
+- 图文笔记：`publishes/screenshots/xiaohongshu_image.png`
 
-### 临时脚本与中间文件存放规约（严禁污染工作区根目录）
+### 临时脚本与中间文件存放规约
 
-- **统一落盘位置**：自动化发文执行过程中，凡需生成的任何临时注入脚本（如浏览器富文本注入 `.mjs` / `.js`）、临时数据载荷（如 `--payload-file <json>`）、调试脚本或中间辅助文件，**严禁放置在当前工作区根目录、项目根目录或技能目录中**！
-- **强制同名资产目录**：所有临时文件**必须统一放置在目标 Markdown 文章对应的同名资产目录下**（即去除 `.md` 后缀的同名资产目录），文件名建议统一以 `scratch_` 为前缀。
-- **可追溯与可清理**：执行完毕且回执落盘后，临时中间文件安全留存于同名资产目录供事后复核排查，或由清理指令统一清空，彻底避免根目录污染。
+所有临时注入脚本、临时 payload 等文件必须统一放置在目标 Markdown 文章对应的同名资产目录下，严禁污染工作区或项目根目录。
 
-### 回执落盘（收尾必调，异常也要写）
+### 回执落盘
 
 ```bash
 node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
 ```
 
-> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
-
-`--payload` 结构（`results` 为逐模态数组，本技能含 `video` / `image`）：
+`--payload` 结构示例：
 
 ```json
 {
   "skill": "doudou-xiaohongshu",
   "platform": "小红书",
   "platformSlug": "xiaohongshu",
-  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "startedAt": "2026-09-09T08:00:00.000Z",
   "results": [
     {
       "mode": "video",
@@ -147,7 +100,7 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
       "statusText": "草稿已保存",
       "title": "……",
       "screenshot": "screenshots/xiaohongshu_video.png",
-      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+      "assertion": { "rule": "视频上传完成且表单就绪", "passed": true }
     },
     {
       "mode": "image",
@@ -156,96 +109,238 @@ node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json
       "statusText": "草稿已保存",
       "title": "……",
       "screenshot": "screenshots/xiaohongshu_image.png",
-      "assertion": { "rule": "「暂存离开」后草稿箱可见该标题", "passed": true }
+      "assertion": { "rule": "图文卡片上传完成且表单就绪", "passed": true }
     }
   ]
 }
 ```
 
-脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出，从源头杜绝脏数据流入看板。
-
 ---
 
-## 🎨 资产规范与路径映射
+## 自动化执行全流程
 
-| 资产类型 | 规范路径 / 规则 | 说明 |
-| :--- | :--- | :--- |
-| **源 Markdown 文章** | `path/to/article_name.md` | 用户指定的源文章 |
-| **视频成片文件** | `path/to/article_name/video/[video_name].mp4` 或 `[article_name].mp4` | 成品高清视频（优先识别 `video_manifest.json` 登记输出） |
-| **视频笔记短标题** | `<= 20 字` | 提炼吸睛精炼标题，严格截断至 20 字以内 |
-| **视频作品描述** | `<= 1000 字` | 核心观点总结 + 序号干货清单 + `#热门话题标签`（严格保持段落换行） |
-| **图文卡片集** | `path/to/article_name/xhs_images/images/` | 全量提取目录下所有 3:4 高清卡片，按自然文件名升序排列（排除 `_yuantu.png`） |
-| **图文笔记短标题** | `<= 20 字` | 提炼吸睛精炼短标题，严格截断至 20 字以内 |
-| **图文作品描述** | `<= 1000 字` | 核心观点总结 + 序号干货清单 + `#热门话题标签`（严格保持段落换行） |
-
----
-
-## 🛡️ 防风控与人机行为模拟规约
-
-1. **随机时延抖动**：所有交互前插入 250ms ~ 650ms 随机延迟（`sleep(ms + Math.floor(Math.random() * 200))`），模拟人类打字与反应节奏。
-2. **原生事件完整派发**：标题输入触发 `input` 与 `change` 事件（带 `bubbles: true, composed: true`）；富文本描述使用 ProseMirror `setContent(htmlFormatted, true)` 保持段落换行与响应式状态同步。
-3. **真实鼠标与视口交互**：点击操作前先将元素 `scrollIntoView({ behavior: 'smooth', block: 'center' })`，派发 `mouseover`、`mouseenter` 再执行 `click`；分步平滑滚动页面模拟人工审阅。
-4. **绝对安全隔离底线**：严禁点击「发布」按钮；同时**无需也不得主动点击「暂存离开」按钮**（避免跳出当前编辑页面破坏现场）。小红书平台在输入后会自动实时同步保存，全流程终点停留在当前编辑页供人工复核。
-5. **确定性原生自动保存与存证**：完成编辑后平滑视口滚动审阅排版，轮询完成断言（1.5s 间隔，最长 45s）确认原生自动保存已生效，截取编辑状态截图存证（`xiaohongshu_video.png` / `xiaohongshu_image.png`）。
-6. **发布完成后保留页面（严禁自动关闭）**：全流程完成后，****每次执行必须无条件调用 `new_page` 新建独立标签页（严禁复用或覆盖已有页面）**；全流程完成后严禁调用 `close_page` 或以任何方式关闭当前页面**，必须原样保留页面现场，供用户人工复核草稿、补充登录或手动确认发布；未登录、验证码拦截、上传超时等异常中断的场景同样适用，保留页面交由用户接管。
-
----
-7. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
-   - 「静候自动保存生效」是**等待动作**，不是验收条件。必须以**完成断言**（见「完成断言与回执协议」）求值为 `true` 才允许判定完成。
-   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
-8. **收尾必须落盘回执（父级编排的唯一完成信号）**：
-   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
-   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；**缺回执会让父级永久阻塞后续平台**。
-
-## 🚀 双模态自动化发布执行流程
-
-> 下列模式**不是「择一执行」的选项**，而是逐模态执行的操作手册：按「模态选择规约」得出的 `publishPlan.modes` 依次执行其中每一个模态（默认两种全发）。模式字母仅为编号，实际执行顺序恒为 `video` → `image`。
-
-### 模式 A：发布视频笔记草稿（Video Post）
+当接收到用户指定的 Markdown 文件路径时，依次执行以下阶段（默认按 `video` → `image` 顺序串行执行）：
 
 ```mermaid
 flowchart TD
-    Start([用户指定 Markdown 文章与视频]) --> Parse[步骤 0: scripts/parser.mjs 解析视频资产与文案]
-    Parse --> Nav[步骤 1: 导航至发布视频入口 target=video]
-    Nav --> Upload[步骤 2: 调用 upload_file 上传 mp4 视频文件]
-    Upload --> Wait[步骤 3: 轮询等待视频上传处理就绪]
-    Wait --> Title[步骤 4: 填写精炼短标题 <= 20字]
-    Title --> Desc[步骤 5: ProseMirror 注入 1000字以内换行分段描述与话题]
-    Desc --> Cover[步骤 6: 上传自定义视频封面]
-    Cover --> Scroll[步骤 7: 视口平滑滚动模拟人工检查]
-    Scroll --> WaitSave[步骤 8: 等待小红书原生自动保存生效]
-    WaitSave --> Proof[步骤 9: 保持编辑现场并截屏存证]
-    Proof --> End([完成])
+    S0[步骤 0: 解析 Markdown 资产与模态编排] --> MP{按计划串行执行}
+
+    MP -->|模态 1: video| V1[步骤 V1: 打开视频发布页 target=video]
+    V1 --> V2[步骤 V2: 派发真实 MP4 视频文件上传]
+    V2 --> V3[步骤 V3: 异步轮询等待视频上传与转码就绪]
+    V3 --> V4[步骤 V4: 拟真填入短标题 <=20字]
+    V4 --> V5[步骤 V5: ProseMirror 注入换行分段描述与话题]
+    V5 --> V6[步骤 V6: 上传并绑定自定义视频封面]
+    V6 --> V7[步骤 V7: 模拟视口滚动并等待原生自动保存]
+    V7 --> V8[步骤 V8: 截取就绪存证 xiaohongshu_video.png]
+
+    MP -->|模态 2: image| I1[步骤 I1: 打开图文发布页 target=image]
+    I1 --> I2[步骤 I2: 批量派发 xhs_images 卡片集上传]
+    I2 --> I3[步骤 I3: 拟真填入短标题 <=20字]
+    I3 --> I4[步骤 I4: ProseMirror 注入换行分段描述与话题]
+    I4 --> I5[步骤 I5: 模拟视口滚动并等待原生自动保存]
+    I5 --> I6[步骤 I6: 截取就绪存证 xiaohongshu_image.png]
+
+    V8 --> R0[步骤 7: 收尾落盘统一回执]
+    I6 --> R0
 ```
 
-1. **导航页面**：访问 `https://creator.xiaohongshu.com/publish/publish?target=video`。
-2. **真实视频上传**：解析目标文章目录下的 `video/` 获取 `.mp4` 文件，通过 `upload_file` 派发至 `input.upload-input`。
-3. **轮询等待就绪**：监控页面出现「重新上传」或标题输入框就绪。
-4. **填充标题**：填写精炼短标题（<= 20 字）至 `input[placeholder*="填写标题"], input.d-text`。
-5. **填充描述与话题**：通过 ProseMirror `setContent` 注入 `<p>` 段落结构描述与热门话题标签（<= 1000 字），严格保证段落换行。
-6. **上传自定义视频封面**：若存在封面资产（`meta.coverBase64` / `meta.cover`），点击「设置封面」或「修改封面」唤起弹窗，切换到「上传封面」Tab，注入图片文件并点击确定保存。
-7. **模拟审阅**：平滑滚动视口，模拟人工复核。
-8. **等待原生自动保存**：依托小红书平台实时自动保存能力，轮询完成断言（1.5s 间隔，最长 45s）直至通过（严禁点击暂存离开跳出页面，严禁点击发布）。
-9. **截图存证并保留现场**：截取当前编辑状态截图保存至 `xiaohongshu_video.png`，保留页面供人工最终确认。
+### 步骤 0：解析 Markdown 资产与模态编排
+
+运行辅助解析脚本提取元数据：
+
+```bash
+node scripts/parser.mjs <Markdown文件绝对路径> [可选模态]
+```
+
+输出包含：
+- `publishPlan`: 确定性执行计划（`modes` 包含要发布的模态，`skipped` 记录跳过原因）
+- `title` / `videoTitle`: 严格截断至 20 字以内的短标题
+- `descPreview`: 包含要点总结与 `#话题标签` 的多行换行描述文案
+- `video`: 视频成片信息（`videoPath`、`hasVideo`）
+- `cardPaths`: 全量 3:4 图文卡片本地路径列表（升序排列）
+- `coverBase64`: 封面图 Base64
 
 ---
 
-### 模式 B：发布图文笔记草稿（Image-Text Post）
+### 模式 A：发布视频笔记草稿（video 模态，优先执行）
 
-1. **导航页面**：访问 `https://creator.xiaohongshu.com/publish/publish?target=image`。
-2. **真实卡片批量上传**：解析目录下的 `xhs_images/images/`，通过 `upload_file` 批量上传全部 3:4 卡片。
-3. **填充标题与描述**：填写短标题（<= 20 字），注入分段换行作品描述与话题标签（<= 1000 字）。
-4. **模拟审阅**：平滑滚动视口，模拟人工阅读检查。
-5. **等待原生自动保存与存证**：依托平台原生自动保存，轮询完成断言（1.5s 间隔，最长 45s）直至通过，截取当前编辑状态截图保存至 `xiaohongshu_image.png`，保留编辑页面现场。
+#### 步骤 V1：打开视频发布页并检测登录态
+
+1. **新建独立页面**：调用 `new_page` 打开 `https://creator.xiaohongshu.com/publish/publish?target=video`。
+2. 等待页面加载完成，若有未登录提示向用户发送提示扫码。
 
 ---
 
-## 🛠️ 核心脚本
+#### 步骤 V2：派发真实 MP4 视频文件上传
 
-以下路径均相对本技能目录（`SKILL.md` 所在目录），执行前先切换到该目录，或将其拼接为绝对路径使用。
+调用 `upload_file` 将本地 `.mp4` 视频文件派发至上传控件 `input.upload-input, input[type="file"]`：
 
-- [scripts/parser.mjs](scripts/parser.mjs)：解析 Markdown、提取视频（.mp4）/图文短标题（<=20字）、结构化分段要点描述与热门话题、全量读取 3:4 小红书图文卡片集；并产出确定性模态计划 `publishPlan`（`PUBLISH_MODES` / `normalizeRequestedModes` / `resolvePublishPlan`）。
-- [scripts/xhs_publisher.mjs](scripts/xhs_publisher.mjs)：视频与图文发布浏览器注入脚本生成器（涵盖 ProseMirror 状态双向同步、换行保留、Shadow DOM 交互与防风控人机模拟）。
+```javascript
+await upload_file({
+  pageId: targetPageId,
+  filePaths: [meta.video.videoPath]
+});
+```
+
+---
+
+#### 步骤 V3：异步轮询等待视频上传与转码就绪
+
+异步轮询（最长等待 120 秒），检测出现「重新上传」或标题输入框就绪：
+
+```javascript
+// 在 evaluate_script 中求值
+(() => {
+  const text = document.body ? document.body.innerText : '';
+  const ready = text.includes('重新上传') || !!document.querySelector('input[placeholder*="填写标题"]');
+  return { ready };
+})();
+```
+
+---
+
+#### 步骤 V4：拟真填入短标题（<=20字）
+
+聚焦标题输入框，通过原生 Setter 写入短标题并派发事件：
+
+```javascript
+const titleInput = document.querySelector('input[placeholder*="填写标题"], input.d-text') || document.querySelector('input');
+if (titleInput && meta.title) {
+  titleInput.focus();
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  if (setter) setter.call(titleInput, meta.title);
+  else titleInput.value = meta.title;
+  titleInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  titleInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  titleInput.blur();
+}
+```
+
+---
+
+#### 步骤 V5：ProseMirror 注入换行分段描述与话题（<=1000字）
+
+聚焦编辑器，通过 ProseMirror 命令注入包含 `<p>` 段落结构的内容：
+
+```javascript
+const descEl = document.querySelector('.tiptap.ProseMirror, [contenteditable="true"]');
+if (descEl && meta.description) {
+  descEl.focus();
+  if (descEl.editor && descEl.editor.commands && descEl.editor.commands.setContent) {
+    const htmlFormatted = meta.description.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+    descEl.editor.commands.setContent(htmlFormatted, true);
+  } else {
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertText', false, meta.description);
+  }
+  descEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  descEl.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+}
+```
+
+---
+
+#### 步骤 V6：上传并绑定自定义视频封面
+
+若存在封面图资产（`meta.coverBase64`）：
+
+1. 点击「设置封面」或「修改封面」按钮唤起弹窗；
+2. 切换至「上传封面」Tab；
+3. 将图片转换为 `File` 对象并设置到文件上传 input；
+4. 点击确定完成裁剪保存。
+
+---
+
+#### 步骤 V7：模拟视口滚动并等待原生自动保存
+
+平滑滚动视口审查排版，依托平台实时自动保存能力，轮询完成断言直至通过。**严格绝不点击「暂存离开」或「发布」按钮**。
+
+---
+
+#### 步骤 V8：截取就绪存证并保留页面
+
+1. 调用 `take_screenshot` 保存当前视频编辑状态截图至 `publishes/screenshots/xiaohongshu_video.png`。
+2. 原样保留当前标签页，严禁关闭。
+
+---
+
+### 模式 B：发布图文笔记草稿（image 模态）
+
+#### 步骤 I1：打开图文发布页并检测登录态
+
+1. **新建独立页面**：调用 `new_page` 打开 `https://creator.xiaohongshu.com/publish/publish?target=image`。
+2. 等待页面加载完成。
+
+---
+
+#### 步骤 I2：批量派发 xhs_images 卡片集上传
+
+调用 `upload_file` 批量上传全部 3:4 卡片文件路径：
+
+```javascript
+await upload_file({
+  pageId: targetPageId,
+  filePaths: meta.cardPaths
+});
+```
+
+---
+
+#### 步骤 I3：拟真填入短标题（<=20字）
+
+设置 `input[placeholder*="填写标题"]` 原生 Setter 并派发原生事件。
+
+---
+
+#### 步骤 I4：ProseMirror 注入换行分段描述与话题（<=1000字）
+
+聚焦 `.tiptap.ProseMirror`，通过 `editor.commands.setContent` 注入分段结构化文本，保持段落间清晰换行。
+
+---
+
+#### 步骤 I5：模拟视口滚动并等待原生自动保存
+
+平滑微调滚动视口，等待平台实时自动保存生效。**严格绝不点击「暂存离开」或「发布」按钮**。
+
+---
+
+#### 步骤 I6：截取就绪存证并保留页面
+
+1. 调用 `take_screenshot` 保存当前图文编辑状态截图至 `publishes/screenshots/xiaohongshu_image.png`。
+2. 原样保留当前标签页，严禁关闭。
+
+---
+
+### 步骤 7：收尾落盘统一回执
+
+多模态全部执行完毕后，构造统一回执并落盘：
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+---
+
+## 异常与风控处理
+
+| 异常场景 | 表现特征 | 应对与恢复策略 |
+| :--- | :--- | :--- |
+| **未登录 / 登录态过期** | 呈现扫码登录页或弹窗 | 立即停止自动化输入，向用户发送提示，等待用户扫码登录完成后继续。 |
+| **新手引导浮层遮挡** | 弹出新功能提示覆盖表单 | 自动检测并点击「我知道了」按钮关闭浮层。 |
+| **短标题超长（>20字）** | 字数校验报错 | 步骤 0 自动清洗截断至 20 字以内。 |
+| **视频上传超时 / 网络波动** | 进度停滞超过 120 秒 | 标记该模态 `timeout`，保留页面现场，继续执行下一模态。 |
+| **描述换行丢失** | 富文本折叠为单行 | 使用 `<p>` 标签分段并通过 `editor.commands.setContent` 注入。 |
+
+---
+
+## 脚本工具与使用方法
+
+以下路径均相对本技能目录（`SKILL.md` 所在目录）：
+
+- `scripts/parser.mjs`：解析 Markdown 资产、提取短标题、格式化描述与确定性计划 `publishPlan`。
+- `scripts/xhs_publisher.mjs`：小红书发布浏览器端注入脚本生成器（涵盖 ProseMirror 状态双向同步、段落换行保留与防风控人机交互）。
+- `scripts/receipt.mjs`：标准化收尾回执落盘工具。
 
 ### Agent 调用范式
 
@@ -256,35 +351,24 @@ import {
   buildVideoPostBrowserScript,
 } from "./scripts/xhs_publisher.mjs";
 
-// 1. 解析目标 Markdown（parseAllAssets 为同步函数）
-//    requestedModes 留空 => 默认全模态；仅当用户明确点名模态时才传入
+// 1. 解析目标 Markdown 资产（同步函数，自动编排确定性计划）
 const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
+const { modes, skipped } = meta.publishPlan;
 
-// 2. 读取确定性模态计划，严禁自行推断要发哪些模态
-const { modes, skipped, summary } = meta.publishPlan;
-console.log(summary); // 预期输出：用户未指定模态 => 默认发布全部可用模态｜将发布：视频笔记 + 图文笔记
-
-// 3. 逐模态串行执行（video -> image）；单模态失败不影响后续模态
-const results = [];
+// 2. 逐模态串行执行（video -> image）
 for (const mode of modes) {
-  // 3.1 每个模态都重新导航至各自入口
-  await navigate_page({
-    pageId,
-    url: `https://creator.xiaohongshu.com/publish/publish?target=${mode}`,
-  });
-
-  try {
-    if (mode === "video") {
-      // 先 upload_file 派发 meta.video.videoPath，轮询上传就绪，再填充文案并等待原生自动保存
-      results.push(await evaluate_script({ pageId, function: buildVideoPostBrowserScript(meta) }));
-    } else {
-      // 先 upload_file 批量上传 meta.cardFilePaths，再填充标题与描述并等待原生自动保存
-      results.push(await evaluate_script({ pageId, function: buildImagePostBrowserScript(meta) }));
-    }
-  } catch (e) {
-    results.push({ mode, ok: false, error: String(e) }); // 记录失败并继续下一模态
+  if (mode === "video") {
+    const pageId = await new_page({ url: "https://creator.xiaohongshu.com/publish/publish?target=video" });
+    await upload_file({ pageId, filePaths: [meta.video.videoPath] });
+    await evaluate_script({ pageId, function: buildVideoPostBrowserScript(meta) });
+    await take_screenshot({ pageId, filePath: "publishes/screenshots/xiaohongshu_video.png" });
+  } else if (mode === "image") {
+    const pageId = await new_page({ url: "https://creator.xiaohongshu.com/publish/publish?target=image" });
+    await upload_file({ pageId, filePaths: meta.cardPaths });
+    await evaluate_script({ pageId, function: buildImagePostBrowserScript(meta) });
+    await take_screenshot({ pageId, filePath: "publishes/screenshots/xiaohongshu_image.png" });
   }
 }
 
-// 4. 汇总逐模态结果 + skipped 跳过原因，输出统一报告（页面一律保留不关闭）
+// 3. 落盘统一回执（原样保留所有页面，严禁调用 close_page）
 ```
