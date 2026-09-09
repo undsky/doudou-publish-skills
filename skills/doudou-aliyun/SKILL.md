@@ -11,15 +11,135 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 
 ---
 
-## 核心契约与执行红线
+## 核心规约与防风控原则
 
-1. **红线禁令（绝不越权）**：
-   - **绝对严禁触碰任何形式的公开发布按钮**：所有操作停留在当前编辑页就绪态，由人工做最终确认与手动发布。
-   - **绝对严禁关闭页面（严禁调用 `close_page`）**：执行完毕、异常或等待登录时，必须原样保留页面现场供人工核查接管。
-2. **客观断言与父级回执协议（父级串行调度的生命线）**：
-   - **客观内容态断言**：严禁以「已等待 N 秒」代替「已完成」，必须调用 `node scripts/completion_assert.mjs script doudou-aliyun article` 进行页内可求值断言（需正文 ≥ 200 字且封面图已绑定）。
-   - **收尾必须落盘回执**：无论成败收尾必须执行 `node scripts/receipt.mjs write <Markdown路径> --payload-file <json>` 写入回执（`publishes/receipts/doudou-aliyun.json`），终态仅限 `success` / `needs_login` / `failed` / `timeout` / `skipped`，缺回执会导致父级 `doudou-UGC` 永久阻塞。
-   - **统一存证与无污染规约**：存证截图固定保存为 `publishes/screenshots/aliyun_article.png`；所有临时脚本与中间文件强制放置在文章同名资产目录下，严禁污染项目工作区根目录。
+1. **发布入口与模态**：
+   - 阿里云开发者社区文章发布入口：`https://developer.aliyun.com/article/new`
+   - 支持长文技术文章（`article`）单模态发布。
+2. **模态判定与资产缺失处理**：
+   - 文章所需资产缺失（无可用 Markdown 正文）时，自动跳过并在最终报告与回执中明确登记原因，绝不中断父级编排。
+3. **资产规范与限制**：
+   - **文章标题**：`<= 100 字`（建议 30 字以内，自动清洗 Markdown 符号）；
+   - **内容摘要**：`100~250 字` 纯文本摘要；
+   - **Markdown 正文**：优先使用 `[article_name]_cdn.md`，自动过滤首行重复 H1，并**自动移除底部“### 引用链接”区块以符合阿里云防引流风控规约**；
+   - **封面图**：优先读取同名目录下 16:9 / 2.35:1 宽屏封面图。
+4. **安全隔离（绝对底线）**：
+   - **绝对严禁触碰任何形式的公开发布按钮**：绝不点击「发布」按钮；所有内容保留在当前编辑页就绪态，由创作者人工最终审阅并手动提交。
+   - **依托平台原生自动保存**：阿里云编辑器具备输入实时自动保存机制，**严禁主动寻找并点击「存为草稿」按钮**。
+5. **完成判定必须客观可断言（严禁以「已等待」代替「已完成」）**：
+   - 「静候自动保存生效」是等待动作，不是验收条件。必须以完成断言求值为 `true` 才允许判定完成。
+   - 断言未通过即为未完成：登记 `timeout` 并保留页面，**严禁登记为 `success`**。
+6. **收尾必须落盘回执（父级编排的唯一完成信号）**：
+   - 无论成功、失败、缺登录、超时还是跳过，收尾都必须调用 `scripts/receipt.mjs write` 写入回执。
+   - 父级 `doudou-UGC-skill` 不解析自然语言汇报，只读回执文件；缺回执会让父级永久阻塞后续平台。
+7. **防风控与真实人机行为模拟 (Anti-Bot & Human Simulation)**：
+   - **随机时延抖动**：输入前 300~600ms、步骤间 600~1500ms、点击悬停 400~700ms，严禁毫秒级并发；
+   - **真实事件完整性与 React 双向同步**：通过 `HTMLInputElement.prototype` 原生 Setter 输入标题，派发完整 input/change 事件，并调用 `field.validate(['title'])` 消除红字校验；
+   - **Markdown 注入与实时渲染**：注入 CodeMirror / textarea 并触发 input/keyup 事件以激活右侧实时预览；
+   - **穿透 React Fiber 绑定封面**：直接操作表单 React Fiber 实例的 `state.fileList` 绑定 CDN 封面，杜绝触发系统弹窗；
+   - **平滑视口滚动**：模拟人类自上而下视口滚动审阅。
+8. **发布完成后保留页面（严禁自动关闭）**：
+   - 每次执行必须调用 `new_page` 新建独立标签页（严禁复用已有页面）；全流程完成后**严禁调用 `close_page` 或关闭标签页**，原样保留页面现场供人工最终核验。
+   - 未登录、扫码验证、网络超时等异常中断场景同样原样保留页面。
+
+---
+
+## 完成断言与回执协议 (Completion Assertion & Receipt)
+
+> 本段是**父级串行编排的硬契约**。父级（`doudou-UGC-skill`）不读自然语言汇报，只读落盘回执；没有回执，父级会认为本平台仍在进行中而永久阻塞后续平台。
+
+### 完成断言
+
+**严禁以「已等待 N 秒」代替「已完成」。** 必须轮询下面这条可求值的客观判据：
+
+| 项 | 值 |
+| :--- | :--- |
+| **断言规则** | 标题非空 + 正文字数 ≥ 200 + 封面已绑定或 Fiber 实例注入成功 |
+| **超时窗口** | 45 秒，轮询间隔 1.5 秒 |
+| **通过** | 登记 `success` |
+| **超时** | 登记 `timeout`（`statusText` 说明未在 45s 内成立），保留页面，**严禁登记为 success** |
+
+```javascript
+// 在 evaluate_script 中求值，返回结构化断言结果
+() => {
+  const titleEl = document.querySelector('input[placeholder*="标题"]');
+  const title = titleEl ? titleEl.value.trim() : '';
+  const bodyText = document.querySelector('.left-content textarea.textarea')?.value || document.body.innerText;
+  const bodyChars = bodyText.length;
+
+  let coverBound = Boolean(document.querySelector('.upload-item img, [class*=upload-item] img'));
+  if (!coverBound) {
+    const form = document.querySelector('form.public-article-form');
+    if (form) {
+      const k = Object.keys(form).find(x => x.startsWith('__reactFiber') || x.startsWith('__reactInternalInstance'));
+      let fiber = form[k];
+      while (fiber) {
+        if (fiber.stateNode?.state?.fileList?.[0]?.imgURL) {
+          coverBound = true;
+          break;
+        }
+        fiber = fiber.return;
+      }
+    }
+  }
+  const passed = Boolean(title.length > 0 && bodyChars >= 200 && coverBound);
+  return { passed, title, bodyChars, coverBound };
+};
+```
+
+### 状态枚举（六个终态，仅此六种可写入回执）
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `success` | 草稿已保存且完成断言通过 |
+| `ready_for_review` | 内容已填入就绪待人工发布 |
+| `needs_login` | 登录态缺失/过期，已保留页面待补登 |
+| `failed` | 明确失败（选择器失效、注入异常） |
+| `timeout` | 完成断言在 45s 窗口内未成立 |
+| `skipped` | 资产缺失或用户主动跳过 |
+
+### 存证截图统一命名
+
+统一存至同名文章目录下的 `publishes/screenshots/` 目录：
+- 长文文章：`publishes/screenshots/aliyun_article.png`（格式 `<platformSlug>_<mode>.png`）
+
+### 临时脚本与中间文件存放规约（严禁污染工作区根目录）
+
+- **统一落盘位置**：自动化发文执行过程中，凡需生成的任何临时注入脚本、临时数据载荷（`--payload-file <json>`）、调试脚本或中间辅助文件，**严禁放置在当前工作区根目录、项目根目录或技能目录中**！
+- **强制同名资产目录**：所有临时文件**必须统一放置在目标 Markdown 文章对应的同名资产目录下**，文件名建议统一以 `scratch_` 为前缀。
+- **可追溯与可清理**：执行完毕且回执落盘后，临时中间文件安全留存于同名资产目录供事后复核排查。
+
+### 回执落盘（收尾必调，异常也要写）
+
+```bash
+node scripts/receipt.mjs write <Markdown文件绝对路径> --payload-file <json文件路径>
+```
+
+> 载荷含正则/反斜杠时**务必用 `--payload-file`**，直接内联 `--payload` 会被 shell 转义破坏。
+
+`--payload` 结构示例：
+
+```json
+{
+  "skill": "doudou-aliyun",
+  "platform": "阿里云开发者社区",
+  "platformSlug": "aliyun",
+  "startedAt": "<技能启动时即记录，不要收尾时倒填>",
+  "results": [
+    {
+      "mode": "article",
+      "modeDesc": "长文文章",
+      "status": "success",
+      "statusText": "草稿已就绪",
+      "title": "……",
+      "screenshot": "screenshots/aliyun_article.png",
+      "assertion": { "rule": "标题非空 + 正文字数 ≥ 200 + 封面已绑定", "passed": true }
+    }
+  ]
+}
+```
+
+脚本会强校验并拒绝不合规回执：非终态 `status`、缺 `statusText`、非 `skipped` 却缺 `screenshot` 一律报错退出。
 
 ---
 
