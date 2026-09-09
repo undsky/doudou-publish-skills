@@ -172,7 +172,7 @@ export function buildArticleBrowserScript(meta) {
     title: meta.title,
     author: meta.author,
     hasCoverSet,
-    url: finalUrl,
+    url: window.location.href,
     timestamp: Date.now()
   };
 };`;
@@ -238,7 +238,7 @@ export function buildStickerBrowserScript(meta) {
     appmsgid,
     title: meta.title,
     cardCount: meta.stickerCount,
-    url: finalUrl,
+    url: window.location.href,
     timestamp: Date.now()
   };
 };`;
