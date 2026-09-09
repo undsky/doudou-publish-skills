@@ -75,21 +75,13 @@ export function buildImagePostBrowserScript(meta) {
   }
   await sleep(600);
 
-  // 4. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-  window.__doudou_cover_status = 'uploaded';
-
-  // 5. 依托平台原生自动保存，平滑停留在当前编辑页供人工复核（严禁点击暂存离开跳出页面，严禁触发发布）
-  console.log('[doudou-xiaohongshu] 依托小红书原生自动保存，等待 800ms 并保留编辑页面...');
-  await sleep(800);
+  // 4. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-xiaohongshu] 图文笔记填入完毕，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     mode: 'image',
     title: meta.title,
     url: location.href,
@@ -250,20 +242,13 @@ export function buildVideoPostBrowserScript(meta) {
     }
   }
 
-  // 6. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-
-  // 7. 依托平台原生自动保存，平滑停留在当前编辑页供人工复核（严禁点击暂存离开跳出页面，严禁触发发布）
-  console.log('[doudou-xiaohongshu] 依托小红书原生自动保存，等待 800ms 并保留编辑页面...');
-  await sleep(800);
+  // 6. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-xiaohongshu] 视频作品填入完毕，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     mode: 'video',
     title: cleanTitle,
     coverUploaded,

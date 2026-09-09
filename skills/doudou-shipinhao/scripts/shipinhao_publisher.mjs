@@ -84,7 +84,6 @@ export function buildSaveDraftBrowserScript(meta) {
   const meta = {
     shortTitle: ${JSON.stringify(meta.shortTitle || '')},
     description: ${JSON.stringify(meta.videoDesc || meta.description || '')},
-    tags: ${JSON.stringify(meta.tags || [])},
     coverBase64: ${JSON.stringify(meta.coverBase64 || meta.cover?.base64 || meta.videoCover?.base64 || '')}
   };
 
@@ -235,25 +234,13 @@ export function buildSaveDraftBrowserScript(meta) {
     }
   }
 
-  // 5. 视口轻微微调触发渲染
-  try {
-    const scrollContainer = doc.querySelector('#container-wrap') || doc.documentElement || window;
-    if (scrollContainer.scrollBy) {
-      scrollContainer.scrollBy({ top: 150, behavior: 'smooth' });
-      await sleep(200);
-      scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
-      await sleep(200);
-    }
-  } catch (e) {}
-
-  // 6. 等待平台就绪与自动保存（严格绝不点击「保存草稿」或「发表」按钮，保留编辑页现场）
-  console.log('[doudou-shipinhao] 视频作品信息已填入完毕，等待平台原生自动保存与就绪 (保留在编辑页)...');
-  await sleep(800);
+  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-shipinhao] 视频作品信息已填入完毕，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     shortTitle: cleanTitle,
     descLength: meta.description.length,
     coverUploaded

@@ -10,7 +10,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const articleData = parseArticle(markdownFilePath);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
-    summary: articleData.summary,
     bodyContent: articleData.bodyContent,
     cover: articleData.cover
   });
@@ -206,22 +205,13 @@ export function buildBrowserPublishScript(markdownFilePath) {
     }
   }
 
-  // 5. 单次轻度视口微调触发渲染与懒加载
-  window.scrollTo({ top: 150, behavior: 'smooth' });
-  await delay(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await delay(800);
-
-  const currentUrl = window.location.href;
-  const draftIdMatch = currentUrl.match(/[?&]draftId=([^&]+)/);
-  const draftId = draftIdMatch ? draftIdMatch[1] : null;
-
-  log('🎉 腾讯云开发者社区文章内容填入完毕，自动保存已就绪！(draftId: ' + (draftId || '就绪') + ')');
+  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  log('🎉 腾讯云开发者社区文章内容填入完毕，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     draftId,
     url: currentUrl,
     title: data.title,

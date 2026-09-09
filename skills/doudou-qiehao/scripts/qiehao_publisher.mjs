@@ -1,7 +1,7 @@
 /**
  * 企鹅号（腾讯内容开放平台）自动化发布浏览器脚本生成器
  * 核心能力：
- * 1. 真实人工行为模拟：微随机时延抖动、全链路 DOM 事件派发、视口平滑滚动排版审阅、拟真悬停。
+ * 1. 真实人工行为模拟：微随机时延抖动、全链路 DOM 事件派发、拟真悬停。
  * 2. 企鹅号 ExEditor (ProseMirror) 富文本极速双向同步：标题绑定、完整正文 HTML 注入。
  * 3. 弹窗式封面真实上传：模拟点击「设置封面」插槽，注入真实 File 对象并自动完成裁切弹窗确认。
  * 4. 草稿安全隔离：严格限定为存草稿，绝不触碰任何形式的公开发布。
@@ -19,11 +19,7 @@ export function buildPublishBrowserScript(meta) {
   return `async () => {
   const meta = {
     title: ${JSON.stringify(meta.articleTitle)},
-    summary: ${JSON.stringify(meta.articleSummary || '')},
-    category: ${JSON.stringify(meta.category || '科技')},
-    tags: ${JSON.stringify(meta.tags || [])},
     htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
-    articleImages: ${JSON.stringify(meta.articleImages || [])},
     coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
     coverCdnUrl: ${JSON.stringify(meta.cover?.cdnUrl || meta.cover?.url || '')},
     coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
@@ -200,25 +196,15 @@ export function buildPublishBrowserScript(meta) {
     }
   }
 
-  // 5. 单次轻度视口微调触发懒加载
-  window.scrollTo({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(600);
-
-  // 提取正文字数
-  const wordCountEl = document.querySelector('.tool_publish_buttons_text-cls3VQdb, .tool_message-cls1f3u-');
-  const wordCount = wordCountEl ? wordCountEl.innerText : '已统计';
-
-  log('🎉 企鹅号图文内容填入完毕，平台原生自动保存已就绪！');
+  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  log('🎉 企鹅号图文内容填入完毕，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     title: meta.title,
-    wordCount: wordCount,
-    coverUploaded: coverUploaded,
+        coverUploaded: coverUploaded,
     logs
   };
 };`;

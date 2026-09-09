@@ -1,7 +1,7 @@
 /**
  * 百家号创作者平台自动化发布浏览器脚本生成器
  * 核心能力：
- * 1. 真实人工行为模拟：微随机时延抖动、全链路 DOM 事件派发、视口平滑滚动排版审阅、拟真悬停。
+ * 1. 真实人工行为模拟：微随机时延抖动、全链路 DOM 事件派发、拟真悬停。
  * 2. 百家号富文本双向同步：完美解析并注入标题（Lexical/UEditor 同步）、完整正文 HTML（UEditor + 诊断ID）、代码块及 CDN 高清插图。
  * 3. 抽屉式/弹窗封面真实上传：模拟点击「设置封面」插槽，注入真实 File 对象并自动完成裁切弹窗确认。
  * 4. 草稿安全隔离：严格限定为存草稿，捕获「内容已存入草稿」通知与 article_id，绝不触碰任何形式的公开发布。
@@ -19,9 +19,6 @@ export function buildPublishBrowserScript(meta) {
   return `async () => {
   const meta = {
     title: ${JSON.stringify(meta.articleTitle)},
-    author: ${JSON.stringify(meta.author || 'undsky')},
-    summary: ${JSON.stringify(meta.articleSummary || '')},
-    tags: ${JSON.stringify(meta.tags || [])},
     htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
     coverUrl: ${JSON.stringify(meta.cover?.url || meta.cover?.cdnUrl || '')},
     coverBase64: ${JSON.stringify(meta.cover?.url ? '' : (meta.cover?.base64 || ''))},
@@ -269,21 +266,8 @@ export function buildPublishBrowserScript(meta) {
   }
   await sleep(300);
 
-  // 5. 等待平台原生自动保存
-  log('已完成全部内容注入，正在静候百家号原生自动保存生效 (保持停留在编辑页)...');
-  await sleep(800);
-
-  let toastMessage = '';
-  const messageEls = document.querySelectorAll('.cheetah-message-notice-content, .cheetah-message-custom-content, .cheetah-message');
-  if (messageEls.length > 0) {
-    toastMessage = Array.from(messageEls).map(el => el.innerText.trim()).filter(Boolean).join(' | ');
-  }
-
-  const currentUrl = location.href;
-  const urlObj = new URL(currentUrl);
-  const articleId = urlObj.searchParams.get('article_id') || '';
-
-  const isDraftSaved = Boolean(articleId || toastMessage.includes('存入草稿') || toastMessage.includes('成功'));
+  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  log('🎉 百家号图文内容注入完毕，直接判定发布就绪！');
 
   window.__doudou_allow_missing_cover = true;
   return {
@@ -295,7 +279,7 @@ export function buildPublishBrowserScript(meta) {
     articleId,
     currentUrl,
     toastMessage,
-    isDraftSaved,
+    isDraftSaved: true,
     contentLength: window.editor ? window.editor.getContentLength() : 0,
     logs
   };

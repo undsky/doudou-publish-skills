@@ -135,20 +135,13 @@ export function buildArticleBrowserScript(meta) {
       console.warn('[doudou-douyin] 头图上传异常:', e);
     }
   }
-  // 4. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-
-  // 5. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
-  console.log('[doudou-douyin] 文章已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
-  await sleep(800);
+  // 4. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-douyin] 文章已注入完成，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     title: cleanTitle,
     url: location.href,
     timestamp: Date.now()
@@ -260,21 +253,13 @@ export function buildImagePostEditorScript(meta) {
   }
   await sleep(600);
 
-  // 4. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-  window.__doudou_cover_status = 'uploaded';
-
-  // 5. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
-  console.log('[doudou-douyin] 图文卡片与文案已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
-  await sleep(800);
+  // 4. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-douyin] 图文卡片与文案已注入完成，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     title: cleanTitle,
     uploadFinished,
     url: location.href,
@@ -449,20 +434,13 @@ export function buildVideoPostEditorScript(meta) {
     await sleep(300);
   }
 
-  // 5. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-
-  // 6. 等待平台原生自动保存生效（保留停留在编辑页，绝不点击「暂存离开」或「发布」按钮）
-  console.log('[doudou-douyin] 视频及作品信息已注入完成，正在等待抖音原生自动保存生效 (保留在编辑页)...');
-  await sleep(800);
+  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-douyin] 视频及作品信息已注入完成，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     title: cleanTitle,
     coverUploaded,
     uploadFinished,

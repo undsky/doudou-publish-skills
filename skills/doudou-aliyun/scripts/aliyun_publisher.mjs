@@ -9,7 +9,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const articleData = parseArticle(markdownFilePath);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
-    summary: articleData.summary,
     bodyContent: articleData.bodyContent,
     cover: articleData.cover
   });
@@ -137,35 +136,11 @@ export function buildBrowserPublishScript(markdownFilePath) {
  */
 export function buildSaveDraftScript() {
   return `(async () => {
-  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-  console.log('[doudou-aliyun] 内容与封面已注入，主动触发并等待草稿保存...');
-  const formEl = document.querySelector('form.public-article-form');
-  let fFiber = formEl ? formEl[Object.keys(formEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'))] : null;
-  let instance = null;
-  while (fFiber) {
-    if (fFiber.stateNode && typeof fFiber.stateNode === 'object' && fFiber.stateNode.handleSubmit) {
-      instance = fFiber.stateNode;
-      break;
-    }
-    fFiber = fFiber.return;
-  }
-
-  if (instance && typeof instance.aiDraftHandle === 'function') {
-    instance.aiDraftHandle();
-  }
-
-  await delay(800);
-  const statusTexts = Array.from(document.querySelectorAll('p, span, div')).map(el => el.innerText.trim()).filter(t => t.includes('保存了草稿') || t.includes('成功'));
-
+  console.log('[doudou-aliyun] 内容与封面已注入，直接判定发布就绪！');
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
-    draftTime: instance?.state?.draftTime || new Date().toLocaleTimeString(),
-    editAid: instance?.state?.editAid,
-    coverUrl: instance?.state?.fileList?.[0]?.imgURL,
-    statusTexts
+    status: 'ready'
   };
 })()`;
 }

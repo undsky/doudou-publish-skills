@@ -10,8 +10,6 @@ export function buildBrowserPublishScript(markdownFilePath) {
   const articleData = parseArticle(markdownFilePath);
   const jsonPayload = JSON.stringify({
     title: articleData.title,
-    summary: articleData.summary,
-    topics: articleData.topics,
     cover: articleData.cover,
     bodyContent: articleData.bodyContent,
     htmlContent: articleData.htmlContent

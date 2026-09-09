@@ -15,7 +15,6 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
 
   const jsonPayload = JSON.stringify({
     title: articleData.title,
-    summary: articleData.summary,
     fid: targetFid,
     forumName: targetForumName,
     bodyContent: articleData.bodyContent,

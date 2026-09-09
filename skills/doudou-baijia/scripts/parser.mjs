@@ -397,7 +397,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
  * @param {string} author 
  * @returns {object}
  */
-export function parseAllAssets(markdownFilePath, author = 'undsky') {
+export function parseAllAssets(markdownFilePath) {
   const absPath = path.resolve(markdownFilePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`找不到指定的 Markdown 文件: ${absPath}`);
@@ -405,19 +405,12 @@ export function parseAllAssets(markdownFilePath, author = 'undsky') {
 
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const articleTitle = extractArticleTitle(rawContent);
-  const articleSummary = extractArticleSummary(rawContent, articleTitle);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const tags = inferTags(rawContent, articleTitle, 3);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
 
   return {
     markdownFilePath: absPath,
     articleTitle,
-    author,
-    articleSummary,
-    tags,
     articleHtml,
     cover
   };
@@ -435,9 +428,6 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
   console.log(JSON.stringify({
     articleTitle: result.articleTitle,
     titleLength: result.articleTitle.length,
-    author: result.author,
-    articleSummary: result.articleSummary,
-    tags: result.tags,
     articleHtmlType: result.articleHtml.type,
     articleHtmlLength: result.articleHtml.htmlContent.length,
     hasCover: result.cover.hasCover,

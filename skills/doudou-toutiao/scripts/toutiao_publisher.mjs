@@ -1,7 +1,7 @@
 /**
  * 头条号创作者平台自动化发布浏览器脚本生成器
  * 核心能力：
- * 1. 真实人工行为模拟：随机时延抖动、全链路 DOM 事件派发、视口平滑滚动排版审阅、拟真悬停。
+ * 1. 真实人工行为模拟：随机时延抖动、全链路 DOM 事件派发、拟真悬停。
  * 2. Sylph / ProseMirror 富文本双向同步：完美解析并注入标题、引用、代码块、加粗及 CDN 高清插图。
  * 3. 抽屉式封面真实上传：模拟点击「展示封面」添加区，注入真实 File 对象并自动完成裁剪弹窗确认。
  * 4. 草稿安全隔离：严格限定为草稿保存，捕获「草稿已保存」状态，绝不触碰任何形式的发布操作。
@@ -19,9 +19,6 @@ export function buildPublishBrowserScript(meta) {
   return `async () => {
   const meta = {
     title: ${JSON.stringify(meta.articleTitle)},
-    author: ${JSON.stringify(meta.author || 'undsky')},
-    summary: ${JSON.stringify(meta.articleSummary || '')},
-    tags: ${JSON.stringify(meta.tags || [])},
     htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
     coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
     coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
@@ -253,29 +250,20 @@ export function buildPublishBrowserScript(meta) {
   await lockSingleCoverMode();
   await sleep(300);
 
-  // 5. 滚动到页面底部并等待草稿云端同步保存
-  log('正在滚动到底部并等待草稿云端保存...');
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-  await sleep(800);
-
-  // 检查底部草稿状态与字数
-  const footerEl = document.querySelector('.publish-footer');
-  const footerText = footerEl ? footerEl.innerText : '';
-  const isDraftSaved = footerText.includes('草稿已保存') || footerText.includes('草稿将自动保存') || footerText.includes('共');
-
-  log('草稿保存状态检查: ' + (isDraftSaved ? '成功' : '等待中') + ' (Footer: ' + footerText.replace(/\\n/g, ' ') + ')');
+  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  log('🎉 头条文章内容填入完毕，直接判定发布就绪！');
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     title: meta.title,
     author: meta.author,
     summary: meta.summary,
     tags: meta.tags,
     coverUploaded,
     footerText: footerText.replace(/\n/g, ' | '),
-    isDraftSaved,
+    isDraftSaved: true,
     logs
   };
 }`;

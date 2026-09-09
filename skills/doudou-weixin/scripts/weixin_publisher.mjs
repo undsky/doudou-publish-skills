@@ -156,20 +156,9 @@ export function buildArticleBrowserScript(meta) {
   }
   await sleep(300);
 
-  // 6. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-
-  // 7. 依托微信公众号原生自动防抖保存（等待 800ms，无需主动触发草稿保存按钮）
-  console.log('[doudou-weixin] 依托微信原生自动保存机制，等待 800ms...');
-  await sleep(800);
-
-  const finalUrl = location.href;
-  const matchDraft = finalUrl.match(/appmsgid=(\d+)/);
-  const appmsgid = matchDraft ? matchDraft[1] : null;
-  const isSaved = document.body.innerText.includes('已保存') || !!appmsgid || true;
+  // 6. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-weixin] 微信公众号文章内容填入完毕，直接判定发布就绪！');
+  const appmsgid = null;
 
   const coverArea = document.querySelector('#js_cover_area');
   const hasCoverSet = !!(coverArea && coverArea.querySelector('.select-cover__preview:not([style*="display: none"]), img, [style*="background-image"]'));
@@ -177,7 +166,7 @@ export function buildArticleBrowserScript(meta) {
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     type: 'article',
     appmsgid,
     title: meta.title,
@@ -237,26 +226,14 @@ export function buildStickerBrowserScript(meta) {
   }
   await sleep(600);
 
-  // 3. 视口轻微微调触发排版渲染
-  window.scrollBy({ top: 150, behavior: 'smooth' });
-  await sleep(200);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(200);
-  window.__doudou_cover_status = 'uploaded';
-
-  // 4. 依托微信公众号原生自动防抖保存（等待 800ms，无需主动触发草稿保存按钮）
-  console.log('[doudou-weixin] 依托微信原生自动保存机制，等待 800ms...');
-  await sleep(800);
-
-  const finalUrl = location.href;
-  const matchDraft = finalUrl.match(/appmsgid=(\d+)/);
-  const appmsgid = matchDraft ? matchDraft[1] : null;
-  const isSaved = document.body.innerText.includes('已保存') || !!appmsgid || true;
+  // 3. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  console.log('[doudou-weixin] 微信贴图内容填入完毕，直接判定发布就绪！');
+  const appmsgid = null;
 
   return {
     success: true,
     isReady: true,
-    status: 'ready_auto_saved',
+    status: 'ready',
     type: 'sticker',
     appmsgid,
     title: meta.title,
