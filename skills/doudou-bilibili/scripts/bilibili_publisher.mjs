@@ -295,9 +295,10 @@ export async function buildBrowserPublishScript(markdownFilePath) {
  */
 export function buildPrepareVideoUploadBrowserScript() {
   return `() => {
-  // 查找 B站视频上传页面中的 input[type="file"]
   const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
-  const targetInput = inputs.find(i => i.name === 'buploader' && i.accept.includes('.mp4')) 
+  const targetInput = inputs.find(i => i.closest('.bcc-upload-wrapper') && i.accept && i.accept.includes('.mp4'))
+    || inputs.find(i => i.accept && i.accept.includes('.mp4') && i.name !== 'buploader')
+    || inputs.find(i => i.name === 'buploader' && i.accept && i.accept.includes('.mp4')) 
     || inputs.find(i => i.accept && i.accept.includes('.mp4')) 
     || inputs[0];
 
