@@ -13,7 +13,7 @@
  * @returns {string}
  */
 export function buildPrepareUploadBrowserScript() {
-  return `(() => {
+  return `() => {
   const iframe = document.querySelector('iframe[name="content"]');
   const doc = iframe && iframe.contentDocument ? iframe.contentDocument : document;
   const fileInput = doc.querySelector('input[type="file"]');
@@ -30,7 +30,7 @@ export function buildPrepareUploadBrowserScript() {
     return { success: true, id: fileInput.id };
   }
   return { success: false, error: '未找到 input[type="file"]' };
-})()`;
+}`;
 }
 
 /**
@@ -39,7 +39,7 @@ export function buildPrepareUploadBrowserScript() {
  * @returns {string}
  */
 export function buildWaitUploadReadyBrowserScript(maxWaitSeconds = 120) {
-  return `(async () => {
+  return `async () => {
   const maxWait = ${maxWaitSeconds} * 1000;
   const start = Date.now();
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -54,15 +54,13 @@ export function buildWaitUploadReadyBrowserScript(maxWaitSeconds = 120) {
   while (Date.now() - start < maxWait) {
     const doc = getDoc();
     const bodyText = doc.body ? doc.body.innerText : '';
-    const hasCancelUpload = bodyText.includes('取消上传');
     
-    // 检查是否有 video 标签或封面预览
-    const hasVideo = !!doc.querySelector('video, .cover-preview, [class*="cover-preview"]');
+    // 检查是否有视频封面预览或编辑按钮，且没有上传进度百分比
+    const hasVideo = !!doc.querySelector('video, .cover-preview, [class*="cover-preview"], .vertical-img-wrap, .horizon-img-wrap');
     const saveBtn = Array.from(doc.querySelectorAll('button, .weui-desktop-btn')).find(b => b.innerText.includes('保存草稿'));
-    const isSaveDisabled = saveBtn ? (saveBtn.disabled || saveBtn.className.includes('disabled')) : true;
+    const isSaveDisabled = saveBtn ? (saveBtn.disabled || saveBtn.className.includes('disabled') || saveBtn.className.includes('weui-desktop-btn_disabled')) : true;
 
-    // 当取消上传不再出现，且保存草稿按钮可用（或有视频存在）时视为就绪
-    if (!hasCancelUpload && (hasVideo || !isSaveDisabled)) {
+    if ((hasVideo || !isSaveDisabled) && !bodyText.includes('%')) {
       console.log('[doudou-shipinhao] 视频上传就绪！');
       return { success: true, elapsedMs: Date.now() - start };
     }
@@ -71,7 +69,7 @@ export function buildWaitUploadReadyBrowserScript(maxWaitSeconds = 120) {
   }
 
   return { success: false, error: '等待视频上传超时（超过 ' + ${maxWaitSeconds} + ' 秒）' };
-})()`;
+}`;
 }
 
 /**
@@ -80,14 +78,18 @@ export function buildWaitUploadReadyBrowserScript(maxWaitSeconds = 120) {
  * @returns {string}
  */
 export function buildSaveDraftBrowserScript(meta) {
-  return `(async () => {
+  const coverUrl = meta.cover?.cdnUrl || meta.cover?.url || '';
+  const coverBase64 = coverUrl ? '' : (meta.coverBase64 || meta.cover?.base64 || meta.videoCover?.base64 || '');
+
+  return `async () => {
   const meta = {
     shortTitle: ${JSON.stringify(meta.shortTitle || '')},
     description: ${JSON.stringify(meta.videoDesc || meta.description || '')},
-    coverBase64: ${JSON.stringify(meta.coverBase64 || meta.cover?.base64 || meta.videoCover?.base64 || '')}
+    coverUrl: ${JSON.stringify(coverUrl)},
+    coverBase64: ${JSON.stringify(coverBase64)}
   };
 
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 150)));
 
   const getDoc = () => {
     const iframe = document.querySelector('iframe[name="content"]');
@@ -109,8 +111,7 @@ export function buildSaveDraftBrowserScript(meta) {
   // 2. 填写短标题（严格限制 16 字以内）
   let cleanTitle = meta.shortTitle.trim();
   if (cleanTitle.length > 16) {
-    cleanTitle = cleanTitle.substring(0, 15) + '…';
-    if (cleanTitle.length > 16) cleanTitle = cleanTitle.substring(0, 16);
+    cleanTitle = cleanTitle.substring(0, 16).trim();
   }
 
   const titleInput = doc.querySelector('input[placeholder*="填写短标题"]');
@@ -147,7 +148,7 @@ export function buildSaveDraftBrowserScript(meta) {
   await sleep(350);
 
   // 3. 填写多行分段描述（严格限制 1000 字以内）
-  const editor = doc.querySelector('.input-editor[contenteditable="true"]') || doc.querySelector('[contenteditable="true"]');
+  const editor = doc.querySelector('.input-editor') || doc.querySelector('[contenteditable]');
   if (editor && meta.description) {
     console.log('[doudou-shipinhao] 填写多行分段描述...');
     editor.focus();
@@ -175,58 +176,90 @@ export function buildSaveDraftBrowserScript(meta) {
 
   // 4. 自定义视频封面上传（若提供了封面图）
   let coverUploaded = false;
-  if (meta.coverBase64) {
-    console.log('[doudou-shipinhao] 检测到视频封面图，尝试设置视频封面...');
+  if (meta.coverUrl || meta.coverBase64) {
+    console.log('[doudou-shipinhao] 检测到视频封面资产，尝试设置视频封面...');
     try {
-      const makeFile = (base64Str, name = 'cover.png') => {
-        const raw = atob(base64Str.replace(/^data:[^;]+;base64,/, ''));
-        const arr = new Uint8Array(raw.length);
-        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-        const blob = new Blob([arr], { type: 'image/png' });
-        return new File([blob], name, { type: 'image/png' });
+      const getFile = async () => {
+        if (meta.coverUrl) {
+          try {
+            const res = await fetch(meta.coverUrl);
+            if (res.ok) {
+              const blob = await res.blob();
+              return new File([blob], 'cover.png', { type: blob.type || 'image/png' });
+            }
+          } catch (e) {
+            console.warn('[doudou-shipinhao] CDN 封面拉取异常，尝试降级:', e);
+          }
+        }
+        if (meta.coverBase64) {
+          const raw = atob(meta.coverBase64.replace(/^data:[^;]+;base64,/, ''));
+          const arr = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+          const blob = new Blob([arr], { type: 'image/png' });
+          return new File([blob], 'cover.png', { type: 'image/png' });
+        }
+        return null;
       };
 
-      // 寻找更换封面/设置封面按钮或直接寻找图片上传 input
-      let coverInput = doc.querySelector('input[type="file"][accept*="image"]');
-      if (!coverInput) {
-        const coverBtn = Array.from(doc.querySelectorAll('button, span, div, a')).find(el => {
-          const txt = el.innerText?.trim();
-          return (txt === '设置封面' || txt === '更换封面' || txt === '选择封面' || txt === '修改封面') && el.offsetWidth > 0;
-        });
-        if (coverBtn) {
-          coverBtn.click();
+      const file = await getFile();
+      if (file) {
+        // 寻找更换封面/设置封面/编辑按钮
+        const editBtn = doc.querySelector('.vertical-img-wrap .edit-btn')
+          || doc.querySelector('.horizon-img-wrap .edit-btn')
+          || Array.from(doc.querySelectorAll('button, span, div, a')).find(el => {
+            const txt = el.innerText?.trim();
+            return (txt === '编辑' || txt === '设置封面' || txt === '更换封面' || txt === '选择封面' || txt === '修改封面') && el.offsetWidth > 0;
+          });
+
+        if (editBtn) {
+          editBtn.click();
           await sleep(1000);
-          coverInput = doc.querySelector('input[type="file"][accept*="image"]') || document.querySelector('input[type="file"][accept*="image"]');
         }
-      }
 
-      if (coverInput) {
-        const file = makeFile(meta.coverBase64, 'cover.png');
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        coverInput.files = dt.files;
-        coverInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-        await sleep(1500);
-
-        // 如果有确认弹窗/裁剪确定按钮
-        const confirmBtn = Array.from(doc.querySelectorAll('button, .weui-desktop-btn, [class*="dialog"] button')).find(b => {
-          const txt = b.innerText?.trim();
-          return (txt === '确定' || txt === '完成') && !b.disabled;
-        }) || Array.from(document.querySelectorAll('button, [class*="dialog"] button')).find(b => {
-          const txt = b.innerText?.trim();
-          return (txt === '确定' || txt === '完成') && !b.disabled;
+        // 定位编辑卡片/封面弹窗中的图片上传 input
+        const targetDialog = Array.from(doc.querySelectorAll('.weui-desktop-dialog')).find(d => {
+          const wrp = d.closest('.weui-desktop-dialog__wrp') || d;
+          return (d.innerText.includes('编辑个人主页卡片') || d.innerText.includes('编辑封面')) && window.getComputedStyle(wrp).display !== 'none';
         });
 
-        if (confirmBtn) {
-          confirmBtn.click();
+        const coverInput = (targetDialog && targetDialog.querySelector('input[type="file"][accept*="image"]'))
+          || doc.querySelector('input[type="file"][accept*="image"]');
+
+        if (coverInput) {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          coverInput.files = dt.files;
+          coverInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          await sleep(1500);
+
+          // 1) 裁剪封面图确定按钮
+          const cropDialog = Array.from(doc.querySelectorAll('.weui-desktop-dialog')).find(d => {
+            const wrp = d.closest('.weui-desktop-dialog__wrp') || d;
+            return (d.innerText.includes('裁剪封面图') || d.innerText.includes('裁剪')) && window.getComputedStyle(wrp).display !== 'none';
+          });
+          if (cropDialog) {
+            const cropOkBtn = Array.from(cropDialog.querySelectorAll('button, .weui-desktop-btn')).find(b => b.innerText.trim() === '确定' && !b.disabled);
+            if (cropOkBtn) {
+              cropOkBtn.click();
+              await sleep(1000);
+            }
+          }
+
+          // 2) 编辑个人主页卡片确认按钮
+          const cardDialog = Array.from(doc.querySelectorAll('.weui-desktop-dialog')).find(d => {
+            const wrp = d.closest('.weui-desktop-dialog__wrp') || d;
+            return d.innerText.includes('编辑个人主页卡片') && window.getComputedStyle(wrp).display !== 'none';
+          });
+          if (cardDialog) {
+            const cardConfirmBtn = Array.from(cardDialog.querySelectorAll('button, .weui-desktop-btn')).find(b => b.innerText.trim() === '确认' && !b.disabled);
+            if (cardConfirmBtn) {
+              cardConfirmBtn.click();
+              await sleep(800);
+            }
+          }
+
           coverUploaded = true;
-          window.__doudou_cover_status = 'uploaded';
           console.log('[doudou-shipinhao] 视频封面上传确认成功');
-          await sleep(800);
-        } else {
-          coverUploaded = true;
-          window.__doudou_cover_status = 'uploaded';
-          console.log('[doudou-shipinhao] 视频封面文件已注入');
         }
       }
     } catch (e) {
@@ -245,5 +278,5 @@ export function buildSaveDraftBrowserScript(meta) {
     descLength: meta.description.length,
     coverUploaded
   };
-})()`;
+}`;
 }

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
+import { resolveCoverFromManifest } from './asset_resolver.mjs';
 
 /**
  * 提取并清洗原始文章标题
@@ -34,14 +34,18 @@ export function extractRawTitle(content, fallbackTitle = '未命名视频') {
  */
 export function extractShortTitle(content, fallbackTitle = '未命名视频', manifestTitle = '') {
   let target = manifestTitle || extractRawTitle(content, fallbackTitle);
+  // 智能提取核心主题（剥离如【RuoYi-SpringBoot3-Pro】：前缀）
+  if (/^【[^】]+】[：:\s]*/.test(target)) {
+    const withoutBracket = target.replace(/^【[^】]+】[：:\s]*/, '').trim();
+    if (withoutBracket.length >= 4) {
+      target = withoutBracket;
+    }
+  }
   // 清洗特殊标点，保持精炼
   let cleanTitle = target.replace(/[【】《》「」：:，,。！!？?]/g, ' ').replace(/\s+/g, ' ').trim();
   // 微信视频号短标题严格限制 16 字以内
   if (cleanTitle.length > 16) {
-    cleanTitle = cleanTitle.substring(0, 15) + '…';
-    if (cleanTitle.length > 16) {
-      cleanTitle = cleanTitle.substring(0, 16);
-    }
+    cleanTitle = cleanTitle.substring(0, 16).trim();
   }
   return cleanTitle;
 }
@@ -228,12 +232,10 @@ export function parseAllAssets(markdownFilePath) {
   const content = fs.readFileSync(absPath, 'utf-8');
   const video = resolveVideoAsset(absPath);
   const shortTitle = extractShortTitle(content, '未命名视频', video.manifestTitle);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const tags = inferTags(content, shortTitle, 3);
+  const tags = [];
   const videoDesc = extractVideoDescription(content, shortTitle, tags);
   const articleDir = path.join(path.dirname(absPath), path.basename(absPath, path.extname(absPath)));
-  const cover = resolveCoverFromManifest(articleDir, { preferBase64: true }) || null;
+  const cover = resolveCoverFromManifest(articleDir, { preferBase64: true, aspectPriority: ['16:9', '2.35:1', '1:1'] }) || null;
 
   return {
     markdownFilePath: absPath,
