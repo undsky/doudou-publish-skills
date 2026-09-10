@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
+import { resolveCoverFromManifest, inferTags, readManifestItems, isCoverItem } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
@@ -348,7 +348,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   // 1. 优先读取 cover/images/ 下的本地封面
   const coverImagesDir = path.join(articleDir, 'cover', 'images');
   if (fs.existsSync(coverImagesDir)) {
-    const allFiles = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+    const allFiles = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_thumb') && !f.includes('thumb') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
     const candidates = [
       allFiles.find(f => f.includes('2.35x1') || f.includes('2.35:1') || f.includes('cover-main')),
       allFiles.find(f => f.includes('16x9') || f.includes('16:9')),
@@ -391,7 +391,7 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const xhsImagesDir = path.join(articleDir, 'xhs_images', 'images');
   if (fs.existsSync(xhsImagesDir)) {
     const allFiles = fs.readdirSync(xhsImagesDir)
-      .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')))
+      .filter(f => !f.includes('_thumb') && !f.includes('thumb') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
     const coverCard = allFiles.find(f => f.includes('01-cover') || f.includes('cover') || f.startsWith('01')) || allFiles[0];
@@ -428,7 +428,14 @@ export function resolveCoverImage(markdownFilePath, content = '') {
 }
 
 /**
- * 为西瓜/头条视频解析专属封面（优先匹配 16:9 比例封面，格式支持 PNG/JPG）
+ * 为西瓜/头条视频解析专属封面（优先选用无 _thumb 压缩的高清原图，以匹配平台推荐的高清分辨率 >= 1920*1080）
+ * 命名规约与优先级（参考 cover/images/ 实际命名）：
+ * 1. cover/images/ 目录下 16:9 高清封面：首选 cover-16x9.png（严格排除带 _thumb 的压缩缩略图）
+ * 2. cover/images/ 目录下主封面高清图：次选 cover.png（严格排除 cover_thumb.png）
+ * 3. cover/images/ 目录下其他比例高清图：如 cover-2.35x1.png、cover-1x1.png（排除 _thumb）
+ * 4. cover/ 根目录下的高清原图（排除 _thumb）
+ * 5. cdn_manifest.json 中公开 CDN 封面（排除带 thumb 路径的条目）
+ * 6. 回退至通用封面解析
  * @param {string} markdownFilePath 
  * @param {string} content 
  * @returns {{ hasCover: boolean, url?: string, localPath?: string, base64?: string, mimeType?: string, fileName?: string }}
@@ -439,27 +446,78 @@ export function resolveVideoCoverImage(markdownFilePath, content = '') {
   const baseName = path.basename(absPath, path.extname(absPath));
   const articleDir = path.join(dir, baseName);
 
-  // 1. 优先在 cover/images/ 下寻找 16:9 比例封面
+  const is16x9 = (name) => /16x9|16-9|16_9|16:9/i.test(name);
+  const isThumb = (name) => /_thumb|thumb/i.test(name);
+
+  const makeResult = (filePath, fileName) => {
+    const buf = fs.readFileSync(filePath);
+    const mimeType = fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+    return {
+      hasCover: true,
+      type: 'local',
+      localPath: filePath,
+      base64: `data:${mimeType};base64,${buf.toString('base64')}`,
+      mimeType,
+      fileName
+    };
+  };
+
+  // 1. 扫描 cover/images/ 目录（严格排除 _thumb 压缩缩略图）
   const coverImagesDir = path.join(articleDir, 'cover', 'images');
   if (fs.existsSync(coverImagesDir)) {
-    const allFiles = fs.readdirSync(coverImagesDir).filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
-    const videoCoverFile = allFiles.find(f => f.includes('16x9') || f.includes('16:9'));
-    if (videoCoverFile) {
-      const localPath = path.join(coverImagesDir, videoCoverFile);
-      const buf = fs.readFileSync(localPath);
-      const mimeType = videoCoverFile.endsWith('.jpg') || videoCoverFile.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
-      return {
-        hasCover: true,
-        type: 'local',
-        localPath,
-        base64: `data:${mimeType};base64,${buf.toString('base64')}`,
-        mimeType,
-        fileName: videoCoverFile
-      };
+    const allFiles = fs.readdirSync(coverImagesDir).filter(f => /\.(png|jpe?g|webp)$/i.test(f) && !isThumb(f));
+
+    // 1.1 首选 16:9 高清原图（如 cover-16x9.png）
+    const cover16x9 = allFiles.find(f => is16x9(f));
+    if (cover16x9) {
+      return makeResult(path.join(coverImagesDir, cover16x9), cover16x9);
+    }
+    // 1.2 次选主封面高清原图（如 cover.png）
+    const mainCover = allFiles.find(f => f.startsWith('cover.') || f === 'cover.png');
+    if (mainCover) {
+      return makeResult(path.join(coverImagesDir, mainCover), mainCover);
+    }
+    // 1.3 再次其他比例高清封面（如 cover-2.35x1.png、cover-1x1.png）
+    const otherCover = allFiles.find(f => f.includes('cover'));
+    if (otherCover) {
+      return makeResult(path.join(coverImagesDir, otherCover), otherCover);
+    }
+    if (allFiles.length > 0) {
+      return makeResult(path.join(coverImagesDir, allFiles[0]), allFiles[0]);
     }
   }
 
-  // 2. 回退到通用封面解析
+  // 2. 扫描 cover/ 根目录下是否存在高清原图（排除 _thumb）
+  const coverDir = path.join(articleDir, 'cover');
+  if (fs.existsSync(coverDir)) {
+    const rootFiles = fs.readdirSync(coverDir).filter(f => /\.(png|jpe?g|webp)$/i.test(f) && !isThumb(f));
+    const root16x9 = rootFiles.find(f => is16x9(f));
+    if (root16x9) {
+      return makeResult(path.join(coverDir, root16x9), root16x9);
+    }
+    const rootCover = rootFiles.find(f => f.startsWith('cover.') || f === 'cover.png');
+    if (rootCover) {
+      return makeResult(path.join(coverDir, rootCover), rootCover);
+    }
+  }
+
+  // 3. 扫描 cdn_manifest.json 中是否存在排除 thumb 的封面条目
+  const manifestPath = path.join(articleDir, 'cdn_manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const items = readManifestItems(manifestPath);
+      const coverItem = items.find(it => isCoverItem(it) && !isThumb(it.sig) && is16x9(it.sig)) ||
+        items.find(it => isCoverItem(it) && !isThumb(it.sig));
+      if (coverItem && coverItem.localPath) {
+        const fullLocal = path.resolve(articleDir, coverItem.localPath);
+        if (fs.existsSync(fullLocal)) {
+          return makeResult(fullLocal, coverItem.name || path.basename(fullLocal));
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 4. 回退到通用封面解析
   return resolveCoverImage(markdownFilePath, content);
 }
 
@@ -760,6 +818,9 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     hasCover: result.cover.hasCover,
     coverFile: result.cover.fileName,
     coverLocalPath: result.cover.localPath,
+    hasVideoCover: result.videoCover?.hasCover,
+    videoCoverFile: result.videoCover?.fileName,
+    videoCoverLocalPath: result.videoCover?.localPath,
     videoTitle: result.videoTitle,
     videoWords: calcPlatformWords(result.videoTitle),
     videoDescLength: result.videoDesc?.length,

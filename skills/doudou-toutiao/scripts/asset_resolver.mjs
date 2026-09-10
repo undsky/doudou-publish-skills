@@ -90,8 +90,8 @@ export function scoreCover(it, aspectPriority = DEFAULT_ASPECT_PRIORITY) {
       break;
     }
   }
-  if (/_thumb|thumb/.test(s)) score += 15; // 缩略图体积友好，优先
-  if (/yuantu|original|_raw/.test(s)) score -= 200; // 原图一律排除
+  // 缩略图体积友好（但视频封面应使用原图，排版长文可偏好缩略图）
+  if (/_thumb|thumb/.test(s)) score += 5;
   return score;
 }
 

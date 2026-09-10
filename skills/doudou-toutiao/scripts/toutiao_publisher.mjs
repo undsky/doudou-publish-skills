@@ -19,7 +19,10 @@ export function buildPublishBrowserScript(meta) {
   return `async () => {
   const meta = {
     title: ${JSON.stringify(meta.articleTitle)},
-    htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
+    author: ${JSON.stringify(meta.author || '')},
+    summary: ${JSON.stringify(meta.articleSummary || '')},
+    tags: ${JSON.stringify(meta.tags || [])},
+    htmlContent: ${JSON.stringify(meta.articleHtml?.htmlContent || '')},
     coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
     coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
   };
@@ -262,7 +265,6 @@ export function buildPublishBrowserScript(meta) {
     summary: meta.summary,
     tags: meta.tags,
     coverUploaded,
-    footerText: footerText.replace(/\n/g, ' | '),
     isDraftSaved: true,
     logs
   };
