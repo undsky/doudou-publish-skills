@@ -74,6 +74,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   log('正在通过剪贴板 paste 注入正文 (' + data.bodyContent.length + ' 字符)...');
   try {
     editorEl.focus();
+    document.execCommand('selectAll', false, null);
     await randomDelay(300, 600);
 
     const dataTransfer = new DataTransfer();
@@ -105,7 +106,11 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   // 5. 官方通道上传文章封面图
   let coverUploaded = false;
-  if (data.cover && data.cover.type !== 'none' && data.cover.hasCover !== false && (data.cover.base64 || data.cover.url)) {
+  const initialCoverWrapper = document.querySelector('.UploadPicture-wrapper, [class*="WriteCover"], [class*="TitleImage"]');
+  if (initialCoverWrapper && (initialCoverWrapper.innerText.includes('更换') || initialCoverWrapper.innerText.includes('删除') || initialCoverWrapper.querySelector('img'))) {
+    coverUploaded = true;
+    log('检测到封面已存在，跳过重复上传');
+  } else if (data.cover && data.cover.type !== 'none' && data.cover.hasCover !== false && (data.cover.base64 || data.cover.url)) {
     log('正在通过官方通道上传封面图...');
     try {
       let file = null;
@@ -197,7 +202,10 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
   // 6. 等待草稿自动同步并校验状态
   log('等待知乎草稿箱自动同步完成...');
-  await delay(800);
+  if (editorEl) {
+    editorEl.blur();
+  }
+  await delay(2500);
 
   // 获取知乎草稿保存状态文字与字数
   const statusTexts = Array.from(document.querySelectorAll('header *, nav *, [class*="status"] *, [class*="Status"] *, [class*="css-"] *'))
