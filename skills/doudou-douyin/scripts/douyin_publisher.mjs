@@ -1,9 +1,8 @@
 /**
  * 抖音创作者平台自动化发布浏览器脚本生成器
  * 涵盖：
- * 1. 发布文章：TipTap/ProseMirror 纯排版 HTML 正文双向同步、文章头图与封面设置真实上传、确定性弹窗点击、React Fiber 话题同步、防风控人机交互与草稿暂存
- * 2. 发布图文：真实 5 张卡片本地文件批量上传、异步 CDN 上传等待轮询（防图片丢失）、20 字标题与 1000 字话题描述填充、防风控人机交互与草稿暂存
- * 3. 发布视频：本地 MP4 视频真实上传、异步上传就绪轮询、30 字标题与 1000 字简介话题填充、智能抽帧封面确认、防风控人机交互与草稿暂存
+ * 1. 发布视频：本地 MP4 视频真实上传、异步上传就绪轮询、30 字标题与 1000 字简介话题填充、智能抽帧封面确认、防风控人机交互与草稿暂存
+ * 2. 发布图文：真实卡片本地文件批量上传、异步 CDN 上传等待轮询（防图片丢失）、20 字标题与 1000 字话题描述填充、防风控人机交互与草稿暂存
  */
 
 /**
@@ -19,133 +18,6 @@ export function buildDiscardDraftScript() {
     return { discarded: true };
   }
   return { discarded: false };
-})()`;
-}
-
-/**
- * 构建文章发布（长文草稿）浏览器注入脚本
- * @param {object} meta 解析后的完整元数据
- * @returns {string} 可在浏览器上下文运行的立即执行异步函数
- */
-export function buildArticleBrowserScript(meta) {
-  return `(async () => {
-  const meta = {
-    title: ${JSON.stringify(meta.articleTitle)},
-    author: ${JSON.stringify(meta.author)},
-    summary: ${JSON.stringify(meta.articleSummary)},
-    tags: ${JSON.stringify(meta.tags)},
-    htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
-    coverBase64: ${JSON.stringify(meta.cover?.base64 || '')}
-  };
-
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
-
-  console.log('[doudou-douyin] 开始注入文章数据...');
-
-  const setInputValue = (input, value) => {
-    if (!input) return;
-    input.focus();
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    if (setter) {
-      setter.call(input, value);
-    } else {
-      input.value = value;
-    }
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-
-  // 1. 填写文章标题（严格限制 <= 30 字）
-  const cleanTitle = meta.title.length > 30 ? meta.title.substring(0, 27) + '...' : meta.title;
-  const titleInput = document.querySelector('input[placeholder*="请输入文章标题"]');
-  if (titleInput) {
-    titleInput.focus();
-    await sleep(250);
-    setInputValue(titleInput, cleanTitle);
-    titleInput.blur();
-  }
-  await sleep(350);
-
-  // 3. 注入富文本正文并同步 ProseMirror & TipTap 状态
-  const pm = document.querySelector('.tiptap.ProseMirror') || document.querySelector('[contenteditable="true"]');
-  if (pm) {
-    pm.focus();
-    await sleep(300);
-    const editor = pm.editor;
-    if (editor) {
-      if (editor.commands && editor.commands.setContent) {
-        editor.commands.setContent(meta.htmlContent, true);
-      }
-      if (editor.options && typeof editor.options.onUpdate === 'function') {
-        editor.options.onUpdate({ editor });
-      }
-      if (typeof editor.emit === 'function') {
-        editor.emit('update', { editor });
-      }
-    }
-  }
-  await sleep(600);
-
-  // 4. 辅助函数：构造真实的 File 对象
-  const makeFile = (base64Str, name = 'cover.png') => {
-    const raw = atob(base64Str.replace(/^data:[^;]+;base64,/, ''));
-    const arr = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-    const blob = new Blob([arr], { type: 'image/png' });
-    return new File([blob], name, { type: 'image/png' });
-  };
-
-  // 5. 真实上传文章头图 (Head Cover) 并自动同步主封面
-  if (meta.coverBase64) {
-    try {
-      let headInput = null;
-      const origCreate = document.createElement;
-      document.createElement = function(tag, opt) {
-        const el = origCreate.call(document, tag, opt);
-        if (tag && tag.toLowerCase() === 'input') {
-          el.click = function() {}; // 阻止唤起操作系统原生文件选择器
-          headInput = el;
-        }
-        return el;
-      };
-
-      const headBtn = document.querySelector('.addIcon-Whrj6F') || document.querySelector('.mycard-info-Wx40e4') || document.querySelector('.content-upload-go676U');
-      if (headBtn) {
-        headBtn.click();
-        await sleep(300);
-        document.createElement = origCreate;
-
-        if (headInput) {
-          const file = makeFile(meta.coverBase64, 'head-cover-2.35x1.png');
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          headInput.files = dt.files;
-          headInput.dispatchEvent(new Event('change', { bubbles: true }));
-          await sleep(2000);
-
-          const completeBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '确定' || b.innerText.trim() === '完成');
-          if (completeBtn && !completeBtn.disabled) {
-            completeBtn.click();
-            window.__doudou_cover_status = 'uploaded';
-            await sleep(800);
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[doudou-douyin] 头图上传异常:', e);
-    }
-  }
-  // 4. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
-  console.log('[doudou-douyin] 文章已注入完成，直接判定发布就绪！');
-
-  return {
-    success: true,
-    isReady: true,
-    status: 'ready',
-    title: cleanTitle,
-    url: location.href,
-    timestamp: Date.now()
-  };
 })()`;
 }
 

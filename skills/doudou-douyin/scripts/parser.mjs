@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
+import { resolveCoverFromManifest } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
@@ -11,21 +11,39 @@ import { Marked } from './marked.esm.js';
  */
 export function extractArticleTitle(content, fallbackTitle = '未命名文章') {
   const lines = content.split('\n');
+  let raw = '';
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('# ')) {
-      const clean = trimmed.replace(/^#\s+/, '').replace(/[*_`~]/g, '').trim();
-      return clean.length > 30 ? clean.substring(0, 27) + '...' : clean;
+      raw = trimmed.replace(/^#\s+/, '').replace(/[*_`~]/g, '').trim();
+      break;
     }
   }
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length > 0 && !trimmed.startsWith('---') && !trimmed.startsWith('<!--')) {
-      const clean = trimmed.replace(/^[#\s*`~]+/, '').trim();
-      return clean.length > 30 ? clean.substring(0, 27) + '...' : clean;
+  if (!raw) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0 && !trimmed.startsWith('---') && !trimmed.startsWith('<!--')) {
+        raw = trimmed.replace(/^[#\s*`~]+/, '').trim();
+        break;
+      }
     }
   }
-  return fallbackTitle.length > 30 ? fallbackTitle.substring(0, 27) + '...' : fallbackTitle;
+  if (!raw) raw = fallbackTitle;
+
+  if (raw.length <= 30) return raw;
+
+  // 尝试去除分类前缀（如 【分类名】：）提取更具点击率的主题
+  if (/^【[^】]+】[：:]\s*/.test(raw)) {
+    const withoutPrefix = raw.replace(/^【[^】]+】[：:]\s*/, '').trim();
+    if (withoutPrefix.length >= 6 && withoutPrefix.length <= 30) {
+      return withoutPrefix;
+    }
+    if (withoutPrefix.length > 30) {
+      return withoutPrefix.substring(0, 27) + '...';
+    }
+  }
+
+  return raw.length > 30 ? raw.substring(0, 27) + '...' : raw;
 }
 
 /**
@@ -36,6 +54,19 @@ export function extractArticleTitle(content, fallbackTitle = '未命名文章') 
  */
 export function extractImagePostTitle(content, fallbackTitle = '未命名图文') {
   const title = extractArticleTitle(content, fallbackTitle);
+  if (title.length <= 20) return title;
+  
+  // 尝试去除前缀
+  if (/^【[^】]+】[：:]\s*/.test(title)) {
+    const withoutPrefix = title.replace(/^【[^】]+】[：:]\s*/, '').trim();
+    if (withoutPrefix.length >= 6 && withoutPrefix.length <= 20) {
+      return withoutPrefix;
+    }
+    if (withoutPrefix.length > 20) {
+      return withoutPrefix.substring(0, 17) + '...';
+    }
+  }
+
   return title.length > 20 ? title.substring(0, 17) + '...' : title;
 }
 
@@ -293,14 +324,59 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   const baseName = path.basename(absPath, path.extname(absPath));
   const articleDir = path.join(dir, baseName);
 
-  // 1. 优先提取 xhs_images/images/ 下的第一张图片（如 01-cover.png）
+  // 1. 优先读取 cover/images/ 下的横版或方版封面（2.35:1 > 16:9 > 1:1）
+  const coverImagesDir = path.join(articleDir, 'cover', 'images');
+  if (fs.existsSync(coverImagesDir)) {
+    const allFiles = fs.readdirSync(coverImagesDir)
+      .filter(f => !f.includes('_thumb') && !f.includes('thumb') && !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+    const candidates = [
+      allFiles.find(f => f.includes('2.35x1') || f.includes('2.35:1') || f.includes('cover-main')),
+      allFiles.find(f => f.includes('16x9') || f.includes('16:9')),
+      allFiles.find(f => f.includes('square-1x1') || f.includes('1x1')),
+      allFiles.find(f => f.includes('cover')),
+      allFiles[0]
+    ].filter(Boolean);
+
+    for (const cand of candidates) {
+      const p = path.join(coverImagesDir, cand);
+      const dims = getPngDimensions(p);
+      if (!dims || Math.min(dims.width, dims.height) >= 500) {
+        const localPath = p;
+        const buf = fs.readFileSync(localPath);
+        const mimeType = cand.endsWith('.jpg') || cand.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+        return {
+          hasCover: true,
+          type: 'local',
+          localPath,
+          base64: `data:${mimeType};base64,${buf.toString('base64')}`,
+          mimeType,
+          fileName: cand
+        };
+      }
+    }
+  }
+
+  // 2. 备选：读取 cdn_manifest.json 中的主封面
+  const manifestPath = path.join(articleDir, 'cdn_manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: true });
+      if (fromManifest) return fromManifest;
+    } catch (e) {
+      console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
+    }
+  }
+
+  // 3. 备选：提取 xhs_images/images/ 下的第一张图片（过滤 thumb 和重试后缀）
   const xhsImagesDir = path.join(articleDir, 'xhs_images', 'images');
   if (fs.existsSync(xhsImagesDir)) {
     const allFiles = fs.readdirSync(xhsImagesDir)
-      .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')))
+      .filter(f => !f.includes('_thumb') && !f.includes('thumb') && !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+    const nonThumbFiles = allFiles.filter(f => !/_\d+\.(png|jpg|jpeg|webp)$/i.test(f));
+    const cleanFiles = (nonThumbFiles.length > 0 ? nonThumbFiles : allFiles)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
-    const coverCard = allFiles.find(f => f.includes('01-cover') || f.includes('cover') || f.startsWith('01')) || allFiles[0];
+    const coverCard = cleanFiles.find(f => f.includes('01-cover') || f.includes('cover') || f.startsWith('01')) || cleanFiles[0];
 
     if (coverCard) {
       const localPath = path.join(xhsImagesDir, coverCard);
@@ -313,64 +389,6 @@ export function resolveCoverImage(markdownFilePath, content = '') {
         base64: `data:${mimeType};base64,${buf.toString('base64')}`,
         mimeType,
         fileName: coverCard
-      };
-    }
-  }
-
-  // 2. 备选：读取 cdn_manifest.json 中的主封面
-  const manifestPath = path.join(articleDir, 'cdn_manifest.json');
-  if (fs.existsSync(manifestPath)) {
-    try {
-      // 统一走 asset_resolver：兼容 assets[] / files[] 两种结构，并以 cover/ 路径信号
-      // 识别封面（真实清单无 type/slug 字段，旧逻辑在此静默跳过、误挑到 2MB 插图）。
-      // 抖音封面上传门槛是 `if (meta.coverBase64)`，故必须 preferBase64。
-      const fromManifest = resolveCoverFromManifest(articleDir, { preferBase64: true });
-      if (fromManifest) return fromManifest;
-    } catch (e) {
-      console.warn('[parser] 解析 cdn_manifest.json 失败:', e.message);
-    }
-  }
-
-  // 3. 备选：读取 cover/images/ 下的本地封面
-  const coverImagesDir = path.join(articleDir, 'cover', 'images');
-  if (fs.existsSync(coverImagesDir)) {
-    const allFiles = fs.readdirSync(coverImagesDir).filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp'));
-    
-    let selectedCover = null;
-    const candidates = [
-      allFiles.find(f => f.includes('2.35x1_yuantu')),
-      allFiles.find(f => f.includes('16x9_yuantu')),
-      allFiles.find(f => f.includes('square-1x1_yuantu')),
-      allFiles.find(f => f.includes('square-1x1')),
-      allFiles.find(f => f.includes('2.35x1')),
-      allFiles.find(f => f.includes('16x9')),
-      allFiles[0]
-    ].filter(Boolean);
-
-    for (const cand of candidates) {
-      const p = path.join(coverImagesDir, cand);
-      const dims = getPngDimensions(p);
-      if (dims && Math.min(dims.width, dims.height) >= 500) {
-        selectedCover = cand;
-        break;
-      }
-    }
-
-    if (!selectedCover && candidates.length > 0) {
-      selectedCover = candidates[0];
-    }
-
-    if (selectedCover) {
-      const localPath = path.join(coverImagesDir, selectedCover);
-      const buf = fs.readFileSync(localPath);
-      const mimeType = selectedCover.endsWith('.jpg') || selectedCover.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
-      return {
-        hasCover: true,
-        type: 'local',
-        localPath,
-        base64: `data:${mimeType};base64,${buf.toString('base64')}`,
-        mimeType,
-        fileName: selectedCover
       };
     }
   }
@@ -396,8 +414,10 @@ export function resolveImagePostCards(markdownFilePath) {
 
   for (const targetDir of candidateDirs) {
     if (fs.existsSync(targetDir) && fs.statSync(targetDir).isDirectory()) {
-      const files = fs.readdirSync(targetDir)
-        .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')))
+      const allFiles = fs.readdirSync(targetDir)
+        .filter(f => !f.includes('_thumb') && !f.includes('thumb') && !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+      const nonThumbFiles = allFiles.filter(f => !/_\d+\.(png|jpg|jpeg|webp)$/i.test(f));
+      const files = (nonThumbFiles.length > 0 ? nonThumbFiles : allFiles)
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
       if (files.length > 0) {
@@ -508,13 +528,12 @@ export function resolveVideoAsset(markdownFilePath) {
 }
 
 /**
- * 抖音支持的三种发布模态定义（按推荐执行顺序排列）
- * 顺序原因：视频转码耗时最长优先启动，图文次之，长文最快且不依赖上传轮询
+ * 抖音支持的两种发布模态定义（按推荐执行顺序排列）
+ * 顺序原因：视频转码耗时最长优先启动，图文次之
  */
 export const PUBLISH_MODES = [
   { mode: 'video', label: '视频', aliases: ['video', '视频', '短视频', '视频作品'] },
-  { mode: 'image', label: '图文', aliases: ['image', 'imagepost', '图文', '图片', '图文笔记', '卡片'] },
-  { mode: 'article', label: '文章', aliases: ['article', 'longarticle', '文章', '长文', '图文文章'] }
+  { mode: 'image', label: '图文', aliases: ['image', 'imagepost', '图文', '图片', '图文笔记', '卡片'] }
 ];
 
 /**
@@ -558,10 +577,6 @@ export function resolvePublishPlan(meta, requestedModes = null) {
     image: {
       ok: Array.isArray(meta.imageCards) && meta.imageCards.length > 0,
       reason: '同名目录下未找到 xhs_images/images/ 图文卡片集'
-    },
-    article: {
-      ok: !!(meta.articleHtml && meta.articleHtml.htmlContent && meta.articleHtml.htmlContent.trim().length > 0),
-      reason: '未解析出可用的文章正文 HTML'
     }
   };
 
@@ -605,9 +620,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const articleTitle = extractArticleTitle(rawContent);
   const imagePostTitle = extractImagePostTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 5）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const tags = inferTags(rawContent, articleTitle, 5);
+  const tags = [];
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);

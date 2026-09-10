@@ -1,13 +1,13 @@
 ---
 name: doudou-douyin
-description: 通过 chrome-devtools-mcp 实现抖音自动填入视频、文章、图文发文页并功能。默认发布全部可用模态（视频 + 图文 + 文章），严格遵循异步上传轮询、TipTap/ProseMirror 富文本状态双向同步、单图/头图设置。资产填入完成后直接判定完成，原样保留页面现场供人工发布，严禁调用 `close_page`。
+description: 通过 chrome-devtools-mcp 实现抖音自动填入视频、图文发文页并功能。默认发布全部可用模态（视频 + 图文），严格遵循异步上传轮询、TipTap/ProseMirror 富文本状态双向同步、单图/头图设置。资产填入完成后直接判定完成，原样保留页面现场供人工发布，严禁调用 `close_page`。
 ---
 
 # 抖音自动化发布草稿技能规范 (doudou-douyin)
 
 ## 自动化执行全流程
 
-当接收到用户指定的 Markdown 文件路径时，依次执行以下阶段（默认按 `video` → `image` → `article` 顺序串行执行）：
+当接收到用户指定的 Markdown 文件路径时，依次执行以下阶段（默认按 `video` → `image` 顺序串行执行）：
 
 ```mermaid
 flowchart TD
@@ -25,12 +25,6 @@ flowchart TD
     I2 --> I3[步骤 I3: 异步轮询等待卡片上传与预览加载]
     I3 --> I4[步骤 I4: 拟真填入图文标题与分段描述]
     I4 --> I5[步骤 I5: 完成发布就绪]
-
-    MP -->|模态 3: article| A1[步骤 A1: 打开文章发布页并进入发文]
-    A1 --> A2[步骤 A2: 拟真人机输入文章标题]
-    A2 --> A3[步骤 A3: 注入 TipTap / ProseMirror 富文本正文]
-    A3 --> A4[步骤 A4: 真实上传文章头图并绑定主封面]
-    A4 --> A5[步骤 A5: 完成发布就绪]
 ```
 
 ### 步骤 0：解析 Markdown 资产与模态编排
@@ -43,25 +37,22 @@ node scripts/parser.mjs <Markdown文件绝对路径> [可选模态]
 
 输出包含：
 - `publishPlan`: 确定性执行计划（`modes` 包含实际要发布的模态，`skipped` 记录跳过模态及原因）
-- `videoTitle` / `imagePostTitle` / `articleTitle`: 清洗后符合平台字数上限的标题
+- `videoTitle` / `imagePostTitle`: 清洗后符合平台字数上限的标题
 - `video`: 视频成片信息（`videoPath`、`hasVideo`）
 - `cardPaths`: 全套图文卡片本地路径列表（`01-cover.png` ~ `05-summary.png`）
-- `articleHtml`: 纯排版富文本 HTML
 - `cover`: 封面图信息（Base64 与本地路径）
 
-Agent 可直接调用 `scripts/douyin_publisher.mjs` 配合 `chrome-devtools-mcp` 注入视频、图文与文章：
+Agent 可直接调用 `scripts/douyin_publisher.mjs` 配合 `chrome-devtools-mcp` 注入视频与图文：
 ```javascript
 import { parseAllAssets } from './scripts/parser.mjs';
 import {
   buildVideoPostEditorScript,
-  buildImageBrowserScript,
-  buildArticleBrowserScript,
+  buildImagePostEditorScript,
 } from './scripts/douyin_publisher.mjs';
 
 const meta = parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
 // 视频页注入: buildVideoPostEditorScript(meta)
-// 图文页注入: buildImageBrowserScript(meta)
-// 文章页注入: buildArticleBrowserScript(meta)
+// 图文页注入: buildImagePostEditorScript(meta)
 ```
 
 ---
@@ -207,63 +198,3 @@ await upload_file({
 1. 资产填入完成后直接判定完成；
 2. **安全隔离**：原样保留当前标签页现场供人工发布，严禁调用 `close_page`。
 
----
-
-### 模式 C：发布长文（article 模态）
-
-#### 步骤 A1：打开文章发布页并进入发文
-
-1. **新建独立页面**：调用 `new_page` 打开 `https://creator.douyin.com/creator-micro/content/upload?default-tab=5`。
-2. 若出现未发布提示，点击「我要发文」进入 `post/article` 编辑页面。
-
----
-
-#### 步骤 A2：拟真人机输入文章标题
-
-聚焦 `input[placeholder*="请输入文章标题"]`，填入 <=30 字文章标题并派发原生事件：
-
-```javascript
-const titleInput = document.querySelector('input[placeholder*="请输入文章标题"]');
-if (titleInput) {
-  titleInput.focus();
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-  if (setter) setter.call(titleInput, meta.articleTitle);
-  else titleInput.value = meta.articleTitle;
-  titleInput.dispatchEvent(new Event('input', { bubbles: true }));
-  titleInput.dispatchEvent(new Event('change', { bubbles: true }));
-  titleInput.blur();
-}
-```
-
----
-
-#### 步骤 A3：注入 TipTap / ProseMirror 富文本正文
-
-聚焦 `.tiptap.ProseMirror`，通过编辑器实例同步正文内容与字数统计：
-
-```javascript
-const pm = document.querySelector('.tiptap.ProseMirror') || document.querySelector('[contenteditable="true"]');
-if (pm && pm.editor) {
-  pm.focus();
-  pm.editor.commands.setContent(meta.articleHtml.htmlContent, true);
-  if (typeof pm.editor.options.onUpdate === 'function') pm.editor.options.onUpdate({ editor: pm.editor });
-  if (typeof pm.editor.emit === 'function') pm.editor.emit('update', { editor: pm.editor });
-}
-```
-
----
-
-#### 步骤 A4：真实上传文章头图并绑定主封面
-
-若存在封面图资产（`meta.cover.base64`）：
-
-1. 点击「添加头图」按钮，展开上传弹窗；
-2. 构造标准 `File` 对象并设置至上传 input；
-3. 点击确定完成头图裁剪并自动同步主封面。
-
----
-
-#### 步骤 A5：完成发布就绪
-
-1. 资产填入完成后直接判定完成；
-2. **安全隔离**：原样保留当前标签页现场供人工发布，严禁调用 `close_page`。
