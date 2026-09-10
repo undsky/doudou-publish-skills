@@ -1,13 +1,13 @@
 ---
 name: doudou-linuxsb
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入烧饼社区发帖页（https://linux.sb/topic_edit?fid=4）。支持社区规范发帖弹窗自动确认、固定发帖至技术交流版块 (fid=4)、CDN 正文自动替换、NB-Editor Markdown 注入，完成后保留页面现场供用户人工手动保存发布。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入烧饼社区发帖页（https://linux.sb/topic_edit?fid=4，默认技术交流版块）。支持社区规范发帖弹窗自动确认、文章标题与 Markdown 正文注入、NB-Editor 本地草稿同步，完成后保留页面现场供用户人工手动保存发布。
 ---
 
 # 烧饼社区文章自动发布技能 (doudou-linuxsb)
 
 > [!IMPORTANT]
 > **【核心铁律】严禁自动点击「保存」发布！**
-> 烧饼社区发帖页面的「保存」按钮点击后会**直接公开发布新主题**（平台无独立后台草稿箱）。因此，本技能在完成标题输入、版块选择、Markdown 正文注入后，**必须立即停止，不得调用或触发保存/提交点击**。由用户在浏览器中做最后人工审查并由用户手动点击「保存」。
+> 烧饼社区发帖页面的「保存」按钮点击后会**直接公开发布新主题**（平台无独立后台草稿箱）。因此，本技能在完成标题输入、Markdown 正文注入后，**必须立即停止，不得调用或触发保存/提交点击**。由用户在浏览器中做最后人工审查并由用户手动点击「保存」。
 
 ---
 
@@ -17,12 +17,11 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 
 ```mermaid
 flowchart TD
-    S0[步骤 0: 解析 Markdown 资产] --> S1[步骤 1: 打开/聚焦发帖页并检测登录态]
+    S0[步骤 0: 解析 Markdown 资产] --> S1[步骤 1: 打开发帖页并检测登录态]
     S1 --> S2[步骤 2: 自动检测并确认社区规范弹窗]
-    S2 --> S3[步骤 3: 拟真选择发帖版块 fid=4 (技术交流)]
-    S3 --> S4[步骤 4: 拟真人机输入文章标题]
-    S4 --> S5[步骤 5: 注入 Markdown 正文并同步 NB-Editor]
-    S5 --> S6[步骤 6: 完成发布就绪]
+    S2 --> S3[步骤 3: 拟真人机输入文章标题]
+    S3 --> S4[步骤 4: 注入 Markdown 正文并同步 NB-Editor]
+    S4 --> S5[步骤 5: 完成发布就绪]
 ```
 
 ### 步骤 0：解析 Markdown 资产
@@ -33,11 +32,10 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
-- `fid` / `forumName`: 固定为版块 ID `4` 与版块名称 `技术交流`
 - `bodyContent`: 过滤掉首行重复 H1 后的 Markdown 正文（优先使用 `_cdn.md`）
 - `cover`: 封面图资产信息
 
-Agent 可在步骤 1 打开页面后，直接调用脚本一键注入文章标题、Markdown 正文与推断版块：
+Agent 可在步骤 1 打开页面后，直接调用脚本一键注入文章标题与 Markdown 正文：
 ```javascript
 import { buildBrowserPublishScript } from './scripts/linuxsb_publisher.mjs';
 
@@ -47,9 +45,9 @@ await evaluate_script({ pageId, function: code });
 
 ---
 
-### 步骤 1：打开/聚焦发帖页并检测登录态
+### 步骤 1：打开发帖页并检测登录态
 
-1. **新建独立页面**：调用 `new_page` 打开 `https://linux.sb/topic_edit?fid=4`（必须每次新建独立页面，严禁复用或覆盖已有页面）。
+1. **新建独立页面**：调用 `new_page` 打开 `https://linux.sb/topic_edit?fid=4`（必须每次新建独立页面，严禁复用或覆盖已有页面。URL 参数携带 `fid=4` 默认即为技术交流版块，无需额外选择与判断）。
 2. 等待页面加载完成。
 3. 执行脚本检测登录态：
    - 检查页面是否存在用户主页链接（`a[href*="/user/"]`）或表单元素 `form[action*="topic_edit"]`；
@@ -73,25 +71,7 @@ if (noticeConfirmBtn && noticeConfirmBtn.offsetParent !== null) {
 
 ---
 
-### 步骤 3：拟真选择发帖版块（定死技术交流 fid=4）
-
-1. 聚焦版块下拉框 `select[name="forum_id"]`。
-2. 设置 `fid="4"`（技术交流）并派发 DOM 事件：
-```javascript
-const forumSelect = document.querySelector('select[name="forum_id"]');
-if (forumSelect) {
-  forumSelect.focus();
-  forumSelect.value = '4';
-  forumSelect.dispatchEvent(new Event('input', { bubbles: true }));
-  forumSelect.dispatchEvent(new Event('change', { bubbles: true }));
-  forumSelect.blur();
-}
-```
-3. 随机停顿 300ms~600ms。
-
----
-
-### 步骤 4：拟真人机输入文章标题
+### 步骤 3：拟真人机输入文章标题
 
 1. 聚焦标题输入框 `input[name="title"]`。
 2. 模拟微小随机延迟（300ms~600ms）。
@@ -116,7 +96,7 @@ if (titleInput) {
 
 ---
 
-### 步骤 5：注入 Markdown 正文并同步 NB-Editor
+### 步骤 4：注入 Markdown 正文并同步 NB-Editor
 
 1. 聚焦正文多行文本框 `textarea[name="body"]`。
 2. 模拟微小随机延迟（400ms~700ms）。
@@ -141,7 +121,7 @@ if (textarea) {
 
 ---
 
-### 步骤 6：完成发布就绪
+### 步骤 5：完成发布就绪
 
 1. 资产填入完成后直接判定完成；
 2. **安全隔离**：原样保留当前标签页现场供人工发布，严禁调用 `close_page`。
