@@ -206,13 +206,9 @@ export function buildBrowserPublishScript(markdownFilePath) {
 
       await randomDelay(400, 700);
 
-      // 安全隔离：收起发布抽屉
-      log('正在收起发布抽屉并保留配置...');
-      const closeDrawerBtn = drawer.querySelector('.editor-publish-drawer__hd-icon, button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)');
-      if (closeDrawerBtn) {
-        closeDrawerBtn.click();
-        await randomDelay(400, 700);
-      }
+      // 保持发布抽屉打开，原样保留现场供人工核对并最终发布，绝不收起抽屉
+      log('封面图绑定完成，原样保留发布设置抽屉现场（保持抽屉打开），供人工核验与提交发布...');
+      await randomDelay(300, 500);
     }
   }
 
