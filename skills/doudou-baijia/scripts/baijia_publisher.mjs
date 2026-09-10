@@ -109,8 +109,51 @@ export function buildPublishBrowserScript(meta) {
 
   // 2. 注入百家号 UEditor 富文本正文（100% 原始解析内容）
   log('正在注入文章完整正文与排版内容（字符数: ' + meta.htmlContent.length + '）...');
+
+  // 2.1 预转存正文中的外链图片至百家号官方存储，彻底根绝跨域爬取失败被剔除
+  let finalHtml = meta.htmlContent;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(finalHtml, 'text/html');
+    const imgs = Array.from(doc.querySelectorAll('img'));
+    if (imgs.length > 0) {
+      log('检测到正文包含 ' + imgs.length + ' 张图片，正在通过百家号官方通道进行预转存...');
+      for (const img of imgs) {
+        const src = img.getAttribute('src');
+        if (src && !src.includes('baijiahao.baidu.com/bjh/picproxy')) {
+          try {
+            const resp = await fetch(src);
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const ext = (blob.type || '').split('/')[1] || 'png';
+              const file = new File([blob], (img.getAttribute('alt') || 'image') + '.' + ext, { type: blob.type || 'image/png' });
+              const fd = new FormData();
+              fd.append('media', file);
+              fd.append('type', 'image');
+              const upResp = await fetch('https://baijiahao.baidu.com/materialui/picture/uploadProxy', {
+                method: 'POST',
+                body: fd,
+                credentials: 'include'
+              });
+              const upData = await upResp.json();
+              const bjhUrl = upData.ret?.https_url || upData.ret?.bos_url;
+              if (bjhUrl) {
+                finalHtml = finalHtml.split(src).join(bjhUrl);
+                log('已转存正文图片: ' + (img.getAttribute('alt') || src.substring(0, 30)) + ' -> 百家号官方托管');
+              }
+            }
+          } catch (imgErr) {
+            log('转存图片异常: ' + imgErr.message);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    log('解析正文图片异常: ' + e.message);
+  }
+
   if (window.editor && typeof window.editor.setContent === 'function') {
-    window.editor.setContent(meta.htmlContent);
+    window.editor.setContent(finalHtml);
     if (typeof window.editor.sync === 'function') {
       window.editor.sync();
     }
@@ -120,7 +163,7 @@ export function buildPublishBrowserScript(meta) {
     const iframe = document.querySelector('#ueditor_0');
     const iframeDoc = iframe ? iframe.contentDocument || iframe.contentWindow?.document : null;
     if (iframeDoc && iframeDoc.body) {
-      iframeDoc.body.innerHTML = meta.htmlContent;
+      iframeDoc.body.innerHTML = finalHtml;
       iframeDoc.body.dispatchEvent(new Event('input', { bubbles: true }));
       log('已降级通过 iframeDoc.body.innerHTML 注入富文本正文');
     } else {
@@ -266,8 +309,41 @@ export function buildPublishBrowserScript(meta) {
   }
   await sleep(300);
 
-  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  // 5. 完成发布就绪（点击存草稿并原样保留页面现场供人工发布，严禁调用 close_page）
+  log('正在保存百家号草稿...');
+  const draftBtn = Array.from(document.querySelectorAll('button, .cheetah-btn')).find(b => (b.innerText || '').trim() === '存草稿');
+  if (draftBtn) {
+    const draftProps = getProps(draftBtn);
+    if (draftProps && typeof draftProps.onClick === 'function') {
+      try {
+        draftProps.onClick({
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          target: draftBtn,
+          currentTarget: draftBtn,
+          nativeEvent: new MouseEvent('click', { bubbles: true })
+        });
+      } catch (err) {}
+    }
+    draftBtn.click();
+    log('已点击「存草稿」按钮');
+    await sleep(2000);
+  }
+
   log('🎉 百家号图文内容注入完毕，直接判定发布就绪！');
+
+  const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+  let articleId = '';
+  try {
+    const urlObj = new URL(currentUrl);
+    articleId = urlObj.searchParams.get('article_id') || '';
+  } catch (e) {}
+
+  let toastMessage = '';
+  const messageEls = document.querySelectorAll('.cheetah-message-notice-content, .cheetah-message-custom-content, .cheetah-message');
+  if (messageEls.length > 0) {
+    toastMessage = Array.from(messageEls).map(el => el.innerText).join('; ');
+  }
 
   window.__doudou_allow_missing_cover = true;
   return {
@@ -280,10 +356,10 @@ export function buildPublishBrowserScript(meta) {
     currentUrl,
     toastMessage,
     isDraftSaved: true,
-    contentLength: window.editor ? window.editor.getContentLength() : 0,
+    contentLength: (window.editor && typeof window.editor.getContentLength === 'function') ? window.editor.getContentLength() : 0,
     logs
   };
-};`;
+}`;
 }
 
 // 命令行直接测试支持
