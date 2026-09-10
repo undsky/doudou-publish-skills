@@ -313,6 +313,7 @@ if (singleRadioLabel) {
 ```
 
 2. **上传封面图片**：
+   - 封面图从同名目录下的 cover/images 目录中提取；
    - 点击 `.article-cover-add` 展开 `.byte-drawer` 抽屉；
    - 切换至「上传图片」Tab；
    - 提交封面 `File` 对象至上传 input 并派发 `change` 事件；

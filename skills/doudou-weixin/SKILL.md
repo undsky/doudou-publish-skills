@@ -94,7 +94,7 @@ const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 4. 调用 `evaluate_script` 执行 `buildArticleBrowserScript(meta)`：
    - 拟真输入标题 ProseMirror 并同步 `#title`；
    - 聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入纯排版 HTML（`insertHTML` 保底）；
-   - 若存在封面图，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
+   - 封面图从同名目录下的 cover/images 目录中提取，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
 5. 资产填入完成后直接判定完成；
 6. **安全隔离**：原样保留文章草稿编辑页面供人工复核与发布，严禁调用 `close_page`。
 

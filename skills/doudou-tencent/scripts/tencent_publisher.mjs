@@ -111,7 +111,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     cherryCompFiber.memoizedProps.onChange(data.bodyContent);
   }
 
-  await randomDelay(400, 700);
+  await randomDelay(600, 1000);
 
   // 4. 若有封面图，打开发布设置抽屉仅上传封面并收起
   let coverLoaded = false;
@@ -127,19 +127,28 @@ export function buildBrowserPublishScript(markdownFilePath) {
         await randomDelay(300, 600);
         publishBtn.click();
       }
-      await randomDelay(800, 1400);
-      drawer = document.querySelector('.editor-publish-drawer');
+      for (let i = 0; i < 20; i++) {
+        await delay(300);
+        drawer = document.querySelector('.editor-publish-drawer');
+        if (drawer) break;
+      }
     }
 
     if (drawer) {
       log('正在处理文章封面图 (' + (data.cover.type === 'cdn' ? data.cover.url : '本地Base64') + ')...');
       try {
         let file = null;
-        if (data.cover.type === 'cdn' && data.cover.url) {
-          const resp = await fetch(data.cover.url);
-          const blob = await resp.blob();
-          file = new File([blob], 'cover.jpg', { type: blob.type || 'image/jpeg' });
-        } else if (data.cover.base64) {
+        if (data.cover.url) {
+          try {
+            const resp = await fetch(data.cover.url);
+            const blob = await resp.blob();
+            file = new File([blob], 'cover.png', { type: blob.type || 'image/png' });
+          } catch (fetchErr) {
+            log('拉取网络封面图异常: ' + fetchErr.message);
+          }
+        }
+        
+        if (!file && data.cover.base64) {
           const byteCharacters = atob(data.cover.base64);
           const byteNumbers = new Array(byteCharacters.length);
           for (let i = 0; i < byteCharacters.length; i++) {
@@ -153,12 +162,20 @@ export function buildBrowserPublishScript(markdownFilePath) {
         if (file) {
           const coverInput = drawer.querySelector('.img-cover-input');
           if (coverInput) {
+            try {
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              coverInput.files = dt.files;
+              coverInput.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (dtErr) {
+              log('DataTransfer 设置异常: ' + dtErr.message);
+            }
             const cInputFiberKey = Object.keys(coverInput).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
             const cInputFiber = coverInput[cInputFiberKey];
             if (cInputFiber && cInputFiber.memoizedProps && typeof cInputFiber.memoizedProps.onChange === 'function') {
               cInputFiber.memoizedProps.onChange({
-                target: { files: [file] },
-                currentTarget: { files: [file] }
+                target: coverInput,
+                currentTarget: coverInput
               });
               coverLoaded = true;
               log('已触发封面图加载与 Cropper 初始化');
@@ -169,43 +186,50 @@ export function buildBrowserPublishScript(markdownFilePath) {
         log('封面图加载异常: ' + e.message);
       }
       
-      // 等待封面上传和裁剪器渲染完毕
+      // 等待封面上传和裁剪器渲染完毕并确认
       log('等待封面上传与 Cropper 准备就绪...');
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 20; i++) {
         await delay(500);
-        const toasts = Array.from(document.querySelectorAll('.t-message, [class*="toast"], [class*="message"]')).map(t => t.innerText);
-        const isUploading = toasts.some(t => t.includes('上传封面中') || t.includes('请稍候'));
-        if (!isUploading && i >= 4) {
+        const cropConfirmBtns = Array.from(document.querySelectorAll('.t-dialog button, .cdc-modal button, .t-popup button, button')).filter(b => {
+          const text = b.innerText.trim();
+          return text === '确定' || text === '确认' || text === '完成' || text === '裁剪并使用';
+        });
+        if (cropConfirmBtns.length > 0) {
+          log('检测到裁剪确认按钮，模拟点击确认...');
+          const targetCropBtn = cropConfirmBtns[cropConfirmBtns.length - 1];
+          targetCropBtn.click();
+          window.__doudou_cover_status = 'uploaded';
+          await randomDelay(500, 800);
           break;
         }
       }
 
-      // 若出现裁剪确认弹窗，模拟确认
-      const cropConfirmBtns = Array.from(document.querySelectorAll('.t-dialog button, .cdc-modal button, .t-popup button, button')).filter(b => {
-        const text = b.innerText.trim();
-        return text === '确定' || text === '确认' || text === '完成' || text === '裁剪并使用';
-      });
-      if (cropConfirmBtns.length > 0) {
-        log('检测到裁剪确认按钮，模拟点击确认...');
-        const targetCropBtn = cropConfirmBtns[cropConfirmBtns.length - 1];
-        targetCropBtn.click();
-        window.__doudou_cover_status = 'uploaded';
-        await randomDelay(300, 500);
-      }
-
-      await randomDelay(300, 500);
+      await randomDelay(400, 700);
 
       // 安全隔离：收起发布抽屉
       log('正在收起发布抽屉并保留配置...');
-      const closeDrawerBtn = drawer.querySelector('button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)');
+      const closeDrawerBtn = drawer.querySelector('.editor-publish-drawer__hd-icon, button[class*="close"], .t-drawer__close-btn, button:has(.t-icon-close)');
       if (closeDrawerBtn) {
         closeDrawerBtn.click();
-        await randomDelay(300, 500);
+        await randomDelay(400, 700);
       }
     }
   }
 
-  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  // 5. 显式保存草稿
+  log('正在尝试保存草稿...');
+  const saveDraftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === '存草稿' && !b.classList.contains('is-disabled'));
+  if (saveDraftBtn) {
+    saveDraftBtn.click();
+    log('已点击「存草稿」按钮');
+    await randomDelay(800, 1500);
+  }
+
+  const currentUrl = window.location.href;
+  const draftIdMatch = currentUrl.match(/articleId=(\\d+)/) || currentUrl.match(/draftId=(\\d+)/) || currentUrl.match(/\\/(\\d+)/);
+  const draftId = draftIdMatch ? draftIdMatch[1] : null;
+
+  // 6. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
   log('🎉 腾讯云开发者社区文章内容填入完毕，直接判定发布就绪！');
 
   return {
@@ -218,7 +242,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     coverState: data.cover ? '已配置' : '无',
     logs
   };
-};`;
+}`;
 }
 
 // 命令行直接运行测试与生成
@@ -231,4 +255,3 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
   const script = buildBrowserPublishScript(targetFile);
   console.log(`已成功生成发布脚本，字符数: ${script.length}`);
 }
-

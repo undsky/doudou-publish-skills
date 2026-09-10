@@ -141,6 +141,8 @@ await upload_file({
 
 #### 步骤 A4：设置封面图片并裁切确认
 
+封面图从同名目录下的 cover/images 目录中提取，执行以下流程：
+
 1. 定位展示封面区域的插槽 `.FeEditorApp-_73a3a52aab7e3a36-content` 或 `.FeEditorApp-_93c3fe2a3121c388-item`；
 2. 拟真悬停并触发 React `onClick` 弹出上传选择框；
 3. 将封面构造成标准 `File` 对象，通过 `DataTransfer` 注入上传 input（`input[name="media"][type="file"]`）；
