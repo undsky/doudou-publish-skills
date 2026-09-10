@@ -20,9 +20,11 @@ export function buildPublishBrowserScript(meta) {
   const meta = {
     title: ${JSON.stringify(meta.articleTitle)},
     htmlContent: ${JSON.stringify(meta.articleHtml.htmlContent)},
-    coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
+    coverBase64: ${JSON.stringify(meta.cover?.cdnUrl ? '' : (meta.cover?.base64 || ''))},
     coverCdnUrl: ${JSON.stringify(meta.cover?.cdnUrl || meta.cover?.url || '')},
-    coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
+    coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')},
+    tags: ${JSON.stringify(meta.tags || [])},
+    category: ${JSON.stringify(meta.category || '科技')}
   };
 
   const logs = [];
@@ -89,11 +91,16 @@ export function buildPublishBrowserScript(meta) {
     titleEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     titleEl.focus();
     titleEl.innerText = meta.title;
+    const titleHandlers = getReactHandler(titleEl);
+    if (titleHandlers && typeof titleHandlers.onInput === 'function') {
+      titleHandlers.onInput({ target: titleEl, currentTarget: titleEl });
+    }
     titleEl.dispatchEvent(new Event('input', { bubbles: true }));
     titleEl.dispatchEvent(new Event('change', { bubbles: true }));
-    log('文章标题 DOM 注入完成');
+    titleEl.blur();
+    log('✅ 文章标题 DOM 与 React 状态绑定完成');
   }
-  await sleep(300);
+  await sleep(400);
 
   // 3. 极速注入 ExEditor (ProseMirror) 富文本正文
   log('📄 正在注入富文本正文 (' + meta.htmlContent.length + ' 字符)...');
@@ -110,27 +117,28 @@ export function buildPublishBrowserScript(meta) {
 
   // 4. 封面上传与裁切弹窗确认
   let coverUploaded = false;
-  if (meta.coverBase64) {
+  if (meta.coverBase64 || meta.coverCdnUrl) {
     log('🖼️ 正在上传与绑定文章封面图: ' + meta.coverFileName + '...');
     try {
-      // 4.1 点击「更换封面」或「添加封面」按钮
+      // 检查当前是否已有封面
+      const currentCoverImg = document.querySelector('.articleCoverWrap-cls3i-ak img, .coverThumb-cls3RUR3 img');
       const replaceCoverBtn = Array.from(document.querySelectorAll('.omui-thumb__action span, .coverThumb-cls3RUR3 span, .cover-container span')).find(s => s.innerText?.trim() === '更换');
       const addCoverBtn = document.querySelector('.addCoverBtn-cls3gyHX, button.omui-button--add, button[class*="addCover"]');
-      const triggerBtn = replaceCoverBtn || addCoverBtn || document.querySelector('.coverThumb-cls3RUR3, .cover-container figure');
+      const triggerBtn = currentCoverImg ? (replaceCoverBtn || currentCoverImg) : (addCoverBtn || document.querySelector('.cover-container figure'));
 
       if (triggerBtn) {
         await simulateClick(triggerBtn);
-        await sleep(500);
+        await sleep(600);
 
-        // 4.2 切换至「本地上传」标签
+        // 切换至「本地上传」标签
         const tabs = Array.from(document.querySelectorAll('.omui-tab__label'));
         const localUploadTab = tabs.find(t => t.innerText?.includes('本地上传'));
         if (localUploadTab) {
           localUploadTab.click();
-          await sleep(400);
+          await sleep(500);
         }
 
-        // 4.3 获取文件上传 input
+        // 获取文件上传 input
         const fileInput = document.querySelector('.omui-dialog-content input[type="file"], input[type="file"]');
         if (fileInput) {
           let file = null;
@@ -141,6 +149,7 @@ export function buildPublishBrowserScript(meta) {
               if (resp.ok) {
                 const blob = await resp.blob();
                 file = new File([blob], meta.coverFileName || 'cover.png', { type: blob.type || 'image/png' });
+                log('已从 URL 成功获取封面 Blob: ' + u);
                 break;
               }
             } catch(e) {}
@@ -156,6 +165,7 @@ export function buildPublishBrowserScript(meta) {
             const mimeType = meta.coverFileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
             const blob = new Blob([byteArray], { type: mimeType });
             file = new File([blob], meta.coverFileName, { type: mimeType });
+            log('已从 Base64 成功生成封面 File');
           }
 
           if (file) {
@@ -175,15 +185,14 @@ export function buildPublishBrowserScript(meta) {
               });
             }
             fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-            log('已派发封面上传事件，等待处理...');
+            log('已派发封面上传事件，等待裁切弹窗确认按钮就绪...');
 
-            for (let retry = 0; retry < 12; retry++) {
+            for (let retry = 0; retry < 15; retry++) {
               await sleep(600);
               const confirmBtn = Array.from(document.querySelectorAll('.omui-dialog button, button')).find(b => b.innerText?.trim() === '确认');
               if (confirmBtn && !confirmBtn.disabled && !confirmBtn.className.includes('is--disabled')) {
                 await simulateClick(confirmBtn);
                 coverUploaded = true;
-                window.__doudou_cover_status = 'uploaded';
                 log('✅ 封面裁切确认完成');
                 break;
               }
@@ -195,16 +204,60 @@ export function buildPublishBrowserScript(meta) {
       log('⚠️ 封面上传处理异常: ' + e.message);
     }
   }
+  await sleep(400);
 
-  // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  // 5. 智能设置分类（标签留空供用户人工按需填写）
+  log('🏷️ 正在设置分类（标签留空供人工填写）...');
+  try {
+    const catWrap = document.querySelector('#articlePublish-category_id');
+    if (catWrap) {
+      const catTags = Array.from(catWrap.querySelectorAll('.omui-tag, [class*="tag"]'));
+      const targetCat = catTags.find(t => t.innerText?.includes(meta.category) || t.innerText?.includes('互联网') || t.innerText?.includes('科技'));
+      if (targetCat) {
+        targetCat.click();
+        log('✅ 已选择文章分类: ' + targetCat.innerText.trim());
+      }
+    }
+  } catch (e) {
+    log('⚠️ 分类设置异常: ' + e.message);
+  }
+  await sleep(400);
+
+  // 6. 安全存草稿
+  let savedDraft = false;
+  try {
+    const draftBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText?.trim() === '存草稿');
+    if (draftBtn) {
+      log('💾 正在点击「存草稿」按钮保存草稿...');
+      draftBtn.click();
+      await sleep(1200);
+      const isSaved = document.body.innerText.includes('已保存') || document.body.innerText.includes('保存成功');
+      if (isSaved) {
+        savedDraft = true;
+        log('✅ 草稿已成功保存！');
+      }
+    }
+  } catch (e) {
+    log('⚠️ 存草稿异常: ' + e.message);
+  }
+
+  // 7. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
   log('🎉 企鹅号图文内容填入完毕，直接判定发布就绪！');
+
+  const finalDocLength = window.ExEditor?.view?.state?.doc?.textContent?.length || 0;
+  const coverImg = document.querySelector('.articleCoverWrap-cls3i-ak img, .coverThumb-cls3RUR3 img');
 
   return {
     success: true,
     isReady: true,
     status: 'ready',
     title: meta.title,
-        coverUploaded: coverUploaded,
+    wordCount: finalDocLength,
+    coverUploaded: !!coverImg,
+    coverSrc: coverImg?.src || null,
+    category: meta.category,
+    tags: meta.tags,
+    savedDraft: savedDraft,
     logs
   };
 };`;

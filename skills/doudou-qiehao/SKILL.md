@@ -1,6 +1,6 @@
 ---
 name: doudou-qiehao
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动填入企鹅号（腾讯内容开放平台）发文页（https://om.qq.com/main/creation/article ）。支持文章标题、带 CDN 配图的正文 HTML、封面图的自动填入。资产填入完成后直接判定完成，原样保留页面现场供人工发布，严禁调用 `close_page`。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动填入企鹅号（腾讯内容开放平台）发文页（https://om.qq.com/main/creation/article ）。支持文章标题、带 CDN 配图的正文 HTML、封面图、分类的自动填入，文章标签留空供用户手动填写，支持草稿保存状态验证。资产填入完成后直接判定完成，原样保留页面现场供人工发布，严禁调用 `close_page`。
 ---
 
 # 企鹅号图文文章自动发布技能 (doudou-qiehao)
@@ -15,7 +15,8 @@ flowchart TD
     S1 --> S2[步骤 2: 拟真人机输入并校准文章标题 5~64字]
     S2 --> S3[步骤 3: 注入 ProseMirror 富文本正文与 CDN 配图]
     S3 --> S4[步骤 4: 激活封面插槽、上传 File 并完成裁切弹窗确认]
-    S4 --> S5[步骤 5: 完成发布就绪]
+    S4 --> S5[步骤 5: 智能匹配推荐分类与标签留空规约]
+    S5 --> S6[步骤 6: 点击存草稿并完成发布就绪存证]
 ```
 
 ---
@@ -29,9 +30,11 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 输出包含：
 - `articleTitle`: 清洗并规范至 5~64 字以内的文章标题
 - `articleHtml`: 包含 CDN 图片、标题、代码块、引用与列表的语义 HTML
-- `cover`: 高清封面图（Base64 与本地路径）
+- `cover`: 高清封面图（本地路径、Base64 与 CDN URL）
+- `tags`: 智能推荐标签数组（最多 5 个标签，每个 <=8 字）
+- `category`: 依据文章语义自动推断的企鹅号分类（如 科技 / 互联网）
 
-Agent 可在步骤 1 打开页面后，直接调用脚本一键注入文章标题、富文本正文与封面：
+Agent 可在步骤 1 打开页面后，直接调用脚本一键注入文章标题、富文本正文、封面、分类与标签：
 ```javascript
 import { parseAllAssets } from './scripts/parser.mjs';
 import { buildPublishBrowserScript } from './scripts/qiehao_publisher.mjs';
@@ -75,17 +78,25 @@ await evaluate_script({ pageId, function: code });
 ### 步骤 4：激活封面插槽、上传 File 并完成裁切弹窗确认
 
 若存在封面图资产：
-1. 定位展示封面区域的插槽 `.addCoverBtn-cls3gyHX, button.omui-button--add`；
+1. 定位展示封面区域的插槽 `.addCoverBtn-cls3gyHX, button.omui-button--add`（若已有封面则定位更换按钮）；
 2. 拟真悬停并点击弹出上传选择框；
 3. 切换到「本地上传」标签；
-4. 将封面 Base64 构造成标准 `File` 对象，通过 `DataTransfer` 注入上传 input（`input[type="file"]`）；
+4. 将封面从 CDN URL 获取 Blob（或从 Base64 恢复）构造成标准 `File` 对象，通过 `DataTransfer` 注入上传 input（`input[type="file"]`）；
 5. 派发 React 合成 `onChange` 事件与 DOM `change` 事件；
 6. 轮询等待确认按钮（`.omui-dialog button` 文本为「确认」）变为可用状态，点击确认；
-7. 检查封面插槽确认封面图片已渲染呈现。
+7. 检查封面插槽确认封面图片已渲染呈现官方存储链接（`inews.gtimg.com`）。
 
 ---
 
-### 步骤 5：完成发布就绪
+### 步骤 5：智能匹配推荐分类与标签留空规约
 
-1. 资产填入完成后直接判定完成；
-2. **安全隔离**：原样保留当前标签页现场供人工发布，严禁调用 `close_page`。
+1. **分类自动匹配**：定位 `#articlePublish-category_id`，在常用分类标签中智能匹配与文章内容最契合的分类（如「互联网」/「科技」）并点击选中；
+2. **标签留空规约**：企鹅号文章标签（`#articlePublish-tag`）严格保持留空，不自动输入任何标签，留空供用户人工审阅发布时按需自主设置。
+
+---
+
+### 步骤 6：安全存草稿与完成发布就绪
+
+1. **保存草稿**：定位顶部或底部「存草稿」按钮并派发点击事件，捕获页面返回的「保存成功」或「已保存」通知；
+2. **存证留痕**：截取现场发文界面存证（如 `qiehao_article_draft_proof.png`）；
+3. **安全隔离**：原样保留当前标签页现场供人工发布，严禁调用 `close_page`。

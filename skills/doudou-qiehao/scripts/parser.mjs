@@ -310,10 +310,29 @@ export function resolveCoverImage(markdownFilePath, content = '') {
       const localPath = path.join(coverImagesDir, selected);
       const buf = fs.readFileSync(localPath);
       const mimeType = selected.endsWith('.jpg') || selected.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      
+      let cdnUrl = '';
+      const manifestPath = path.join(articleDir, 'cdn_manifest.json');
+      if (fs.existsSync(manifestPath)) {
+        try {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          const list = Array.isArray(manifest) ? manifest : (manifest.files || manifest.assets || []);
+          const matched = list.find(f => {
+            const lp = f.local_path || f.localPath || '';
+            return lp.endsWith(selected) || path.basename(lp) === selected || f.original_name === selected;
+          });
+          if (matched && (matched.cdn_url || matched.cdnUrl || matched.url)) {
+            cdnUrl = matched.cdn_url || matched.cdnUrl || matched.url;
+          }
+        } catch (e) {}
+      }
+
       return {
         hasCover: true,
-        type: 'local',
+        type: cdnUrl ? 'cdn' : 'local',
         localPath,
+        cdnUrl: cdnUrl || undefined,
+        url: cdnUrl || undefined,
         base64: `data:${mimeType};base64,${buf.toString('base64')}`,
         mimeType,
         fileName: selected
@@ -515,12 +534,16 @@ export function parseAllAssets(markdownFilePath) {
   const articleTitle = extractArticleTitle(rawContent);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
+  const tags = inferTags(rawContent, articleTitle);
+  const category = inferCategory(rawContent, articleTitle);
 
   return {
     markdownFilePath: absPath,
     articleTitle,
     articleHtml,
-    cover
+    cover,
+    tags,
+    category
   };
 }
 
