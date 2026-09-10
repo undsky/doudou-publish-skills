@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
+import { resolveCoverFromManifest } from './asset_resolver.mjs';
 
 /**
  * 提取并清洗文章标题
@@ -25,17 +25,24 @@ export function extractRawTitle(content, fallbackTitle = '未命名图文') {
   return fallbackTitle;
 }
 
-/**
- * 提取并清洗小红书图文笔记标题（严格限制 20 字以内）
- * @param {string} content 
- * @param {string} fallbackTitle 
- * @returns {string}
- */
 export function extractImagePostTitle(content, fallbackTitle = '未命名图文') {
   const rawTitle = extractRawTitle(content, fallbackTitle);
   // 清洗特殊标点，保持吸睛精炼
-  const cleanTitle = rawTitle.replace(/[【】《》「」：]/g, ' ').replace(/\s+/g, ' ').trim();
-  return cleanTitle.length > 20 ? cleanTitle.substring(0, 19) + '…' : cleanTitle;
+  let cleanTitle = rawTitle.replace(/[【】《》「」：]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanTitle.length <= 20) return cleanTitle;
+
+  // 尝试去除常见前缀（如分类/框架名）提取更具点击率的主题
+  const parts = cleanTitle.split(/\s+/);
+  if (parts.length > 1) {
+    const withoutPrefix = parts.slice(1).join(' ').trim();
+    if (withoutPrefix.length >= 6 && withoutPrefix.length <= 20) {
+      return withoutPrefix;
+    }
+    if (withoutPrefix.length > 20) {
+      return withoutPrefix.substring(0, 19) + '…';
+    }
+  }
+  return cleanTitle.substring(0, 19) + '…';
 }
 
 /**
@@ -116,14 +123,17 @@ export function extractImagePostDescription(content, title = '', tags = []) {
     if (points.length >= 5) break;
   }
 
-  const tagString = tags.map(t => `#${t}`).join(' ');
+  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t}`).join(' ') : '';
   const summary = extractArticleSummary(content);
 
   let desc = `💡 ${summary}\n\n`;
   if (points.length > 0) {
     desc += `🔥 核心要点干货整理：\n` + points.map((p, idx) => `0${idx + 1} ${p}`).join('\n') + '\n\n';
   }
-  desc += `✨ 欢迎评论区交流讨论！\n\n${tagString}`;
+  desc += `✨ 欢迎评论区交流讨论！`;
+  if (tagString) {
+    desc += `\n\n${tagString}`;
+  }
 
   return desc.length > 950 ? desc.substring(0, 940) + '...' : desc;
 }
@@ -150,8 +160,12 @@ export function resolveImagePostCards(markdownFilePath) {
 
   for (const targetDir of candidateDirs) {
     if (fs.existsSync(targetDir) && fs.statSync(targetDir).isDirectory()) {
-      const files = fs.readdirSync(targetDir)
-        .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')))
+      const allFiles = fs.readdirSync(targetDir)
+        .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')));
+      const nonThumbFiles = allFiles.filter(f => !f.includes('_thumb'));
+      // 如果同时存在无后缀主卡片（如 04-jrebel-card.png）和重试版本（如 04-jrebel-card_1.png），优先取主卡片
+      const mainCards = nonThumbFiles.filter(f => !/_\d+\.(png|jpg|webp)$/i.test(f));
+      const files = (mainCards.length > 0 ? mainCards : nonThumbFiles)
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
       if (files.length > 0) {
@@ -371,9 +385,8 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const imagePostTitle = extractImagePostTitle(rawContent);
   const articleSummary = extractArticleSummary(rawContent);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 5）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const tags = inferTags(rawContent, imagePostTitle, 5);
+  // 移除自动推断标签，改由用户在发布现场自行设置
+  const tags = [];
   const imagePostDesc = extractImagePostDescription(rawContent, imagePostTitle, tags);
   const imageCards = resolveImagePostCards(absPath);
   const video = resolveVideoAsset(absPath);
@@ -381,6 +394,31 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
     ? video.manifestTitle 
     : (video.manifestTitle ? video.manifestTitle.substring(0, 19) + '…' : imagePostTitle);
   const videoDesc = extractVideoPostDescription(rawContent, videoTitle, tags);
+
+  const articleDir = path.join(path.dirname(absPath), path.basename(absPath, path.extname(absPath)));
+  let cover = resolveCoverFromManifest(articleDir, {
+    preferBase64: true,
+    aspectPriority: ['16:9', '2.35:1', '1:1']
+  });
+
+  // 备选本地 cover 目录扫描
+  if (!cover) {
+    const coverDir = path.join(articleDir, 'cover', 'images');
+    if (fs.existsSync(coverDir)) {
+      const files = fs.readdirSync(coverDir).filter(f => !f.includes('_thumb') && !f.includes('yuantu') && (f.endsWith('.png') || f.endsWith('.jpg')));
+      const chosen = files.find(f => f.includes('16x9') || f.includes('16-9')) || files[0];
+      if (chosen) {
+        const fullPath = path.join(coverDir, chosen);
+        cover = {
+          hasCover: true,
+          fileName: chosen,
+          localPath: fullPath,
+          base64: fs.readFileSync(fullPath).toString('base64'),
+          mimeType: chosen.endsWith('.jpg') ? 'image/jpeg' : 'image/png'
+        };
+      }
+    }
+  }
 
   const result = {
     markdownFilePath: absPath,
@@ -398,7 +436,10 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
     cardFilePaths: imageCards.map(c => c.localPath),
     video,
     hasVideo: video.hasVideo,
-    videoPath: video.videoPath
+    videoPath: video.videoPath,
+    cover,
+    coverBase64: cover?.base64 || '',
+    coverPath: cover?.localPath || ''
   };
 
   result.publishPlan = resolvePublishPlan(result, requestedModes);

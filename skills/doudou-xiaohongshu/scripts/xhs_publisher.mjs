@@ -196,19 +196,19 @@ export function buildVideoPostBrowserScript(meta) {
         return new File([blob], name, { type: 'image/png' });
       };
 
-      const coverBtn = Array.from(document.querySelectorAll('button, span, div')).find(el => {
+      const coverBtn = document.querySelector('.cover-edit-entry, .cover-edit-entry-text') || Array.from(document.querySelectorAll('button, span, div')).find(el => {
         const txt = el.innerText?.trim();
-        return (txt === '设置封面' || txt === '修改封面' || txt === '更换封面') && el.offsetWidth > 0;
+        return (txt === '编辑封面' || txt === '设置封面' || txt === '修改封面' || txt === '更换封面') && el.offsetWidth > 0;
       });
 
       if (coverBtn) {
         coverBtn.click();
         await sleep(1000);
 
-        // 切换到「上传封面」Tab
+        // 切换到「上传封面」Tab（若有）
         const uploadTab = Array.from(document.querySelectorAll('.d-modal div, .d-modal span, .d-modal button, [class*="modal"] span, [class*="tab"] span')).find(el => {
           const txt = el.innerText?.trim();
-          return txt === '上传封面' || txt === '本地上传';
+          return txt === '上传封面' || txt === '本地上传' || txt === '上传';
         });
         if (uploadTab) {
           uploadTab.click();
@@ -224,7 +224,7 @@ export function buildVideoPostBrowserScript(meta) {
           coverInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
           await sleep(1500);
 
-          const confirmBtn = Array.from(document.querySelectorAll('.d-modal button, [class*="modal"] button')).find(b => {
+          const confirmBtn = Array.from(document.querySelectorAll('.d-modal button, [class*="modal"] button, span.circle-button-content, .d-modal span')).find(b => {
             const txt = b.innerText?.trim();
             return (txt === '确定' || txt === '完成') && !b.disabled;
           });
