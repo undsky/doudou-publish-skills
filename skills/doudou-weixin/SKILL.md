@@ -1,6 +1,6 @@
 ---
 name: doudou-weixin
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动发布到微信公众平台草稿箱（https://mp.weixin.qq.com）。支持「图文文章」与「小绿书贴图」双创作模态，用户未明确指定模态时默认两种全发（资产缺失的模态自动跳过并登记原因），用户明确指定时只发指定模态。完成后保留页面现场供人工发布。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章及衍生资产自动发布到微信公众平台草稿箱（https://mp.weixin.qq.com）。支持「文章」与「贴图」双创作模态，用户未明确指定模态时默认两种全发（资产缺失的模态自动跳过并登记原因），用户明确指定时只发指定模态。完成后保留页面现场供人工发布。
 ---
 
 # 微信公众平台文章与贴图自动发布到草稿技能 (doudou-weixin)
@@ -16,7 +16,7 @@ flowchart TD
     S0[步骤 0: 解析 Markdown 衍生资产与封面/排版] --> S1[步骤 1: 打开微信公众平台并进入草稿箱]
     S1 --> S2[步骤 2: 点击「新的创作」下拉菜单]
 
-    subgraph 模态一: 图文文章草稿（极简流程）
+    subgraph 模态一: 文章草稿（极简流程）
         S2 --> A1[点击「文章」打开图文编辑器页面]
         A1 --> A2[拟真人机输入文章标题]
         A2 --> A3[聚焦正文 ProseMirror 注入纯排版 HTML]
@@ -24,7 +24,7 @@ flowchart TD
         A4 --> A5[等待微信原生自动防抖保存就绪]
     end
 
-    subgraph 模态二: 小绿书贴图草稿（极简流程）
+    subgraph 模态二: 贴图草稿（极简流程）
         S2 --> B1[点击「贴图」打开贴图编辑器页面 createType=8]
         B1 --> B2[批量上传 xhs_images 卡片图片集]
         B2 --> B3[拟真人机输入贴图标题 20字以内]
@@ -52,14 +52,15 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 - `stickerImages`: 图文卡片序列（Base64 数组）
 
 Agent 可直接调用 `scripts/weixin_publisher.mjs` 配合 `chrome-devtools-mcp` 注入文章与贴图：
+
 ```javascript
-import { parseAllAssets } from './scripts/parser.mjs';
+import { parseAllAssets } from "./scripts/parser.mjs";
 import {
   buildArticleBrowserScript,
   buildStickerBrowserScript,
-} from './scripts/weixin_publisher.mjs';
+} from "./scripts/weixin_publisher.mjs";
 
-const meta = parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
+const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 // 文章页面注入: buildArticleBrowserScript(meta)
 // 贴图页面注入: buildStickerBrowserScript(meta)
 ```
@@ -85,7 +86,7 @@ const meta = parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
 
 ---
 
-### 步骤 3：发布「图文文章」到草稿
+### 步骤 3：发布「文章」到草稿
 
 1. 点击下拉菜单中的「文章」选项（`.weui-desktop-dropdown__list-ele` 包含“文章”）；
 2. 浏览器将自动新开图文编辑器页面（URL 包含 `appmsg_edit_v2` 或 `type=10`）；
@@ -94,13 +95,12 @@ const meta = parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
    - 拟真输入标题 ProseMirror 并同步 `#title`；
    - 聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入纯排版 HTML（`insertHTML` 保底）；
    - 若存在封面图，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
-   - **严禁填写作者或摘要**，减少一切多余操作；
-   5. 资产填入完成后直接判定完成；
+5. 资产填入完成后直接判定完成；
 6. **安全隔离**：原样保留文章草稿编辑页面供人工复核与发布，严禁调用 `close_page`。
 
 ---
 
-### 步骤 4：发布「贴图卡片」到草稿
+### 步骤 4：发布「贴图」到草稿
 
 1. 切换回草稿箱页面，再次点击「新的创作」；
 2. 点击下拉菜单中的「贴图」选项（`.weui-desktop-dropdown__list-ele` 包含“贴图”）；
@@ -109,6 +109,6 @@ const meta = parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
 5. 调用 `evaluate_script` 执行 `buildStickerBrowserScript(meta)`：
    - 将 `xhs_images` 的所有卡片转为 `File` 对象，通过 `DataTransfer` 赋值给贴图上传 input，派发 `change` 触发批量上传；
    - 拟真输入贴图标题（20 字以内）；
-   - 拟真输入贴图描述（要点梳理 + `#话题标签`）；
-   5. 资产填入完成后直接判定完成；
-6. **安全隔离**：原样保留贴图草稿编辑页面供人工复核与发布，严禁调用 `close_page`。
+   - 拟真输入贴图描述（要点梳理）；
+6. 资产填入完成后直接判定完成；
+7. **安全隔离**：原样保留贴图草稿编辑页面供人工复核与发布，严禁调用 `close_page`。

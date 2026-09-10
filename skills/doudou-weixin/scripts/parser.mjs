@@ -249,8 +249,10 @@ export function resolveStickerImages(markdownFilePath) {
 
   for (const targetDir of candidateDirs) {
     if (fs.existsSync(targetDir) && fs.statSync(targetDir).isDirectory()) {
-      const files = fs.readdirSync(targetDir)
-        .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')))
+      const allFiles = fs.readdirSync(targetDir)
+        .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')));
+      const hasNonThumb = allFiles.some(f => !f.includes('_thumb'));
+      const files = (hasNonThumb ? allFiles.filter(f => !f.includes('_thumb')) : allFiles)
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
       if (files.length > 0) {
@@ -279,8 +281,8 @@ export function resolveStickerImages(markdownFilePath) {
  * @returns {object}
  */
 export const PUBLISH_MODES = [
-  { mode: 'article', label: '图文文章', aliases: ['article', '文章', '图文文章', '长文', '图文'] },
-  { mode: 'sticker', label: '小绿书贴图', aliases: ['sticker', '贴图', '小绿书', '卡片', '图片', '图文卡片'] }
+  { mode: 'article', label: '文章', aliases: ['article', '文章', '图文文章', '长文', '图文'] },
+  { mode: 'sticker', label: '贴图', aliases: ['sticker', '贴图', '小绿书', '卡片', '图片', '图文卡片'] }
 ];
 
 /**
