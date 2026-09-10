@@ -14,7 +14,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     bodyContent: articleData.bodyContent
   });
 
-  return `(async () => {
+  return `async () => {
   const data = ${jsonPayload};
   const logs = [];
   function log(msg) {
@@ -158,7 +158,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
           if (tosUrl) {
             if (panelVue.post) panelVue.post.cover_image = tosUrl;
             if (parentVue.draft) parentVue.draft.cover_image = tosUrl;
-            if (uploaderVue) uploaderVue.$emit('changeCover', tosUrl);
+            if (uploaderVue) {
+              if (typeof uploaderVue.changMainImage === 'function') {
+                uploaderVue.changMainImage(tosUrl);
+              }
+              uploaderVue.$emit('changeCover', tosUrl);
+            }
             coverUploaded = true;
             coverUrl = tosUrl;
             window.__doudou_cover_status = 'uploaded';
@@ -186,14 +191,25 @@ export function buildBrowserPublishScript(markdownFilePath) {
   window.scrollTo({ top: 150, behavior: 'smooth' });
   await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  await delay(800);
+  await delay(600);
+
+  // 显式触发草稿保存
+  if (parentVue && typeof parentVue.update === 'function') {
+    try {
+      parentVue.update();
+      log('已显式触发 parentVue.update() 保存草稿');
+      await delay(1200);
+    } catch (e) {
+      log('parentVue.update 异常: ' + e.message);
+    }
+  }
 
   // 获取草稿保存状态反馈
   const statusTexts = Array.from(document.querySelectorAll('header *, nav *, [class*="status"] *'))
     .map(el => el.innerText ? el.innerText.trim() : '')
     .filter(t => t && (t.includes('保存') || t.includes('草稿')));
 
-  const draftId = parentVue?.draft?.id || (window.location.href.match(/drafts\\/(\\d+)/) ? window.location.href.match(/drafts\\/(\\d+)/)[1] : null);
+  const draftId = parentVue?.draft?.id || (window.location.href.match(/drafts[\\/](\\w+)/) ? window.location.href.match(/drafts[\\/](\\w+)/)[1] : null);
 
   return {
     success: true,
@@ -206,7 +222,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     statusTexts: [...new Set(statusTexts)],
     logs
   };
-})()`;
+}`
 }
 
 // 命令行直接测试生成执行代码
