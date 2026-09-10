@@ -85,40 +85,15 @@ export function extractSummary(content) {
 }
 
 /**
- * 智能推断发帖版块 fid
- * @param {string} filePath 
- * @param {string} title 
- * @param {string} content 
- * @param {string} defaultFid 
+ * 发帖版块（定死技术交流 fid=4）
+ * @param {string} [filePath]
+ * @param {string} [title]
+ * @param {string} [content]
+ * @param {string} [defaultFid='4']
  * @returns {{ fid: string, name: string }}
  */
 export function resolveBoardCategory(filePath, title, content, defaultFid = '4') {
-  const combined = `${filePath} ${title} ${content.slice(0, 500)}`.toLowerCase();
-
-  if (/资源|分享|下载|网盘|源码|开源|合集|工具包|软件包|破解|汉化/i.test(combined)) {
-    return { fid: '3', name: FORUM_BOARDS['3'] };
-  }
-  if (/福利|免费送|抽奖|赠送|羊毛|领券|礼包/i.test(combined)) {
-    return { fid: '2', name: FORUM_BOARDS['2'] };
-  }
-  if (/求助|请教|问答|报错|bug|求解决|请问|怎么解决/i.test(combined)) {
-    return { fid: '5', name: FORUM_BOARDS['5'] };
-  }
-  if (/思考|随笔|复盘|认知|心路|哲学|感悟|读书笔记/i.test(combined)) {
-    return { fid: '7', name: FORUM_BOARDS['7'] };
-  }
-  if (/推广|aff|邀请码|推荐码|affiliate|自荐/i.test(combined)) {
-    return { fid: '8', name: FORUM_BOARDS['8'] };
-  }
-  if (/治理|版规|公告|举报|反馈社区/i.test(combined)) {
-    return { fid: '6', name: FORUM_BOARDS['6'] };
-  }
-  if (/灌水|闲聊|摸鱼|打卡|大禹/i.test(combined)) {
-    return { fid: '10', name: FORUM_BOARDS['10'] };
-  }
-
-  // 默认技术交流
-  return { fid: defaultFid, name: FORUM_BOARDS[defaultFid] || '技术交流' };
+  return { fid: '4', name: '技术交流' };
 }
 
 /**

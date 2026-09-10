@@ -10,8 +10,8 @@ import { parseArticle, FORUM_BOARDS } from './parser.mjs';
  */
 export function buildBrowserPublishScript(markdownFilePath, options = {}) {
   const articleData = parseArticle(markdownFilePath, options);
-  const targetFid = options.fid || articleData.fid || '4';
-  const targetForumName = FORUM_BOARDS[targetFid] || articleData.forumName || '技术交流';
+  const targetFid = '4';
+  const targetForumName = '技术交流';
 
   const jsonPayload = JSON.stringify({
     title: articleData.title,
@@ -21,7 +21,7 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
     cover: articleData.cover
   });
 
-  return `(async () => {
+  return `async () => {
   const data = ${jsonPayload};
   const logs = [];
   function log(msg) {
@@ -140,7 +140,7 @@ export function buildBrowserPublishScript(markdownFilePath, options = {}) {
     readyToPublishManually: true,
     logs
   };
-})()`;
+};`;
 }
 
 // 命令行运行支持

@@ -1,6 +1,6 @@
 ---
 name: doudou-linuxsb
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入烧饼社区发帖页（https://linux.sb/topic_edit?fid=4）。支持社区规范发帖弹窗自动确认、智能版块选择（技术交流/资源分享/福利放送等）、CDN 正文自动替换、NB-Editor Markdown 注入，完成后保留页面现场供用户人工手动保存发布。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入烧饼社区发帖页（https://linux.sb/topic_edit?fid=4）。支持社区规范发帖弹窗自动确认、固定发帖至技术交流版块 (fid=4)、CDN 正文自动替换、NB-Editor Markdown 注入，完成后保留页面现场供用户人工手动保存发布。
 ---
 
 # 烧饼社区文章自动发布技能 (doudou-linuxsb)
@@ -11,45 +11,29 @@ description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填
 
 ---
 
-## 社区版块映射表 (Forum Boards)
-
-| 版块 ID (`fid`) | 版块名称 | 适用主题特征 |
-| :--- | :--- | :--- |
-| **`4` (默认)** | **技术交流** | AI、编程、架构、教程、Linux、Docker、前后端开发、深度实践 |
-| **`3`** | **资源分享** | 实用软件、开源项目、工具合集、优质资源、素材分享 |
-| **`2`** | **福利放送** | 免费福利、抽奖、礼包、社区活动 |
-| **`5`** | **求助问答** | 遇到报错、技术求助、使用疑问、请教交流 |
-| **`7`** | **深度思考** | 行业认知、心路历程、复盘思考、哲学感悟、长文分析 |
-| **`8`** | **我要推广** | 推广链接、Affiliate、自荐产品、活动优惠 |
-| **`6`** | **社区治理** | 社区规则、治理建议、公告反馈 |
-| **`10`** | **大禹治水** | 闲聊摸鱼、日常灌水、社区互动 |
-| **`1`** | **错误地方** | 误发版块归档 |
-
----
-
 ## 自动化执行全流程
 
 当接收到用户指定的 Markdown 文件路径时，依次执行以下阶段：
 
 ```mermaid
 flowchart TD
-    S0[步骤 0: 解析 Markdown 资产与推断版块] --> S1[步骤 1: 打开/聚焦发帖页并检测登录态]
+    S0[步骤 0: 解析 Markdown 资产] --> S1[步骤 1: 打开/聚焦发帖页并检测登录态]
     S1 --> S2[步骤 2: 自动检测并确认社区规范弹窗]
-    S2 --> S3[步骤 3: 拟真选择发帖版块 fid]
+    S2 --> S3[步骤 3: 拟真选择发帖版块 fid=4 (技术交流)]
     S3 --> S4[步骤 4: 拟真人机输入文章标题]
     S4 --> S5[步骤 5: 注入 Markdown 正文并同步 NB-Editor]
     S5 --> S6[步骤 6: 完成发布就绪]
 ```
 
-### 步骤 0：解析 Markdown 资产与推断版块
+### 步骤 0：解析 Markdown 资产
 
 运行辅助解析脚本提取元数据（脚本路径相对本技能目录）：
 ```bash
-node scripts/parser.mjs <Markdown文件绝对路径> [可选指定fid]
+node scripts/parser.mjs <Markdown文件绝对路径>
 ```
 输出包含：
 - `title`: 文章标题（自动清洗 Markdown 符号）
-- `fid` / `forumName`: 智能推荐或指定的版块 ID 与版块名称
+- `fid` / `forumName`: 固定为版块 ID `4` 与版块名称 `技术交流`
 - `bodyContent`: 过滤掉首行重复 H1 后的 Markdown 正文（优先使用 `_cdn.md`）
 - `cover`: 封面图资产信息
 
@@ -89,15 +73,15 @@ if (noticeConfirmBtn && noticeConfirmBtn.offsetParent !== null) {
 
 ---
 
-### 步骤 3：拟真选择发帖版块
+### 步骤 3：拟真选择发帖版块（定死技术交流 fid=4）
 
 1. 聚焦版块下拉框 `select[name="forum_id"]`。
-2. 设置 `fid` 对应值并派发 DOM 事件：
+2. 设置 `fid="4"`（技术交流）并派发 DOM 事件：
 ```javascript
 const forumSelect = document.querySelector('select[name="forum_id"]');
 if (forumSelect) {
   forumSelect.focus();
-  forumSelect.value = targetFid;
+  forumSelect.value = '4';
   forumSelect.dispatchEvent(new Event('input', { bubbles: true }));
   forumSelect.dispatchEvent(new Event('change', { bubbles: true }));
   forumSelect.blur();
