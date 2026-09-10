@@ -100,46 +100,88 @@ export function buildBrowserPublishScript(markdownFilePath) {
         const coverCompEl = allElements.find(el => el.__vue__?.$options?.name === 'CoverImage');
         const coverComp = coverCompEl ? coverCompEl.__vue__ : null;
 
-        if (data.cover.base64) {
-          try {
-            const byteCharacters = atob(data.cover.base64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const mimeType = data.cover.mimeType || 'image/png';
-            const blob = new Blob([byteArray], { type: mimeType });
-            const file = new File([blob], 'cover.png', { type: mimeType });
+        let targetCoverUrl = data.cover.url;
 
-            const fileInput = modal.querySelector('input[type="file"].el-upload__input');
-            if (fileInput) {
-              const dt = new DataTransfer();
-              dt.items.add(file);
-              fileInput.files = dt.files;
-              fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-              coverSetStatus = 'uploaded_local_file';
-              window.__doudou_cover_status = 'uploaded';
-              log('✅ 已通过本地文件流上传文章封面');
-            } else if (coverComp) {
-              coverComp.currentImg = data.cover.url;
-              coverSetStatus = 'bound_cdn_url';
-              window.__doudou_cover_status = 'uploaded';
-              log('✅ 已通过 CoverImage 组件绑定封面 URL');
+        // 优先将封面图片上传至 CSDN 官方 OSS（支持本地 base64 或跨域图片转 Blob）
+        if (window.csdn && window.csdn.upload && typeof window.csdn.upload.uploadImg === 'function') {
+          try {
+            let file = null;
+            if (data.cover.base64) {
+              const byteCharacters = atob(data.cover.base64);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const mimeType = data.cover.mimeType || 'image/png';
+              const blob = new Blob([byteArray], { type: mimeType });
+              file = new File([blob], 'cover.png', { type: mimeType });
+            } else if (data.cover.url) {
+              file = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                  try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob(blob => {
+                      if (blob) resolve(new File([blob], 'cover.png', { type: 'image/png' }));
+                      else reject(new Error('canvas toBlob failed'));
+                    }, 'image/png');
+                  } catch (err) {
+                    reject(err);
+                  }
+                };
+                img.onerror = () => reject(new Error('image load failed'));
+                img.src = data.cover.url;
+              });
+            }
+
+            if (file) {
+              const uploadRes = await window.csdn.upload.uploadImg({
+                appName: 'direct_blog_coverimage',
+                file: file
+              });
+              const officialUrl = uploadRes?.[0]?.data?.data?.imageUrl;
+              if (officialUrl) {
+                targetCoverUrl = officialUrl;
+                coverSetStatus = 'uploaded_official_oss';
+                log('✅ 已通过 CSDN 官方接口上传封面至 OSS: ' + officialUrl);
+              }
             }
           } catch (e) {
-            log('⚠️ 上传本地封面异常: ' + e.message);
-            if (coverComp && data.cover.url) {
-              coverComp.currentImg = data.cover.url;
-              coverSetStatus = 'bound_cdn_url_fallback';
-              window.__doudou_cover_status = 'uploaded';
-            }
+            log('⚠️ 官方上传异常 (' + e.message + ')，回退至直接绑定封面 URL');
           }
-        } else if (data.cover.url && coverComp) {
-          coverComp.currentImg = data.cover.url;
-          coverSetStatus = 'bound_cdn_url';
+        }
+
+        if (targetCoverUrl && coverComp) {
+          if (typeof coverComp.selectImg === 'function') {
+            coverComp.selectImg(targetCoverUrl);
+          } else {
+            coverComp.currentImg = targetCoverUrl;
+          }
+          if (typeof coverComp.restorePicData === 'function') {
+            await coverComp.restorePicData(targetCoverUrl);
+          }
+          let cur = coverComp;
+          while (cur) {
+            if (cur.coverimages !== undefined) {
+              cur.coverimages = [targetCoverUrl];
+              if (typeof cur.restoreData === 'function') {
+                await cur.restoreData('coverimages');
+              }
+              break;
+            }
+            cur = cur.$parent;
+          }
+          if (coverSetStatus === 'none') {
+            coverSetStatus = 'bound_cdn_url';
+          }
           window.__doudou_cover_status = 'uploaded';
-          log('✅ 已直接绑定封面 CDN URL: ' + data.cover.url);
+          log('✅ 已绑定文章封面: ' + targetCoverUrl);
         }
         await randomDelay(300, 600);
 
@@ -152,12 +194,20 @@ export function buildBrowserPublishScript(markdownFilePath) {
         } else if (closeBtn) {
           closeBtn.click();
         }
-        await randomDelay(300, 500);
+        await randomDelay(400, 800);
       }
     }
   }
 
-  // 5. 单次轻度视口微调触发渲染
+  // 5. 点击顶部保存草稿按钮确保服务端草稿持久化
+  const saveBtn = document.querySelector('.btn-save');
+  if (saveBtn) {
+    log('💾 正在点击保存草稿按钮...');
+    saveBtn.click();
+    await randomDelay(1000, 1500);
+  }
+
+  // 6. 单次轻度视口微调触发渲染
   window.scrollTo({ top: 150, behavior: 'smooth' });
   await delay(200);
   window.scrollTo({ top: 0, behavior: 'smooth' });

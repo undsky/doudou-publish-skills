@@ -175,15 +175,9 @@ export function buildBrowserPublishScript(markdownFilePath) {
       }
       await randomDelay(300, 500);
 
-      // 关闭发布面板，绝不点击确定发布
-      log('正在关闭发布设置面板并保留草稿...');
-      const cancelBtn = Array.from(panel.querySelectorAll('button')).find(b => b.innerText.trim() === '取消');
-      if (cancelBtn) {
-        cancelBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        await randomDelay(150, 300);
-        cancelBtn.click();
-      }
-      await randomDelay(400, 600);
+      // 保持发布面板打开，原样保留现场供人工选择分类标签与最终发布，绝不关闭弹窗
+      log('封面图绑定完成，原样保留发布设置面板现场（不关闭弹窗），供人工选择分类标签与提交发布...');
+      await randomDelay(300, 500);
     }
   }
 
