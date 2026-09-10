@@ -2,6 +2,7 @@ import { parseArticle } from './parser.mjs';
 
 /**
  * 生成可直接在目标页面 (https://developer.aliyun.com/article/new) evaluate_script 执行的表单填充与拟真发布函数字符串
+ * 严格遵循效率深度优化铁律：文章只填写标题、正文内容、上传封面图，彻底杜绝摘要填写、标签配置、子社区选择等任何多余操作。
  * @param {string} markdownFilePath 
  * @returns {string} 可在目标页面执行的自包含异步 JS 代码
  */
@@ -13,7 +14,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
     cover: articleData.cover
   });
 
-  return `(async () => {
+  return `async () => {
   const data = ${jsonPayload};
   const logs = [];
   function log(msg) {
@@ -23,7 +24,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   // 1. 检查页面和表单实例
   const formEl = document.querySelector('form.public-article-form');
   if (!formEl) {
-    return { success: false, error: '未找到发布表单，请确保已登录并停留在 https://developer.aliyun.com/article/new' };
+    return { success: false, error: '未找到发布表单，请确保已登录并停留在 https://developer.aliyun.com/article/new', logs };
   }
 
   const fiberKey = Object.keys(formEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
@@ -38,7 +39,7 @@ export function buildBrowserPublishScript(markdownFilePath) {
   }
 
   if (!instance) {
-    return { success: false, error: '未能获取表单组件 React 实例' };
+    return { success: false, error: '未能获取表单组件 React 实例', logs };
   }
 
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -119,8 +120,12 @@ export function buildBrowserPublishScript(markdownFilePath) {
     window.__doudou_cover_url = coverUrl;
   }
 
+  log('🎉 阿里云开发者社区文章内容与封面填入完毕，直接判定发布就绪！');
+
   return {
     success: true,
+    isReady: true,
+    status: 'ready',
     title: data.title,
     bodyLength: data.bodyContent.length,
     cover: data.cover,
@@ -128,19 +133,19 @@ export function buildBrowserPublishScript(markdownFilePath) {
     coverUrl,
     logs
   };
-})()`;
+};`;
 }
 
 /**
  * 生成等待平台原生自动保存与就绪状态检查的异步 JS 代码
  */
 export function buildSaveDraftScript() {
-  return `(async () => {
+  return `async () => {
   console.log('[doudou-aliyun] 内容与封面已注入，直接判定发布就绪！');
   return {
     success: true,
     isReady: true,
     status: 'ready'
   };
-})()`;
+};`;
 }
