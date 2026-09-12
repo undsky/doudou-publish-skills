@@ -6,7 +6,7 @@
 
 </div>
 
-![doudou-publish-skills](./assets/cover.png)
+![doudou-publish-skills](./assets/cover_thumb.png)
 
 ---
 
