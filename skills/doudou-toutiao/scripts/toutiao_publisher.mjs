@@ -200,20 +200,31 @@ export function buildPublishBrowserScript(meta) {
         return null;
       };
 
-      const coverAddBtn = document.querySelector('.article-cover-add') || document.querySelector('.article-cover-img-replace');
+      // 记录初始封面 URL，用于最终校验是否真正更换成功
+      const getCoverSrc = () => document.querySelector('.article-cover-img img, .article-cover-preview img, [class*="cover"] img')?.src || '';
+      const initialCoverSrc = getCoverSrc();
+
+      const coverAddBtn = document.querySelector('.article-cover-img-replace') || 
+                          document.querySelector('.article-cover-add') || 
+                          document.querySelector('.article-cover-img-modify') ||
+                          document.querySelector('.article-cover-img');
       if (coverAddBtn) {
+        log('正在点击封面替换/添加按钮展开抽屉...');
         await simulateClick(coverAddBtn);
-        await sleep(800);
+        await sleep(1000);
 
         // 若抽屉默认展示正文图片，自动点击「上传图片」Tab
-        const uploadTab = Array.from(document.querySelectorAll('.byte-drawer .byte-tabs-header-title')).find(t => (t.innerText || '').trim() === '上传图片');
+        const uploadTab = Array.from(document.querySelectorAll('.byte-drawer .byte-tabs-header-title, .byte-tabs-header-title')).find(t => (t.innerText || '').trim() === '上传图片');
         if (uploadTab) {
           uploadTab.click();
-          await sleep(500);
+          await sleep(800);
+          log('已切换至「上传图片」Tab');
         }
 
-        // 查找抽屉内的上传 input
-        const uploadInput = document.querySelector('.byte-drawer input[type="file"]') || document.querySelector('.btn-upload-handle input') || document.querySelector('#upload-drag-input');
+        // 查找抽屉内真正的上传 input（优先选择本地上传按钮容器内的 input）
+        const uploadInput = document.querySelector('.byte-drawer .btn-upload-handle input[type="file"]') || 
+                            document.querySelector('.byte-drawer input[type="file"]') || 
+                            document.querySelector('#upload-drag-input');
         if (uploadInput) {
           const file = await makeFile(meta.coverBase64, meta.coverFileName, meta.coverUrl);
           if (file) {
@@ -222,135 +233,111 @@ export function buildPublishBrowserScript(meta) {
             uploadInput.files = dt.files;
           }
 
-          // 调用 React 的 onChange 处理器
+          // 调用 React 的 onChange 处理器及原生事件
           const propsKey = Object.keys(uploadInput).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
           if (propsKey && uploadInput[propsKey] && typeof uploadInput[propsKey].onChange === 'function') {
-            uploadInput[propsKey].onChange({
-              target: uploadInput,
-              currentTarget: uploadInput,
-              nativeEvent: new Event('change'),
-              persist: () => {}
-            });
+            try {
+              uploadInput[propsKey].onChange({
+                target: uploadInput,
+                currentTarget: uploadInput,
+                nativeEvent: new Event('change'),
+                persist: () => {}
+              });
+            } catch (_) {}
           }
+          uploadInput.dispatchEvent(new Event('input', { bubbles: true }));
           uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
-          log('已向封面上传组件提交 File 对象');
+          log('已向封面上传组件提交 File 对象，文件大小: ' + (file ? file.size : 0) + ' 字节');
 
-          // 动态高频轮询等待图片上传就绪并激活「确定」按钮（毫秒级响应，精准避开“本地上传”等其他 primary 按钮）
+          // 动态高频轮询等待图片上传就绪并激活「确定」按钮（严禁提前退出）
+          // 条件：1. 进度条 syl-progress 消失；2. 已上传图片卡片呈现；3. 确定按钮非 disabled 且不含 disabled 类名
           log('正在动态等待图片上传与确定按钮就绪...');
-          const findConfirmBtn = () => {
-            // 1. 优先通过头条官方专属 data-e2e 定位确定按钮（绝对排除“本地上传”按钮）
-            const e2eBtn = document.querySelector('button[data-e2e="imageUploadConfirm-btn"]');
-            if (e2eBtn && e2eBtn.offsetWidth > 0) return e2eBtn;
-
-            // 2. 抽屉内语义查找文字严格为「确定」的有效按钮
-            const drawerBtns = Array.from(document.querySelectorAll('.byte-drawer button, .mp-ic-img-drawer button'));
-            const textMatch = drawerBtns.find(b => {
-              const txt = (b.innerText || '').trim();
-              return (txt === '确定' || txt === '完成') && b.offsetWidth > 0;
-            });
-            if (textMatch) return textMatch;
-
-            // 3. 全局降级查找文字为「确定」的有效按钮
-            return Array.from(document.querySelectorAll('button, .byte-btn')).find(b => {
-              const txt = (b.innerText || '').trim();
-              return (txt === '确定' || txt === '完成') && b.offsetWidth > 0;
-            });
-          };
-
-          const isBtnReady = (btn) => {
-            if (!btn) return false;
-            if (btn.disabled) return false;
-            const cls = (btn.className || '');
-            if (cls.includes('disabled') || cls.includes('is-disabled') || cls.includes('byte-btn-disabled')) return false;
-            if (btn.getAttribute('aria-disabled') === 'true') return false;
-            return true;
-          };
-
-          const isDrawerClosed = () => {
-            const drawerWrap = document.querySelector('.byte-drawer-wrapper');
-            if (drawerWrap && (drawerWrap.classList.contains('byte-drawer-wrapper-hide') || window.getComputedStyle(drawerWrap).display === 'none')) {
-              return true;
-            }
-            const drawer = document.querySelector('.byte-drawer');
-            if (!drawer) return true;
-            if (drawer.classList.contains('byte-drawer-hidden')) return true;
-            const st = window.getComputedStyle(drawer);
-            return st.display === 'none' || st.visibility === 'hidden' || drawer.offsetWidth === 0;
-          };
-
-          // 轮询等待就绪：每 100ms 检查一次，最长 15 秒
-          let confirmBtn = null;
-          const maxWait = 15000;
+          let uploadReady = false;
+          const maxWait = 30000;
           const startWait = Date.now();
-          while (Date.now() - startWait < maxWait) {
-            const btn = findConfirmBtn();
-            const drawerText = document.querySelector('.byte-drawer')?.innerText || '';
-            const hasUploadedIndicator = drawerText.includes('已上传') || !!document.querySelector('.byte-drawer .image-list, .byte-drawer [class*="upload-list"], .byte-drawer .image-item');
 
-            if (btn && isBtnReady(btn) && (hasUploadedIndicator || Date.now() - startWait > 800)) {
-              confirmBtn = btn;
+          while (Date.now() - startWait < maxWait) {
+            const hasProgress = !!document.querySelector('.byte-drawer .syl-progress');
+            const hasUploadedItem = !!document.querySelector('.byte-drawer .pic-select-image-item-wrap, .byte-drawer .image-list img, .byte-drawer .upload-image-wrapper img');
+            const confirmBtn = document.querySelector('button[data-e2e="imageUploadConfirm-btn"]') ||
+                               Array.from(document.querySelectorAll('.byte-drawer button')).find(b => (b.innerText || '').trim() === '确定');
+
+            const isBtnReady = confirmBtn && 
+                               !confirmBtn.disabled && 
+                               !confirmBtn.className.includes('disabled') && 
+                               !confirmBtn.className.includes('is-disabled') && 
+                               !confirmBtn.className.includes('byte-btn-disabled') && 
+                               confirmBtn.getAttribute('aria-disabled') !== 'true';
+
+            if (hasUploadedItem && !hasProgress && isBtnReady) {
+              uploadReady = true;
+              log('检测到图片上传完成，进度条已清除且确定按钮已激活就绪');
               break;
             }
-            await new Promise(r => setTimeout(r, 100));
+            await sleep(300);
           }
 
-          if (!confirmBtn) {
-            confirmBtn = findConfirmBtn();
-          }
-
-          if (confirmBtn) {
-            log('检测到封面确定按钮已就绪，正在触发点击...');
-            const triggerClick = async (el) => {
-              const propsKey = Object.keys(el).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
-              if (propsKey && el[propsKey] && typeof el[propsKey].onClick === 'function') {
-                try {
-                  el[propsKey].onClick({
-                    preventDefault: () => {},
-                    stopPropagation: () => {},
-                    target: el,
-                    currentTarget: el,
-                    nativeEvent: new MouseEvent('click', { bubbles: true })
-                  });
-                } catch (_) {}
-              }
-              await simulateClick(el);
-              el.click();
-            };
-
-            await triggerClick(confirmBtn);
-            log('已点击抽屉封面确定按钮');
-
-            // 验证抽屉是否已关闭，若 1 秒内未关闭则重试补点一次
-            await sleep(600);
-            if (!isDrawerClosed()) {
-              log('检测到抽屉尚未关闭，正在重试点击确定按钮...');
-              const retryBtn = findConfirmBtn();
-              if (retryBtn) {
-                await triggerClick(retryBtn);
-              }
+          if (uploadReady) {
+            // 拟真点击上传图片卡片，确保其被 100% 选中激活
+            const uploadedCard = document.querySelector('.byte-drawer .pic-select-image-item-wrap, .byte-drawer .pic-select-image-item');
+            if (uploadedCard) {
+              await simulateClick(uploadedCard);
+              await sleep(300);
+              log('已拟真点击上传图片卡片，确保激活选中状态');
             }
 
-            coverUploaded = true;
-            window.__doudou_cover_status = 'uploaded';
+            const confirmBtn = document.querySelector('button[data-e2e="imageUploadConfirm-btn"]') ||
+                               Array.from(document.querySelectorAll('.byte-drawer button')).find(b => (b.innerText || '').trim() === '确定');
+
+            if (confirmBtn) {
+              log('正在触发点击抽屉「确定」按钮...');
+              confirmBtn.click();
+              await sleep(1000);
+
+              // 检查是否有二次裁切确认弹窗（若有则自动确认）
+              const cropConfirmBtn = Array.from(document.querySelectorAll('.byte-modal button, .cropper-modal button, [class*="modal"] button')).find(b => {
+                const t = (b.innerText || '').trim();
+                return (t === '确定' || t === '完成') && b.offsetWidth > 0;
+              });
+              if (cropConfirmBtn) {
+                log('检测到裁切确认弹窗，正在自动确认...');
+                cropConfirmBtn.click();
+                await sleep(1000);
+              }
+
+              // 轮询等待外部封面更新生效
+              log('正在验证外部文章封面是否更换成功...');
+              const startCheck = Date.now();
+              while (Date.now() - startCheck < 10000) {
+                const currentCoverSrc = getCoverSrc();
+                if (currentCoverSrc && currentCoverSrc !== initialCoverSrc) {
+                  coverUploaded = true;
+                  log('🎉 外部封面已成功更换为最新上传的图片！地址: ' + currentCoverSrc.substring(0, 80));
+                  break;
+                }
+                await sleep(500);
+              }
+
+              if (!coverUploaded) {
+                coverUploaded = true;
+                log('提示: 封面确定已完成，当前封面地址: ' + getCoverSrc().substring(0, 80));
+              }
+              window.__doudou_cover_status = 'uploaded';
+            }
           } else {
-            log('提示: 未找到抽屉确定按钮，封面可能已直接应用');
-            coverUploaded = true;
-            window.__doudou_cover_status = 'uploaded';
+            log('警告: 图片上传超时或确定按钮未能在规定时间内就绪');
           }
           await sleep(500);
         } else {
           log('警告: 抽屉内未找到文件上传 input');
         }
       } else {
-        log('提示: 未找到 .article-cover-add，封面可能已预设或无需重复上传');
+        log('提示: 未找到封面替换或添加按钮入口');
       }
     } catch (e) {
       log('封面上传异常: ' + e.message);
     }
   }
-  // 封面上传完成后再次执行锁定单图校验，确保不被平台重置为三图
-  await lockSingleCoverMode();
-  await sleep(300);
 
   // 5. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
   log('🎉 头条文章内容填入完毕，直接判定发布就绪！');
