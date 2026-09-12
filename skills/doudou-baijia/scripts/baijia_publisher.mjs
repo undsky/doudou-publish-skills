@@ -313,6 +313,7 @@ export function buildPublishBrowserScript(meta) {
   log('正在保存百家号草稿...');
   const draftBtn = Array.from(document.querySelectorAll('button, .cheetah-btn')).find(b => (b.innerText || '').trim() === '存草稿');
   if (draftBtn) {
+    let triggered = false;
     const draftProps = getProps(draftBtn);
     if (draftProps && typeof draftProps.onClick === 'function') {
       try {
@@ -323,9 +324,12 @@ export function buildPublishBrowserScript(meta) {
           currentTarget: draftBtn,
           nativeEvent: new MouseEvent('click', { bubbles: true })
         });
+        triggered = true;
       } catch (err) {}
     }
-    draftBtn.click();
+    if (!triggered) {
+      draftBtn.click();
+    }
     log('已点击「存草稿」按钮');
     await sleep(2000);
   }
@@ -593,6 +597,7 @@ export function buildVideoPublishBrowserScript(meta) {
   log('正在保存百家号视频草稿...');
   const draftBtn = Array.from(document.querySelectorAll('button, .cheetah-btn')).find(b => (b.innerText || '').trim() === '存草稿');
   if (draftBtn) {
+    let triggered = false;
     const draftProps = getProps(draftBtn);
     if (draftProps && typeof draftProps.onClick === 'function') {
       try {
@@ -603,9 +608,12 @@ export function buildVideoPublishBrowserScript(meta) {
           currentTarget: draftBtn,
           nativeEvent: new MouseEvent('click', { bubbles: true })
         });
+        triggered = true;
       } catch (err) {}
     }
-    draftBtn.click();
+    if (!triggered) {
+      draftBtn.click();
+    }
     log('已点击「存草稿」按钮');
     await sleep(2000);
   }
