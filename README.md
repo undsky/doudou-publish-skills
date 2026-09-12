@@ -30,3 +30,11 @@
 | **doudou-linuxsb**     | [`skills/doudou-linuxsb`](./skills/doudou-linuxsb)         | 将文章发布到 [烧饼社区](https://linux.sb)                                        |
 
 ---
+
+## 许可证
+
+本项目采用 [CC BY-NC 4.0](LICENSE) 许可证。
+
+- 个人使用、学习、研究与非商业项目可以直接使用。
+- 公开发布衍生作品时，请注明来源。
+- 商业用途需要单独授权，请联系作者。
