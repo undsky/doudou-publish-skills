@@ -4,9 +4,9 @@
 
 多平台自媒体与开发者社区文章、图文、视频自动发布技能合集。
 
-</div>
-
 ![doudou-publish-skills](./assets/cover_thumb.png)
+
+</div>
 
 ---
 
