@@ -23,7 +23,8 @@ export function buildPublishBrowserScript(meta) {
     summary: ${JSON.stringify(meta.articleSummary || '')},
     tags: ${JSON.stringify(meta.tags || [])},
     htmlContent: ${JSON.stringify(meta.articleHtml?.htmlContent || '')},
-    coverBase64: ${JSON.stringify(meta.cover?.base64 || '')},
+    coverUrl: ${JSON.stringify(meta.cover?.url || meta.cover?.cdnUrl || '')},
+    coverBase64: ${JSON.stringify(meta.cover?.url ? '' : (meta.cover?.base64 || ''))},
     coverFileName: ${JSON.stringify(meta.cover?.fileName || 'cover.png')}
   };
 
@@ -173,18 +174,30 @@ export function buildPublishBrowserScript(meta) {
 
   // 5. 上传并绑定封面图片
   let coverUploaded = false;
-  if (meta.coverBase64) {
+  if (meta.coverBase64 || meta.coverUrl) {
     log('开始上传并设置文章封面...');
     try {
       // 辅助函数：构造 File 对象
-      const makeFile = (base64Str, name = 'cover.png') => {
-        const parts = base64Str.split(';base64,');
-        const mime = parts[0].replace('data:', '') || 'image/png';
-        const raw = atob(parts[1] || parts[0]);
-        const arr = new Uint8Array(raw.length);
-        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-        const blob = new Blob([arr], { type: mime });
-        return new File([blob], name, { type: mime });
+      const makeFile = async (base64Str, name = 'cover.png', coverUrl = '') => {
+        if (coverUrl) {
+          try {
+            const resp = await fetch(coverUrl);
+            if (resp.ok) {
+              const blob = await resp.blob();
+              return new File([blob], name, { type: blob.type || 'image/png' });
+            }
+          } catch (_) {}
+        }
+        if (base64Str) {
+          const parts = base64Str.split(';base64,');
+          const mime = parts[0].replace('data:', '') || 'image/png';
+          const raw = atob(parts[1] || parts[0]);
+          const arr = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+          const blob = new Blob([arr], { type: mime });
+          return new File([blob], name, { type: mime });
+        }
+        return null;
       };
 
       const coverAddBtn = document.querySelector('.article-cover-add') || document.querySelector('.article-cover-img-replace');
@@ -202,10 +215,12 @@ export function buildPublishBrowserScript(meta) {
         // 查找抽屉内的上传 input
         const uploadInput = document.querySelector('.byte-drawer input[type="file"]') || document.querySelector('.btn-upload-handle input') || document.querySelector('#upload-drag-input');
         if (uploadInput) {
-          const file = makeFile(meta.coverBase64, meta.coverFileName);
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          uploadInput.files = dt.files;
+          const file = await makeFile(meta.coverBase64, meta.coverFileName, meta.coverUrl);
+          if (file) {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            uploadInput.files = dt.files;
+          }
 
           // 调用 React 的 onChange 处理器
           const propsKey = Object.keys(uploadInput).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
