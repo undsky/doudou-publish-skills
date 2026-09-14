@@ -1,12 +1,14 @@
 <div align="center">
 
-# doudou-publish-skills
+# Doudou Multi-Platform Auto-Publish Skills
 
 <p align="center">
   <a href="README.md">简体中文</a> | <b>English</b>
 </p>
 
 A collection of skills for automated publishing of articles, image-text posts, and videos across multi-platform self-media and developer communities. Powered by AI Agents using `chrome-devtools-mcp` for browser automation, it strictly follows realistic human behavior simulation and end-to-end anti-bot protocols to parse local Markdown and multimedia assets, intelligently schedule multi-modal publishing workflows, inject formatted content, and safely save drafts into target draft boxes.
+
+Currently supporting **14+ mainstream platforms**: WeChat Official Accounts, Toutiao, Baidu Baijiahao, Tencent Penguin (Qiehao), Juejin, CSDN, Zhihu Columns, Tencent Cloud Community, Alibaba Cloud Community, Bilibili, Xiaohongshu (RED), Douyin, WeChat Channels, and LinuxSB.
 
 ![doudou-publish-skills](./assets/cover_thumb.png)
 

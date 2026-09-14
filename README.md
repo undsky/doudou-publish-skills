@@ -1,12 +1,14 @@
 <div align="center">
 
-# doudou-publish-skills
+# 豆豆多平台自动发布技能库
 
 <p align="center">
   <b>简体中文</b> | <a href="README_EN.md">English</a>
 </p>
 
 多平台自媒体与开发者社区文章、图文、视频自动发布技能合集。通过 AI Agent 并使用 `chrome-devtools-mcp` 控制浏览器，遵循真实人机行为模拟与全链路防风控规约，实现自动化解析本地 Markdown 与多媒体资产、智能调度多创作模态、精准注入排版内容并安全存入草稿箱。
+
+已全面支持 **14+ 主流自媒体与开发者社区平台**：微信公众平台、今日头条、百度百家号、企鹅号、稀土掘金、CSDN、知乎专栏、腾讯云开发者社区、阿里云开发者社区、哔哩哔哩、小红书、抖音、微信视频号及烧饼社区等。
 
 ![doudou-publish-skills](./assets/cover_thumb.png)
 
