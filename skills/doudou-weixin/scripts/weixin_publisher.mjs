@@ -2,6 +2,24 @@ import path from 'node:path';
 import { parseAllAssets } from './parser.mjs';
 
 /**
+ * 根据 token 生成微信公众号文章发布页直达 URL
+ * @param {string|number} token 
+ * @returns {string}
+ */
+export function getArticleEditorUrl(token) {
+  return `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=10&token=${token}&lang=zh_CN`;
+}
+
+/**
+ * 根据 token 生成微信公众号贴图发布页直达 URL
+ * @param {string|number} token 
+ * @returns {string}
+ */
+export function getStickerEditorUrl(token) {
+  return `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=10&createType=8&token=${token}&lang=zh_CN`;
+}
+
+/**
  * 生成在文章编辑器页面（pageId）执行的自包含脚本
  * 1. 获取纯排版 HTML 并完整保留样式注入；
  * 2. 获取 2.35:1 宽屏主封面并自动上传、裁切绑定为封面；
@@ -42,45 +60,72 @@ export function buildArticleBrowserScript(meta) {
   }
   await sleep(500);
 
-  // 4. 拟真注入纯排版 HTML 正文（严格遵循 gzh-design 规范）
+  // 4. 注入纯排版 HTML 正文（严格遵循 gzh-design 规范）
   const bodyPm = document.querySelector('.rich_media_content .ProseMirror') || Array.from(document.querySelectorAll('.ProseMirror')).find(el => !el.closest('.title-editor__input'));
   if (bodyPm) {
     bodyPm.focus();
     await sleep(200);
 
-    // 先清空编辑器现有内容，避免重复堆叠或旧残留
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(bodyPm);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    document.execCommand('delete', false, null);
-    await sleep(250);
-
-    let pasteDispatched = false;
-    try {
-      const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
-      Object.defineProperty(pasteEvent, 'clipboardData', {
-        value: {
-          getData: (type) => (type.includes('html') ? meta.htmlContent : meta.summary),
-          types: ['text/html', 'text/plain'],
-          items: [
-            { type: 'text/html', getAsString: (cb) => cb(meta.htmlContent) },
-            { type: 'text/plain', getAsString: (cb) => cb(meta.summary) }
-          ]
-        }
-      });
-      bodyPm.dispatchEvent(pasteEvent);
-      pasteDispatched = true;
-    } catch (e) {
-      console.warn('[doudou-weixin] paste 事件派发异常:', e);
+    // 核心方案 A（最优先）：穿透 Vue 祖先链查找微信官方 mp-appmsg-editor 实例并调用 replaceAllContent
+    let vueP = bodyPm.parentElement;
+    while (vueP && !vueP.__vue__) vueP = vueP.parentElement;
+    let vueCur = vueP ? vueP.__vue__ : null;
+    let mpAppMsgEditor = null;
+    while (vueCur) {
+      if (typeof vueCur.replaceAllContent === 'function') {
+        mpAppMsgEditor = vueCur;
+        break;
+      }
+      vueCur = vueCur.$parent;
     }
-    await sleep(600);
 
-    // 保底校验：若 paste 事件未被 ProseMirror 接受，使用 insertHTML 注入并派发 input
-    if (bodyPm.innerText.trim().length < 50 || !bodyPm.innerHTML.includes('section')) {
-      document.execCommand('insertHTML', false, meta.htmlContent);
-      bodyPm.dispatchEvent(new Event('input', { bubbles: true }));
+    let injectedByOfficialApi = false;
+    if (mpAppMsgEditor) {
+      try {
+        mpAppMsgEditor.replaceAllContent(meta.htmlContent);
+        injectedByOfficialApi = true;
+        console.log('[doudou-weixin] 成功通过微信官方 mp-appmsg-editor.replaceAllContent 注入富文本，排版样式完整保真！');
+        await sleep(800);
+      } catch (e) {
+        console.warn('[doudou-weixin] replaceAllContent 调用异常，准备降级:', e);
+      }
+    }
+
+    // 降级方案 B：若未获取到官方实例，走原生剪贴板 paste 事件注入
+    if (!injectedByOfficialApi) {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(bodyPm);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.execCommand('delete', false, null);
+      await sleep(250);
+
+      let pasteDispatched = false;
+      try {
+        const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(pasteEvent, 'clipboardData', {
+          value: {
+            getData: (type) => (type.includes('html') ? meta.htmlContent : meta.summary),
+            types: ['text/html', 'text/plain'],
+            items: [
+              { type: 'text/html', getAsString: (cb) => cb(meta.htmlContent) },
+              { type: 'text/plain', getAsString: (cb) => cb(meta.summary) }
+            ]
+          }
+        });
+        bodyPm.dispatchEvent(pasteEvent);
+        pasteDispatched = true;
+      } catch (e) {
+        console.warn('[doudou-weixin] paste 事件派发异常:', e);
+      }
+      await sleep(600);
+
+      // 保底校验：若 paste 事件未被 ProseMirror 接受，使用 insertHTML 注入并派发 input
+      if (bodyPm.innerText.trim().length < 50 || !bodyPm.innerHTML.includes('section')) {
+        document.execCommand('insertHTML', false, meta.htmlContent);
+        bodyPm.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
   }
   await sleep(800);
@@ -91,22 +136,32 @@ export function buildArticleBrowserScript(meta) {
       console.log('[doudou-weixin] 开始上传并设置文章主封面...');
       
       // 5.1 展开图片库选择弹窗
-      let dialog = document.querySelector('.weui-desktop-dialog_img-picker');
+      const findDialog = () => document.querySelector('.weui-desktop-dialog_img-picker') || 
+                                Array.from(document.querySelectorAll('.weui-desktop-dialog')).find(d => 
+                                  d.querySelector('.weui-desktop-img-picker__list') || 
+                                  (d.innerText && (d.innerText.includes('选择图片') || d.innerText.includes('我的图片')))
+                                );
+
+      let dialog = findDialog();
       if (!dialog || window.getComputedStyle(dialog.closest('.weui-desktop-dialog__wrp') || dialog).display === 'none') {
-        const coverTrigger = document.querySelector('.js_imagedialog') || 
+        const coverTrigger = document.querySelector('.pop-opr__button.js_imagedialog') ||
+                             document.querySelector('.js_imagedialog') || 
                              document.querySelector('.js_cover_btn_area') || 
                              document.querySelector('#js_cover_area');
         if (coverTrigger) {
+          coverTrigger.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          await sleep(300);
           coverTrigger.click();
           await sleep(1000);
         }
       }
-      dialog = document.querySelector('.weui-desktop-dialog_img-picker');
+      dialog = findDialog();
 
       if (dialog) {
-        const fileInput = dialog.querySelector('input[type="file"]');
+        const fileInput = dialog.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
         if (fileInput) {
-          // 5.2 构建 File 对象并派发上传
+          // 5.2 构建包含唯一文件名的 File 对象并派发上传
+          const uploadFileName = 'doudou_cover_' + Date.now() + '_' + (meta.coverFileName || 'cover.jpg');
           const b64Data = meta.coverBase64.includes(',') ? meta.coverBase64.split(',')[1] : meta.coverBase64;
           const byteCharacters = atob(b64Data);
           const byteNumbers = new Array(byteCharacters.length);
@@ -115,37 +170,60 @@ export function buildArticleBrowserScript(meta) {
           }
           const byteArray = new Uint8Array(byteNumbers);
           const blob = new Blob([byteArray], { type: meta.coverMimeType });
-          const file = new File([blob], meta.coverFileName, { type: meta.coverMimeType });
+          const file = new File([blob], uploadFileName, { type: meta.coverMimeType });
 
           const dt = new DataTransfer();
           dt.items.add(file);
           fileInput.files = dt.files;
           fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-          console.log('[doudou-weixin] 封面图片已提交上传，等待 1.2 秒处理...');
-          await sleep(1200);
-
-          // 5.3 选中第一张图片（最新上传的封面）
-          const firstItem = dialog.querySelector('.weui-desktop-img-picker__list .weui-desktop-img-picker__item') || 
-                            dialog.querySelector('.weui-desktop-img-picker__item');
-          if (firstItem) {
-            firstItem.click();
-            await sleep(400);
+          console.log('[doudou-weixin] 封面图片已提交上传，轮询等待上传完成与列表刷新...');
+          
+          // 5.3 轮询匹配刚刚上传的新图片（严禁盲选旧图）
+          let targetItem = null;
+          for (let retry = 0; retry < 15; retry++) {
+            await sleep(500);
+            const items = Array.from(dialog.querySelectorAll('.weui-desktop-img-picker__item, .img-item'));
+            targetItem = items.find(i => (i.innerText || '').includes(uploadFileName) || (i.getAttribute('title') || '').includes(uploadFileName));
+            if (targetItem) break;
+            // 若后台未回显文件名，等待进度条完成后选取首项
+            if (items.length > 0 && retry >= 4 && !dialog.querySelector('.weui-desktop-progress, .upload-progress')) {
+              targetItem = items[0];
+              break;
+            }
           }
 
-          // 5.4 点击「下一步」进入裁切
-          const nextBtn = Array.from(dialog.querySelectorAll('button')).find(b => b.innerText.trim() === '下一步');
-          if (nextBtn && !nextBtn.disabled && !nextBtn.className.includes('disabled')) {
+          if (targetItem) {
+            targetItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            await sleep(200);
+            targetItem.click();
+            const innerImg = targetItem.querySelector('img') || targetItem.querySelector('.img');
+            if (innerImg) innerImg.click();
+            await sleep(500);
+          }
+
+          // 5.4 点击第一道「下一步」进入裁切窗口
+          const nextBtn = Array.from(dialog.querySelectorAll('button')).find(b => b.innerText.trim() === '下一步' && !b.disabled);
+          if (nextBtn) {
             nextBtn.click();
-            await sleep(1000);
+            console.log('[doudou-weixin] 已点击下一步进入裁切窗口...');
+            await sleep(1500);
           }
 
-          // 5.5 点击「完成」/「确定」确认裁切并绑定封面
-          const doneBtn = Array.from(document.querySelectorAll('.weui-desktop-dialog button')).find(b => b.innerText.trim() === '完成' || b.innerText.trim() === '确定');
-          if (doneBtn && !doneBtn.disabled && !doneBtn.className.includes('disabled')) {
-            doneBtn.click();
-            window.__doudou_cover_status = 'uploaded';
-            await sleep(800);
+          // 5.5 微信封面双画幅裁切闭环（2.35:1 裁切 -> 下一步/确认 -> 1:1 裁切 -> 确认）
+          for (let step = 0; step < 3; step++) {
+            const stepBtns = Array.from(document.querySelectorAll('.weui-desktop-dialog button')).filter(b => b.offsetWidth > 0 && !b.disabled);
+            const nextStepBtn = stepBtns.find(b => b.innerText.trim() === '下一步');
+            const confirmBtn = stepBtns.find(b => b.innerText.trim() === '确认' || b.innerText.trim() === '完成' || b.innerText.trim() === '确定');
+            if (nextStepBtn) {
+              nextStepBtn.click();
+              await sleep(1000);
+            } else if (confirmBtn) {
+              confirmBtn.click();
+              window.__doudou_cover_status = 'uploaded';
+              await sleep(1000);
+              break;
+            }
           }
           console.log('[doudou-weixin] 封面上传与裁切绑定完成！');
         }
