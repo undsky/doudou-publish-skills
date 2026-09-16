@@ -20,7 +20,7 @@ flowchart TD
         S2 --> A1[调用 new_page 打开文章发布页 appmsg_edit_v2]
         A1 --> A2[拟真人机输入文章标题]
         A2 --> A3[聚焦正文 ProseMirror 注入纯排版 HTML]
-        A3 --> A4[打开图片库上传 2.35:1 封面并裁切确认]
+        A3 --> A4[上传封面并完成双画幅裁切绑定]
         A4 --> A5[等待微信原生自动防抖保存就绪]
     end
 
@@ -101,8 +101,8 @@ const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 2. 调用 `evaluate_script` 执行 `buildArticleBrowserScript(meta)`：
    - 拟真输入标题 ProseMirror 并同步 `#title`；
    - 拟真输入摘要（直接填入文章标题），同步至 `#js_description` / `name="digest"` 及其 Vue 状态；
-   - 正文从同名目录下的 `article_name_排版_{主题中文名}({英文标识}).html` 文件中获取纯排版 HTML，聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入纯排版 HTML（或微信官方 `replaceAllContent` 保真注入，`insertHTML` 保底）；
-   - 封面图从同名目录下的 cover/images 目录中提取，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
+   - 正文从同名目录下的 `article_name_排版_{主题中文名}({英文标识}).html` 文件中获取纯排版 HTML（排除带工具栏的 `_预览.html`）；注入时最优先穿透 Vue 实例调用微信官方 `mp-appmsg-editor.replaceAllContent` 进行 100% 原生保真注入，降级方案走 ProseMirror 选区清空并派发带 `text/html` 的 `paste` 富文本事件（`insertHTML` 保底）；
+   - 封面图从同名目录下的 cover/images 目录中提取，脚本内自动展开图片库选择弹窗（`.weui-desktop-dialog_img-picker`）派发上传，轮询选中新上传图片，并连续完成微信「2.35:1 宽屏 + 1:1 双画幅裁切闭环」（下一步 → 完成）；
 3. 资产填入完成后直接判定完成；
 4. **安全隔离**：原样保留文章草稿编辑页面供人工复核与发布，严禁调用 `close_page`。
 
