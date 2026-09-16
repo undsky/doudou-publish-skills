@@ -661,8 +661,17 @@ export async function parseArticle(filePath, requestedModes = null) {
  * @param {string|string[]|null} requestedModes 用户显式指定的发布模态；留空则默认全模态
  * @returns {Promise<object>}
  */
-export async function parseAllAssets(markdownFilePath, requestedModes = null) {
-  return await parseArticle(markdownFilePath, requestedModes);
+export async function parseAllAssets(markdownFilePath, authorOrModes = null, requestedModes = null) {
+  // 兼容 (markdownFilePath, requestedModes) 与 (markdownFilePath, author, requestedModes)
+  let modes = requestedModes;
+  if (requestedModes === null) {
+    if (Array.isArray(authorOrModes) || (typeof authorOrModes === 'string' && PUBLISH_MODES.some(m => m.aliases.includes(authorOrModes.trim().toLowerCase())))) {
+      modes = authorOrModes;
+    } else {
+      modes = null;
+    }
+  }
+  return await parseArticle(markdownFilePath, modes);
 }
 
 // 命令行直接测试

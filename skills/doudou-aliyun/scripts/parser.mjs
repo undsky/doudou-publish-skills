@@ -212,6 +212,8 @@ export function parseArticle(filePath) {
   };
 }
 
+export const parseAllAssets = parseArticle;
+
 // 命令行直接运行测试支持
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('parser.mjs'))) {
   const targetFile = process.argv[2];

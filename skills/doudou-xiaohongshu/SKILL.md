@@ -59,11 +59,13 @@ const { modes, skipped } = meta.publishPlan;
 for (const mode of modes) {
   if (mode === 'video') {
     const pageId = await new_page({ url: 'https://creator.xiaohongshu.com/publish/publish?target=video' });
-    await upload_file({ pageId, filePaths: [meta.video.videoPath] });
+    // 通过 take_snapshot 定位 input[type="file"] 获得 videoInputUid
+    await upload_file({ pageId, uid: videoInputUid, filePaths: [meta.video.videoPath] });
     await evaluate_script({ pageId, function: buildVideoPostBrowserScript(meta) });
   } else if (mode === 'image') {
     const pageId = await new_page({ url: 'https://creator.xiaohongshu.com/publish/publish?target=image' });
-    await upload_file({ pageId, filePaths: meta.cardPaths });
+    // 通过 take_snapshot 定位 input[type="file"] 获得 imageInputUid
+    await upload_file({ pageId, uid: imageInputUid, filePaths: meta.cardPaths });
     await evaluate_script({ pageId, function: buildImagePostBrowserScript(meta) });
   }
 }
@@ -82,11 +84,12 @@ for (const mode of modes) {
 
 #### 步骤 V2：派发真实 MP4 视频文件上传
 
-调用 `upload_file` 将本地 `.mp4` 视频文件派发至上传控件 `input.upload-input, input[type="file"]`：
+调用 `take_snapshot` 获取上传控件 `input.upload-input, input[type="file"]` 的 `uid`，并调用 `upload_file` 派发本地 `.mp4` 视频文件：
 
 ```javascript
 await upload_file({
   pageId: targetPageId,
+  uid: fileInputUid,
   filePaths: [meta.video.videoPath]
 });
 ```
@@ -176,13 +179,14 @@ if (descEl && meta.description) {
 
 ---
 
-#### 步骤 I2：批量派发 xhs_images 卡片集上传
+#### 步骤 I2：派发全套 3:4 图文卡片本地文件批量上传
 
-调用 `upload_file` 批量上传全部 3:4 卡片文件路径：
+调用 `take_snapshot` 获取图文上传控件 `input[type="file"]` 的 `uid`，并调用 `upload_file` 批量上传全部 3:4 卡片文件路径：
 
 ```javascript
 await upload_file({
   pageId: targetPageId,
+  uid: fileInputUid,
   filePaths: meta.cardPaths
 });
 ```

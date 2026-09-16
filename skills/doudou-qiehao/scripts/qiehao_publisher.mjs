@@ -178,7 +178,7 @@ export function buildVideoPublishBrowserScript(meta) {
         const fileInput = document.querySelector('.imgEditorDialogWrap-clshBLfh input[type="file"], .omui-dialog-content input[type="file"], input[type="file"]');
         if (fileInput) {
           let file = null;
-          const candidateUrls = ['http://127.0.0.1:39281/cover.png', meta.coverCdnUrl].filter(Boolean);
+          const candidateUrls = [meta.coverCdnUrl].filter(Boolean);
           for (const u of candidateUrls) {
             try {
               const resp = await fetch(u);
@@ -545,7 +545,7 @@ export function buildPublishBrowserScript(meta) {
         const fileInput = document.querySelector('.omui-dialog-content input[type="file"], input[type="file"]');
         if (fileInput) {
           let file = null;
-          const candidateUrls = ['http://127.0.0.1:39281/cover.png', meta.coverCdnUrl].filter(Boolean);
+          const candidateUrls = [meta.coverCdnUrl].filter(Boolean);
           for (const u of candidateUrls) {
             try {
               const resp = await fetch(u);

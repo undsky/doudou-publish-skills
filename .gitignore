@@ -4,3 +4,10 @@
 prompts
 refs
 skills-lock.json
+node_modules/
+.env
+.env.*
+*.env
+*.local
+.DS_Store
+Thumbs.db

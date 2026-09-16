@@ -74,11 +74,12 @@ if (giveUpBtn) giveUpBtn.click();
 
 #### 步骤 V2：派发真实 MP4 视频文件上传
 
-调用 `upload_file` 将本地 `.mp4` 视频文件派发至上传控件 `input[type="file"]`：
+调用 `take_snapshot` 定位上传控件 `input[type="file"]` 获取 `uid`，并调用 `upload_file` 派发本地 `.mp4` 视频文件：
 
 ```javascript
 await upload_file({
   pageId: targetPageId,
+  uid: fileInputUid,
   filePaths: [meta.video.videoPath]
 });
 ```
@@ -160,11 +161,12 @@ if (descEl && meta.videoDesc) {
 
 #### 步骤 I2：批量派发 xhs_images 卡片集上传
 
-调用 `upload_file` 将同名目录下的全部卡片文件路径批量派发至 `input[type="file"]`：
+调用 `take_snapshot` 定位上传控件 `input[type="file"]` 获取 `uid`，并调用 `upload_file` 将同名目录下的全部卡片文件路径批量派发：
 
 ```javascript
 await upload_file({
   pageId: targetPageId,
+  uid: fileInputUid,
   filePaths: meta.cardPaths // 包含 01-cover.png ~ 05-summary.png
 });
 ```

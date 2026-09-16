@@ -224,15 +224,15 @@ export function buildPublishBrowserScript(meta) {
       if ((meta.coverUrl || meta.coverBase64) && uploadInput) {
         try {
           let file = null;
-          // 优先尝试本地 HTTP 服务或 CDN
-          const candidateUrls = ['http://127.0.0.1:39281/cover.png', meta.coverUrl].filter(Boolean);
+          // 优先尝试从 CDN 拉取封面图片
+          const candidateUrls = [meta.coverUrl].filter(Boolean);
           for (const url of candidateUrls) {
             try {
               const resp = await fetch(url);
               if (resp.ok) {
                 const blob = await resp.blob();
                 file = new File([blob], meta.coverFileName || 'cover.png', { type: blob.type || 'image/png' });
-                log('已从 ' + (url.includes('127.0.0.1') ? '本地临时服务' : 'CDN') + ' 拉取封面图片');
+                log('已从 CDN 拉取封面图片');
                 break;
               }
             } catch (err) {}

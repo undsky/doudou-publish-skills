@@ -1,6 +1,6 @@
 ---
 name: doudou-csdn
-description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入 CSDN 博客发文页（https://editor.csdn.net/md）。严格遵循效率深度优化铁律：文章只填写标题、正文内容、上传封面图，彻底杜绝标签配置、专栏勾选、摘要填写等任何多余操作，流程高度固化，。
+description: 通过 chrome-devtools-mcp 实现将本地 Markdown 文章自动填入 CSDN 博客发文页（https://editor.csdn.net/md）。严格遵循效率深度优化铁律：文章只填写标题、正文内容、上传封面图，彻底杜绝标签配置、专栏勾选、摘要填写等任何多余操作，流程高度固化。
 ---
 
 # CSDN 博客文章自动发布技能 (doudou-csdn)

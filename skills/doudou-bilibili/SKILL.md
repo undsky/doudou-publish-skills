@@ -25,8 +25,8 @@ import {
   buildFillVideoFormBrowserScript,
 } from './scripts/bilibili_publisher.mjs';
 
-const meta = parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
-// 专栏页: buildArticleBrowserScript(meta)
+const meta = await parseAllAssets(markdownFilePath, 'undsky', requestedModes ?? null);
+// 专栏页: await buildArticleBrowserScript(meta)
 // 视频页: buildPrepareVideoUploadBrowserScript() + buildFillVideoFormBrowserScript(meta)
 ```
 

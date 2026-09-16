@@ -37,11 +37,9 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 Agent 可在步骤 1 打开页面后，直接调用脚本一键注入文章标题、Markdown 正文与封面：
 
 ```javascript
-import { parseAllAssets } from "./scripts/parser.mjs";
 import { buildBrowserPublishScript } from "./scripts/aliyun_publisher.mjs";
 
-const meta = parseAllAssets(markdownFilePath);
-const code = buildBrowserPublishScript(meta);
+const code = buildBrowserPublishScript(markdownFilePath);
 await evaluate_script({ pageId, function: code });
 ```
 

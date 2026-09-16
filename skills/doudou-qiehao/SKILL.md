@@ -148,7 +148,7 @@ if (meta.publishPlan.modes.includes('video')) {
   // 1. 暴露上传控件
   await evaluate_script({ pageId: videoPageId, function: buildPrepareVideoUploadBrowserScript() });
   // 2. 上传本地视频
-  await upload_file({ pageId: videoPageId, file_path: meta.video.videoPath, uid: videoInputUid });
+  await upload_file({ pageId: videoPageId, filePaths: [meta.video.videoPath], uid: videoInputUid });
   // 3. 等待上传完成
   await evaluate_script({ pageId: videoPageId, function: buildWaitVideoUploadReadyBrowserScript(180) });
   // 4. 一键注入元数据、封面、分类并存草稿

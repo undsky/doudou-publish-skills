@@ -6,8 +6,10 @@ import { parseArticle } from './parser.mjs';
  * @param {string} markdownFilePath 
  * @returns {string} 可在目标页面 evaluate_script 执行的自包含异步 JS 代码
  */
-export async function buildBrowserPublishScript(markdownFilePath) {
-  const articleData = await parseArticle(markdownFilePath);
+export async function buildBrowserPublishScript(markdownFilePathOrMeta) {
+  const articleData = typeof markdownFilePathOrMeta === 'string'
+    ? await parseArticle(markdownFilePathOrMeta)
+    : markdownFilePathOrMeta;
 
   const jsonPayload = JSON.stringify({
     title: articleData.title,
@@ -221,7 +223,7 @@ export async function buildBrowserPublishScript(markdownFilePath) {
 
       // 获取封面 Blob
       let coverBlob = null;
-      const candidateUrls = ['http://127.0.0.1:39281/cover.png', data.cover.url].filter(Boolean);
+      const candidateUrls = [data.cover.url].filter(Boolean);
       for (const u of candidateUrls) {
         try {
           const resp = await fetch(u);
@@ -540,6 +542,9 @@ export async function buildVideoPublishScript(markdownFilePath) {
   const articleData = await parseArticle(markdownFilePath);
   return buildFillVideoFormBrowserScript(articleData);
 }
+
+// 别名导出，兼容 SKILL.md 与不同调用习惯
+export const buildArticleBrowserScript = buildBrowserPublishScript;
 
 // 命令行直接运行测试脚本生成
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('bilibili_publisher.mjs'))) {
