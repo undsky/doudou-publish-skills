@@ -30,6 +30,7 @@ export function getStickerEditorUrl(token) {
 export function buildArticleBrowserScript(meta) {
   const payload = {
     title: meta.title,
+    summary: meta.summary || meta.title,
     htmlContent: meta.articleHtml.htmlContent,
     hasCover: !!(meta.cover && meta.cover.hasCover && meta.cover.base64),
     coverBase64: meta.cover?.base64 || null,
@@ -42,7 +43,7 @@ export function buildArticleBrowserScript(meta) {
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.random() * 200));
 
-  console.log('[doudou-weixin] 开始拟真人机发布文章草稿（极简流：标题 + 正文 + 封面）...');
+  console.log('[doudou-weixin] 开始拟真人机发布文章草稿（极简流：标题 + 摘要 + 正文 + 封面）...');
 
   // 1. 拟真输入标题
   const titleHidden = document.querySelector('#title');
@@ -58,9 +59,28 @@ export function buildArticleBrowserScript(meta) {
     titlePm.innerHTML = '<p>' + meta.title.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
     titlePm.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  await sleep(500);
+  await sleep(400);
 
-  // 4. 注入纯排版 HTML 正文（严格遵循 gzh-design 规范）
+  // 2. 拟真输入摘要（直接填文章标题，同步 Vue 状态与 textarea）
+  const digestText = meta.summary || meta.title;
+  const digestEl = document.querySelector('#js_description') || 
+                   document.querySelector('#digest') || 
+                   document.querySelector('textarea.js_desc') ||
+                   document.querySelector('textarea[name="digest"]') ||
+                   Array.from(document.querySelectorAll('textarea')).find(t => (t.placeholder || '').includes('选填'));
+  if (digestEl) {
+    digestEl.value = digestText;
+    let v = digestEl;
+    while (v && !v.__vue__) v = v.parentElement;
+    if (v && v.__vue__ && 'abstract' in v.__vue__) {
+      v.__vue__.abstract = digestText;
+    }
+    digestEl.dispatchEvent(new Event('input', { bubbles: true }));
+    digestEl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  await sleep(400);
+
+  // 3. 注入纯排版 HTML 正文（严格遵循 gzh-design 规范）
   const bodyPm = document.querySelector('.rich_media_content .ProseMirror') || Array.from(document.querySelectorAll('.ProseMirror')).find(el => !el.closest('.title-editor__input'));
   if (bodyPm) {
     bodyPm.focus();

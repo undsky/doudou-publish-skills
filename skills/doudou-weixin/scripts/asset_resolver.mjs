@@ -1,15 +1,9 @@
 #!/usr/bin/env node
 /**
- * asset_resolver.mjs — CDN 清单解析与标签推断（修复两个长期 bug）
+ * asset_resolver.mjs — CDN 清单解析与封面解析
  *
- * Bug A：各 parser 的 resolveCoverImage 只读 `manifest.assets` 并筛 `type === 'cover'`，
- *        但 doudou-r2 实际产出的 cdn_manifest.json 用的是 `files[]`，条目里既没有 `type`
- *        也没有 `slug` / `name` / `aspect_ratio`，只有 local_path / cdn_url / thumb_path /
- *        original_name。结果 CDN 分支被静默跳过，降级去读本地图并转成数百 KB base64
- *        塞进 evaluate_script 载荷（claw163 实测 586KB）。
- *
- * Bug B：各 parser 把 `const tags = []` 硬编码为空数组，从不推断。发布脚本里的标签逻辑
- *        普遍被 `data.tags.length > 0` 整段跳过，等于永远不配标签。
+ * 1. 规范读取 cdn_manifest.json，智能匹配 2.35:1 与 1:1 封面图片
+ * 2. 支持图片魔数嗅探真实的 MIME 类型
  *
  * 本模块只做纯函数，不碰浏览器，可独立单测。
  */
@@ -147,67 +141,54 @@ export function resolveCoverFromManifest(artifactDir, opts = {}) {
 }
 
 /**
- * 通用标签词表：产出「平台无关」的关键词，由各平台发布脚本再去官方标签库做匹配
- * （掘金 tagInputVue.handleSearch、知乎话题搜索等已有此逻辑）。
+ * 从二进制魔数嗅探真实的图片 MIME 类型与标准扩展名
+ * 规避扩展名与实际格式不符（如 .png 伪装的 JPEG）
+ * @param {Buffer|string} input 
+ * @returns {{ mime: string, ext: string }}
  */
-const TAG_RULES = [
-  { tag: "人工智能", kw: ["ai", "人工智能", "大模型", "llm", "aigc", "gpt", "深度学习", "机器学习"] },
-  { tag: "AI编程", kw: ["ai编程", "aicoding", "claude code", "copilot", "cursor", "代码生成", "vibe coding"] },
-  { tag: "智能体", kw: ["agent", "智能体", "mcp", "工具调用", "多智能体"] },
-  { tag: "大模型", kw: ["deepseek", "openai", "claude", "gemini", "qwen", "推理模型"] },
-  { tag: "Docker", kw: ["docker", "compose", "容器", "镜像"] },
-  { tag: "Kubernetes", kw: ["kubernetes", "k8s", "helm"] },
-  { tag: "Node.js", kw: ["node.js", "nodejs", "npm", "pnpm", "express", "egg.js"] },
-  { tag: "JavaScript", kw: ["javascript", "typescript", "es6"] },
-  { tag: "前端", kw: ["vue", "react", "前端", "css", "tailwind", "vite", "webpack"] },
-  { tag: "后端", kw: ["后端", "服务端", "微服务", "springboot", "spring boot", "mybatis"] },
-  { tag: "Java", kw: ["java", "jvm", "spring"] },
-  { tag: "Python", kw: ["python", "pip", "fastapi", "django"] },
-  { tag: "Go", kw: ["golang", "go 语言"] },
-  { tag: "数据库", kw: ["mysql", "postgres", "sqlite", "redis", "d1 数据库", "数据库"] },
-  { tag: "Linux", kw: ["linux", "ubuntu", "alpine", "debian", "shell", "nginx"] },
-  { tag: "开源", kw: ["开源", "github", "open source", "仓库"] },
-  { tag: "自动化", kw: ["自动化", "n8n", "workflow", "ci/cd", "工作流", "脚本"] },
-  { tag: "工具", kw: ["工具", "插件", "效率", "cli", "利器"] },
-  { tag: "Serverless", kw: ["serverless", "cloudflare workers", "worker", "无服务器", "边缘计算"] },
-  { tag: "云计算", kw: ["cloudflare", "阿里云", "腾讯云", "aws", "对象存储", "r2", "cdn"] },
-  { tag: "邮箱", kw: ["邮箱", "email", "smtp", "imap", "收信", "临时邮箱"] },
-  { tag: "音视频", kw: ["remotion", "ffmpeg", "视频渲染", "tts", "配音", "字幕"] },
-];
-
-/**
- * 从标题与正文推断 1~maxTags 个通用标签（按命中次数降序）。
- * @returns {string[]}
- */
-export function inferTags(content, title = "", maxTags = 3) {
-  const text = `${title}\n${title}\n${content}`.toLowerCase(); // 标题加权一次
-  const scored = [];
-  for (const { tag, kw } of TAG_RULES) {
-    let hits = 0;
-    for (const k of kw) {
-      const idx = text.split(k.toLowerCase()).length - 1;
-      if (idx > 0) hits += idx;
-    }
-    if (hits > 0) scored.push({ tag, hits });
+export function sniffImageMime(input) {
+  let buf;
+  if (Buffer.isBuffer(input)) {
+    buf = input;
+  } else if (typeof input === 'string' && fs.existsSync(input)) {
+    const fd = fs.openSync(input, 'r');
+    buf = Buffer.alloc(16);
+    fs.readSync(fd, buf, 0, 16, 0);
+    fs.closeSync(fd);
+  } else {
+    return { mime: 'image/jpeg', ext: 'jpg' };
   }
-  scored.sort((a, b) => b.hits - a.hits || TAG_RULES.findIndex((r) => r.tag === a.tag) - TAG_RULES.findIndex((r) => r.tag === b.tag));
-  const out = scored.slice(0, maxTags).map((s) => s.tag);
-  return out.length ? out : ["人工智能"]; // 兜底，确保发布脚本的标签分支不被跳过
+
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+    return { mime: 'image/png', ext: 'png' };
+  }
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) {
+    return { mime: 'image/jpeg', ext: 'jpg' };
+  }
+  // GIF: 47 49 46 38
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) {
+    return { mime: 'image/gif', ext: 'gif' };
+  }
+  // WebP: RIFF ... WEBP
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) {
+    return { mime: 'image/webp', ext: 'webp' };
+  }
+
+  return { mime: 'image/jpeg', ext: 'jpg' };
 }
 
 // ---------------------------------------------------------------- CLI 自测
-// node asset_resolver.mjs <产物目录> [用于标签推断的 md 文件]
+// node asset_resolver.mjs <产物目录>
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [dir, mdFile] = process.argv.slice(2);
+  const [dir] = process.argv.slice(2);
   if (!dir) {
-    console.error("用法: node asset_resolver.mjs <产物目录> [md文件]");
+    console.error("用法: node asset_resolver.mjs <产物目录>");
     process.exit(1);
   }
   const items = readManifestItems(path.join(dir, "cdn_manifest.json"));
   console.log(`清单条目数：${items.length}｜识别为封面：${items.filter(isCoverItem).length}`);
   console.log("最佳封面：", JSON.stringify(resolveCoverFromManifest(dir), null, 2));
-  if (mdFile && fs.existsSync(mdFile)) {
-    const c = fs.readFileSync(mdFile, "utf8");
-    console.log("推断标签：", inferTags(c, path.basename(mdFile, ".md")).join(", "));
-  }
 }

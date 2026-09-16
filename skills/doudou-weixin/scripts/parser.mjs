@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveCoverFromManifest, inferTags } from './asset_resolver.mjs';
+import { resolveCoverFromManifest, sniffImageMime } from './asset_resolver.mjs';
 import { Marked } from './marked.esm.js';
 
 /**
@@ -73,13 +73,12 @@ export function extractSummary(content) {
 }
 
 /**
- * 提炼贴图/小绿书专属描述正文（要点提取 + 话题标签，1000 字以内）
+ * 提炼贴图/小绿书专属描述正文（要点提取，1000 字以内）
  * @param {string} content 
  * @param {string} title 
- * @param {string[]} tags 
  * @returns {string}
  */
-export function extractStickerDescription(content, title = '', tags = []) {
+export function extractStickerDescription(content, title = '') {
   const lines = content.split('\n');
   const points = [];
   let isCodeBlock = false;
@@ -106,16 +105,12 @@ export function extractStickerDescription(content, title = '', tags = []) {
     if (points.length >= 5) break;
   }
 
-  const tagString = tags.map(t => `#${t}`).join(' ');
   const summary = extractSummary(content);
 
   // 要点提取不到时省略整段，不编造与文章无关的固定要点
   let desc = summary;
   if (points.length > 0) {
     desc += `\n\n📌 核心要点梳理：\n` + points.map((p, idx) => `${idx + 1}. ${p}`).join('\n');
-  }
-  if (tagString) {
-    desc += `\n\n${tagString}`;
   }
 
   return desc;
@@ -217,12 +212,12 @@ export function resolveCoverImage(markdownFilePath, content = '') {
     if (mainCover) {
       const localPath = path.join(coverImagesDir, mainCover);
       const buf = fs.readFileSync(localPath);
-      const mimeType = mainCover.endsWith('.jpg') || mainCover.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      const sniffed = sniffImageMime(buf);
       return {
         hasCover: true,
         localPath,
-        base64: `data:${mimeType};base64,${buf.toString('base64')}`,
-        mimeType,
+        base64: `data:${sniffed.mime};base64,${buf.toString('base64')}`,
+        mimeType: sniffed.mime,
         fileName: mainCover
       };
     }
@@ -359,11 +354,9 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
 
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const title = extractTitle(rawContent);
-  const summary = extractSummary(rawContent);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
-  // 旧实现固定为空数组，导致下游标签/话题分支被 length > 0 判空整段跳过。
-  const tags = inferTags(rawContent, title, 3);
-  const stickerDesc = extractStickerDescription(rawContent, title, tags);
+  // 文章的摘要 summary，直接填文章标题（120字上限安全截断）
+  const summary = title.length > 120 ? title.substring(0, 118) + '...' : title;
+  const stickerDesc = extractStickerDescription(rawContent, title);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
   const stickerImages = resolveStickerImages(absPath);
@@ -373,7 +366,6 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
     title,
     author,
     summary,
-    tags,
     stickerDesc,
     articleHtml,
     cover,
@@ -400,7 +392,6 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     title: result.title,
     author: result.author,
     summary: result.summary,
-    tags: result.tags,
     articleHtmlType: result.articleHtml.type,
     articleHtmlLength: result.articleHtml.htmlContent.length,
     hasCover: result.cover.hasCover,

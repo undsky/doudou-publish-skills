@@ -48,7 +48,7 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 - `title`: 清洗后的文章标题（64 字以内）
 - `articleHtml`: `gzh-design` 摸鱼绿/橄榄手记等纯排版正文 HTML
 - `cover`: 2.35:1 宽屏主封面（Base64 与 CDN 信息）
-- `stickerDesc`: 包含要点总结与 `#标签` 的贴图描述文案
+- `stickerDesc`: 包含要点总结的贴图描述文案
 - `stickerImages`: 图文卡片序列（Base64 数组）
 
 Agent 可直接调用 `scripts/weixin_publisher.mjs` 配合 `chrome-devtools-mcp` 注入文章与贴图：
@@ -100,6 +100,7 @@ const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 1. **新建独立页面直达文章编辑器**：调用 `new_page` 打开拼接好的文章发布页 URL；
 2. 调用 `evaluate_script` 执行 `buildArticleBrowserScript(meta)`：
    - 拟真输入标题 ProseMirror 并同步 `#title`；
+   - 拟真输入摘要（直接填入文章标题），同步至 `#js_description` / `name="digest"` 及其 Vue 状态；
    - 正文从同名目录下的 `article_name_排版_{主题中文名}({英文标识}).html` 文件中获取纯排版 HTML，聚焦正文 ProseMirror，派发带 `text/html` 的 `paste` 事件注入纯排版 HTML（或微信官方 `replaceAllContent` 保真注入，`insertHTML` 保底）；
    - 封面图从同名目录下的 cover/images 目录中提取，展开图片选择弹窗（`.weui-desktop-dialog_img-picker`）向其 `input[type="file"]` 注入封面并完成「下一步 → 确定」裁切绑定；
 3. 资产填入完成后直接判定完成；
