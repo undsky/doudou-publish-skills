@@ -318,8 +318,93 @@ export function buildStickerBrowserScript(meta) {
     descPm.focus();
     await sleep(300);
 
-    const paragraphs = meta.description.split('\\n\\n').map(p => '<p>' + p.replace(/\\n/g, '<br>') + '</p>').join('');
-    descPm.innerHTML = paragraphs;
+    // 微信贴图正文为纯行内文档 (docContent: "(inline|text)*")，schema 不支持 <p> 标签，换行必须用 hardbreak (<br>)
+    let descText = meta.description || '';
+    if (descText.length > 1000) {
+      descText = descText.substring(0, 988) + '\\n...\\n(已精简)';
+    }
+
+    let injected = false;
+
+    // 方案 A（最优先）：穿透祖先 Vue 实例获取微信原生 ProseMirror EditorView，通过 dispatch 事务注入 hardbreak 节点
+    try {
+      let p = descPm;
+      let mpEditor = null;
+      while (p) {
+        if (p.__vue__ && typeof p.__vue__.getView === 'function') {
+          mpEditor = p.__vue__;
+          break;
+        }
+        p = p.parentElement;
+      }
+
+      if (mpEditor) {
+        const view = mpEditor.getView();
+        if (view && view.state && view.state.schema) {
+          const schema = view.state.schema;
+          const nodes = [];
+          const lines = descText.split(/\\r?\\n/);
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.length > 0) {
+              nodes.push(schema.text(line));
+            }
+            if (i < lines.length - 1 && schema.nodes.hardbreak) {
+              nodes.push(schema.nodes.hardbreak.create());
+            }
+          }
+          const newDoc = schema.nodes.doc.create(null, nodes);
+          const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content);
+          view.dispatch(tr);
+          injected = true;
+          console.log('[doudou-weixin] 成功通过 ProseMirror EditorView 事务注入贴图描述，完整保真换行与排版！');
+        }
+      }
+    } catch (viewErr) {
+      console.warn('[doudou-weixin] 通过 EditorView 注入贴图描述异常，准备降级:', viewErr);
+    }
+
+    // 方案 B（降级一）：通过标准剪贴板 paste 事件注入（微信原生支持 paste 事件并将其转为 hardbreak）
+    if (!injected) {
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(descPm);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('delete', false, null);
+        await sleep(150);
+
+        const htmlContent = descText.split(/\\r?\\n/).map(l => l.replace(/</g, '&lt;').replace(/>/g, '&gt;')).join('<br>');
+        const dt = new DataTransfer();
+        dt.setData('text/plain', descText);
+        dt.setData('text/html', htmlContent);
+
+        const pasteEvent = new ClipboardEvent('paste', {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true
+        });
+        descPm.dispatchEvent(pasteEvent);
+        injected = true;
+        console.log('[doudou-weixin] 成功通过剪贴板 paste 事件注入贴图描述！');
+      } catch (pasteErr) {
+        console.warn('[doudou-weixin] paste 事件派发异常，准备降级:', pasteErr);
+      }
+    }
+
+    // 方案 C（保底）：execCommand('insertText') 插入带换行文本
+    if (!injected) {
+      try {
+        descPm.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, descText);
+        console.log('[doudou-weixin] 走 insertText 保底注入贴图描述！');
+      } catch (cmdErr) {
+        console.warn('[doudou-weixin] insertText 保底注入失败:', cmdErr);
+      }
+    }
+
     descPm.dispatchEvent(new Event('input', { bubbles: true }));
   }
   await sleep(600);
