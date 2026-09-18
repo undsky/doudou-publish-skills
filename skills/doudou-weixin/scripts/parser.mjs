@@ -346,17 +346,18 @@ export function resolvePublishPlan(meta, requestedModes = null) {
   return { requested, userSpecified, modes, skipped, summary };
 }
 
-export function parseAllAssets(markdownFilePath, author = 'undsky', requestedModes = null) {
+export function parseAllAssets(markdownFilePath, author = 'undsky', requestedModes = null, options = {}) {
   const absPath = path.resolve(markdownFilePath);
   if (!fs.existsSync(absPath)) {
     throw new Error(`找不到指定的 Markdown 文件: ${absPath}`);
   }
 
   const rawContent = fs.readFileSync(absPath, 'utf-8');
-  const title = extractTitle(rawContent);
+  const title = options.title || extractTitle(rawContent);
   // 文章的摘要 summary，直接填文章标题（120字上限安全截断）
-  const summary = title.length > 120 ? title.substring(0, 118) + '...' : title;
-  const stickerDesc = extractStickerDescription(rawContent, title);
+  const summary = options.summary || (title.length > 120 ? title.substring(0, 118) + '...' : title);
+  const stickerTitle = options.stickerTitle || (title.length > 20 ? title.substring(0, 19) + '…' : title);
+  const stickerDesc = options.stickerDesc || extractStickerDescription(rawContent, title);
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
   const stickerImages = resolveStickerImages(absPath);
@@ -364,6 +365,7 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const result = {
     markdownFilePath: absPath,
     title,
+    stickerTitle,
     author,
     summary,
     stickerDesc,

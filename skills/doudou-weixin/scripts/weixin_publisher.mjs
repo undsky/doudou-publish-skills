@@ -282,9 +282,13 @@ export function buildArticleBrowserScript(meta) {
  * @returns {string}
  */
 export function buildStickerBrowserScript(meta) {
+  const stickerTitle = meta.stickerTitle || meta.title || '';
+  const cleanTitle = stickerTitle.length > 20 ? stickerTitle.substring(0, 19) + '…' : stickerTitle;
+  const stickerDesc = meta.stickerDesc || meta.description || '';
+
   const payload = {
-    title: meta.title.length > 20 ? meta.title.substring(0, 18) + '...' : meta.title,
-    description: meta.stickerDesc,
+    title: cleanTitle,
+    description: stickerDesc,
     stickerCount: meta.stickerImages ? meta.stickerImages.length : 0
   };
 
@@ -353,8 +357,7 @@ export function buildStickerBrowserScript(meta) {
               nodes.push(schema.nodes.hardbreak.create());
             }
           }
-          const newDoc = schema.nodes.doc.create(null, nodes);
-          const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content);
+          const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, nodes);
           view.dispatch(tr);
           injected = true;
           console.log('[doudou-weixin] 成功通过 ProseMirror EditorView 事务注入贴图描述，完整保真换行与排版！');
@@ -405,13 +408,46 @@ export function buildStickerBrowserScript(meta) {
       }
     }
 
+    // 同步 Vue 状态、字数统计与变更侦听
+    try {
+      let cur = descPm;
+      while (cur) {
+        if (cur.__vue__) {
+          const v = cur.__vue__;
+          if (typeof v.handleInput === 'function') v.handleInput();
+          if (typeof v.handleCounterChange === 'function') v.handleCounterChange();
+          if (v.content !== undefined && typeof v.getContent === 'function') {
+            v.content = v.getContent();
+          }
+        }
+        cur = cur.parentElement;
+      }
+    } catch (syncErr) {
+      console.warn('[doudou-weixin] Vue状态同步异常:', syncErr);
+    }
+
     descPm.dispatchEvent(new Event('input', { bubbles: true }));
+    descPm.dispatchEvent(new Event('change', { bubbles: true }));
   }
   await sleep(600);
 
-  // 3. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
+  // 3. 点击「保存为草稿」并等待后台防抖保存就绪
+  try {
+    const saveBtn = Array.from(document.querySelectorAll('button')).find(b => 
+      (b.innerText.includes('保存为草稿') || b.innerText.trim() === '保存') && !b.disabled
+    );
+    if (saveBtn) {
+      saveBtn.click();
+      console.log('[doudou-weixin] 已触发点击「保存为草稿」按钮');
+      await sleep(1500);
+    }
+  } catch (saveErr) {
+    console.warn('[doudou-weixin] 触发保存草稿异常:', saveErr);
+  }
+
+  // 4. 完成发布就绪（直接判定完成，原样保留页面现场供人工发布，严禁调用 close_page）
   console.log('[doudou-weixin] 微信贴图内容填入完毕，直接判定发布就绪！');
-  const appmsgid = null;
+  const appmsgid = new URL(window.location.href).searchParams.get('appmsgid') || null;
 
   return {
     success: true,

@@ -112,8 +112,15 @@ const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 
 1. **新建独立页面直达贴图编辑器**：调用 `new_page` 打开拼接好的贴图发布页 URL；
 2. 调用 `evaluate_script` 执行 `buildStickerBrowserScript(meta)`：
-   - 将 `xhs_images` 的所有卡片转为 `File` 对象，通过 `DataTransfer` 赋值给贴图上传 input，派发 `change` 触发批量上传；
-   - 拟真输入贴图标题（20 字以内）；
-   - 拟真输入贴图描述（要点梳理）；
+   - **卡片批量上传**：将 `xhs_images` 的所有卡片转为 `File` 对象，通过 `DataTransfer` 赋值给贴图上传 input，派发 `change` 触发批量上传；
+   - **拟真输入贴图标题**：优先读取 `meta.stickerTitle`，无则降级为文章标题，严格控制在 20 字以内（超长自动截断 `19字 + …`），拟真同步 `#title` 与标题 ProseMirror；
+   - **高质量描述正文排版保真注入（核心规范）**：
+     - **底层机理**：微信贴图正文为纯行内文档（Schema `docContent: "(inline|text)*"`），内部**不支持 `<p>` 段落标签**。若直接注入 `<p>`，编辑器会自动滤除并导致全部段落粘连挤占在一行！唯一正确的排版方式是通过官方原生的 **`hardbreak`（`<br>`）节点**构建单行换行与双行段落间隔；
+     - **方案 A（最优先）**：穿透 Vue 祖先实例获取原生 ProseMirror `EditorView`，逐行按 `schema.text(line)` 与 `schema.nodes.hardbreak.create()` 构造全保真文档，通过 `view.dispatch(tr)` 触发底层事务替换；
+     - **方案 B（降级一）**：构造标准 `ClipboardEvent('paste')` 剪贴板事件，注入包含 `\n` 的纯文本与 `<br>` 的 HTML，依赖微信原生剪贴板解析器转换为 `hardbreak`；
+     - **方案 C（保底）**：`document.execCommand('insertText')` 注入带分段换行的纯文本；
+     - **响应式状态与计数同步**：自动穿透触发 Vue 实例的 `handleInput`、`handleCounterChange` 并同步 `content`，确保字数统计正常同步（如 `631/1000`）；
+   - **自动点击保存草稿**：填入完成后自动查找并触发「保存为草稿」按钮，并等待微信后台保存确认（提取 URL 中的 `appmsgid`）；
 3. 资产填入完成后直接判定完成；
 4. **安全隔离**：原样保留贴图草稿编辑页面供人工复核与发布，严禁调用 `close_page`。
+
