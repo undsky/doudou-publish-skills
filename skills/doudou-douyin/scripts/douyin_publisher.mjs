@@ -92,8 +92,9 @@ export function buildImagePostEditorScript(meta) {
         while (curr) {
           if (curr.memoizedProps?.editor && typeof curr.memoizedProps.editor.setText === 'function') {
             const editor = curr.memoizedProps.editor;
-            if (typeof editor.reset === 'function') editor.reset();
             editor.setText(cleanDesc);
+            if (typeof editor.flushInput === 'function') editor.flushInput();
+            if (typeof editor.focus === 'function') editor.focus();
             fiberSetOk = true;
             break;
           }
@@ -104,11 +105,11 @@ export function buildImagePostEditorScript(meta) {
       console.warn('[doudou-douyin] Fiber editor.setText 异常:', e);
     }
 
-    // 回退方案：通过 execCommand 逐行注入并在行间执行 insertParagraph 保证换行
-    if (!fiberSetOk || descEl.innerText.trim().length < 10) {
+    // 回退方案：仅在完全未能获取原生 EditorKit 实例时触发
+    if (!fiberSetOk) {
       document.execCommand('selectAll', false, null);
       document.execCommand('delete', false, null);
-      const lines = cleanDesc.split('\\n');
+      const lines = cleanDesc.split(/\\r?\\n/);
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].length > 0) {
           document.execCommand('insertText', false, lines[i]);
@@ -119,8 +120,15 @@ export function buildImagePostEditorScript(meta) {
       }
     }
 
-    // 关闭话题推荐浮层
+    // 触发标准 DOM 与双向数据流事件
+    descEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    descEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+    // 关闭话题推荐浮层并安全失焦
+    await sleep(200);
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+    const heading = Array.from(document.querySelectorAll('*')).find(e => e.innerText === '基础信息');
+    if (heading) heading.click();
     descEl.blur();
   }
   await sleep(600);
@@ -212,8 +220,9 @@ export function buildVideoPostEditorScript(meta) {
         while (curr) {
           if (curr.memoizedProps?.editor && typeof curr.memoizedProps.editor.setText === 'function') {
             const editor = curr.memoizedProps.editor;
-            if (typeof editor.reset === 'function') editor.reset();
             editor.setText(cleanDesc);
+            if (typeof editor.flushInput === 'function') editor.flushInput();
+            if (typeof editor.focus === 'function') editor.focus();
             fiberSetOk = true;
             break;
           }
@@ -224,11 +233,11 @@ export function buildVideoPostEditorScript(meta) {
       console.warn('[doudou-douyin] Fiber editor.setText 异常:', e);
     }
 
-    // 回退方案：通过 execCommand 逐行注入并在行间执行 insertParagraph 保证换行
-    if (!fiberSetOk || descEl.innerText.trim().length < 10) {
+    // 回退方案：仅在未能获取 EditorKit 实例时触发
+    if (!fiberSetOk) {
       document.execCommand('selectAll', false, null);
       document.execCommand('delete', false, null);
-      const lines = cleanDesc.split('\\n');
+      const lines = cleanDesc.split(/\\r?\\n/);
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].length > 0) {
           document.execCommand('insertText', false, lines[i]);
@@ -239,8 +248,15 @@ export function buildVideoPostEditorScript(meta) {
       }
     }
 
-    // 关闭话题推荐浮层
+    // 触发标准 DOM 与响应式事件
+    descEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    descEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+    // 关闭话题推荐浮层并安全失焦
+    await sleep(200);
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+    const heading = Array.from(document.querySelectorAll('*')).find(e => e.innerText === '基础信息');
+    if (heading) heading.click();
     descEl.blur();
   }
   await sleep(600);

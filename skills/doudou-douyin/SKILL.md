@@ -117,23 +117,10 @@ if (titleInput && meta.videoTitle) {
   titleInput.blur();
 }
 ```
-2. **填写作品简介与话题（<=1000字，保留分段换行）**：
-```javascript
-const descEl = document.querySelector('.zone-container.editor-kit-container') || document.querySelector('[contenteditable="true"]');
-if (descEl && meta.videoDesc) {
-  descEl.focus();
-  // 逐行注入以确保分段换行
-  document.execCommand('selectAll', false, null);
-  document.execCommand('delete', false, null);
-  const lines = meta.videoDesc.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].length > 0) document.execCommand('insertText', false, lines[i]);
-    if (i < lines.length - 1) document.execCommand('insertParagraph', false, null);
-  }
-  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
-  descEl.blur();
-}
-```
+2. **填写作品简介与话题（<=1000字，EditorKit 原生状态同步与分段保真）**：
+- **底层机理**：抖音富文本基于字节跳动自研 EditorKit（Slate 状态机）。若仅通过 DOM 或 execCommand 注入，无法更新内存中的 ContentState，导致刷新或重入编辑页后描述内容被清空；
+- **原生注入方案**：穿透容器 React Fiber 获取原生 `editor` 实例，调用 `editor.setText(cleanDesc)` 与 `editor.flushInput()`、`editor.focus()` 触发状态机与视图双向同步，确保字数统计正常更新且草稿可安全持久化保存。降级方案才走选区 execCommand。
+- 注入完成后派发 `Escape` 并失焦，收起话题推荐下拉弹窗。
 
 ---
 
@@ -191,7 +178,7 @@ await upload_file({
 #### 步骤 I4：拟真填入图文标题与分段描述
 
 1. **填写图文标题（<=20字）**：设置 `input[placeholder*="添加作品标题"]` 原生 Setter 并派发事件。
-2. **填写图文描述与话题（<=1000字）**：聚焦 `.zone-container.editor-kit-container`，逐行注入文案保持换行排版。
+2. **填写图文描述与话题（<=1000字，EditorKit 原生状态注入）**：穿透容器 React Fiber 获取原生 EditorKit 实例，调用 `editor.setText(cleanDesc)` 并配合 `editor.flushInput()`、`editor.focus()` 触发状态持久化，避免重新进入编辑页后内容丢失；随后派发 `Escape` 收起话题联想浮层。
 
 ---
 
