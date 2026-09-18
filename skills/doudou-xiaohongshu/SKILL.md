@@ -199,9 +199,12 @@ await upload_file({
 
 ---
 
-#### 步骤 I4：ProseMirror 注入换行分段描述与话题（<=1000字）
+#### 步骤 I4：ProseMirror 注入换行分段描述与话题（<=1000字，核心排版保真规约）
 
-聚焦 `.tiptap.ProseMirror`，通过 `editor.commands.setContent` 注入分段结构化文本，保持段落间清晰换行。
+1. **单行独立成段原则**：小红书 TipTap / ProseMirror 编辑器在解析 `<br>` 时极易发生换行丢失与文本合并。**严禁将多行文本放入同一个 `<p>` 标签中**！
+2. **正确封装格式**：对描述正文按 `\n` 切分，每一行非空文本独立包装为 `<p>${line}</p>`，空行包装为 `<p><br></p>`；
+3. 通过 `editor.commands.setContent(htmlFormatted, true)` 进行全保真注入，确保正文中的各类标题、段落、列表项及空行均 100% 独立换行呈现；
+4. 注入完成后自动派发 `Escape` 键收起末尾标签话题的联想下拉弹窗，并派发 `input`/`change`/`blur` 事件。
 
 ---
 

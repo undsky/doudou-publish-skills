@@ -61,16 +61,29 @@ export function buildImagePostBrowserScript(meta) {
 
     let setOk = false;
     if (descEl.editor && descEl.editor.commands && descEl.editor.commands.setContent) {
-      const htmlFormatted = meta.description.split('\\n').map(line => \`<p>\${line || '<br>'}</p>\`).join('');
+      const lines = meta.description.split(/\\r?\\n/);
+      const htmlFormatted = lines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '<p><br></p>';
+        const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return \`<p>\${escaped}</p>\`;
+      }).join('');
       descEl.editor.commands.setContent(htmlFormatted, true);
       setOk = true;
     }
 
     if (!setOk) {
       document.execCommand('selectAll', false, null);
-      document.execCommand('insertText', false, meta.description);
+      document.execCommand('delete', false, null);
+      const lines = meta.description.split(/\\r?\\n/);
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].length > 0) document.execCommand('insertText', false, lines[i]);
+        if (i < lines.length - 1) document.execCommand('insertParagraph', false, null);
+      }
     }
     descEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    descEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
     descEl.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
   }
   await sleep(600);
@@ -160,7 +173,13 @@ export function buildVideoPostBrowserScript(meta) {
     const cleanDesc = meta.description.length > 1000 ? meta.description.substring(0, 990) + '...' : meta.description;
     let setOk = false;
     if (descEl.editor && descEl.editor.commands && descEl.editor.commands.setContent) {
-      const htmlFormatted = cleanDesc.split('\\n').map(line => \`<p>\${line || '<br>'}</p>\`).join('');
+      const lines = cleanDesc.split(/\\r?\\n/);
+      const htmlFormatted = lines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '<p><br></p>';
+        const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return \`<p>\${escaped}</p>\`;
+      }).join('');
       descEl.editor.commands.setContent(htmlFormatted, true);
       setOk = true;
     }
