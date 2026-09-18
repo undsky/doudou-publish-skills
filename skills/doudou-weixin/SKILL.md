@@ -113,7 +113,7 @@ const meta = parseAllAssets(markdownFilePath, "undsky", requestedModes ?? null);
 1. **新建独立页面直达贴图编辑器**：调用 `new_page` 打开拼接好的贴图发布页 URL；
 2. 调用 `evaluate_script` 执行 `buildStickerBrowserScript(meta)`：
    - **卡片批量上传**：将 `xhs_images` 的所有卡片转为 `File` 对象，通过 `DataTransfer` 赋值给贴图上传 input，派发 `change` 触发批量上传；
-   - **拟真输入贴图标题**：优先读取 `meta.stickerTitle`，无则降级为文章标题，严格控制在 20 字以内（超长自动截断 `19字 + …`），拟真同步 `#title` 与标题 ProseMirror；
+   - **拟真输入贴图标题**：优先使用指定的贴图标题，未指定则自动降级为文章标题，严格控制在 20 字以内（超长自动截断 `19字 + …`），拟真同步 `#title` 与标题 ProseMirror；
    - **高质量描述正文排版保真注入（核心规范）**：
      - **底层机理**：微信贴图正文为纯行内文档（Schema `docContent: "(inline|text)*"`），内部**不支持 `<p>` 段落标签**。若直接注入 `<p>`，编辑器会自动滤除并导致全部段落粘连挤占在一行！唯一正确的排版方式是通过官方原生的 **`hardbreak`（`<br>`）节点**构建单行换行与双行段落间隔；
      - **方案 A（最优先）**：穿透 Vue 祖先实例获取原生 ProseMirror `EditorView`，逐行按 `schema.text(line)` 与 `schema.nodes.hardbreak.create()` 构造全保真文档，通过 `view.dispatch(tr)` 触发底层事务替换；
