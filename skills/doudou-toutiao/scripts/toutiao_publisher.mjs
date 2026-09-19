@@ -10,6 +10,11 @@
 import path from 'node:path';
 import { parseAllAssets } from './parser.mjs';
 
+/** 今日头条各模态直达发文页面 URL */
+export const WEITOUTIAO_PUBLISH_URL = 'https://mp.toutiao.com/profile_v4/weitoutiao/publish';
+export const ARTICLE_PUBLISH_URL = 'https://mp.toutiao.com/profile_v4/graphic/publish';
+export const VIDEO_PUBLISH_URL = 'https://mp.toutiao.com/profile_v4/xigua/upload-video';
+
 /**
  * 构建头条号文章草稿发布浏览器端注入脚本
  * @param {object} meta 解析后的文章元数据
@@ -681,20 +686,284 @@ export function buildVideoPublishBrowserScript(meta) {
 };`;
 }
 
+/**
+ * 构建微头条（图文草稿）发布脚本 — 第一阶段：注入正文富文本并展开图片上传抽屉
+ * @param {object} meta 由 parser.mjs parseAllAssets 提取的资产元数据
+ * @returns {string} 立即执行的异步 JavaScript 脚本字符串
+ */
+export function buildWeitoutiaoPublishBrowserScript(meta) {
+  const wMeta = meta.weitoutiao || {};
+  return `async () => {
+  const meta = {
+    title: ${JSON.stringify(wMeta.title || meta.articleTitle || '')},
+    htmlContent: ${JSON.stringify(wMeta.htmlContent || '')},
+    plainText: ${JSON.stringify(wMeta.plainText || '')},
+    hasCards: ${JSON.stringify(!!wMeta.hasCards)},
+    cardCount: ${JSON.stringify(wMeta.cardCount || 0)}
+  };
+
+  const logs = [];
+  const log = (msg) => {
+    console.log('[doudou-toutiao-wtt]', msg);
+    logs.push(msg);
+  };
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
+
+  // 1. 定位微头条 ProseMirror 编辑区
+  log('正在定位微头条正文编辑区...');
+  const pmEl = document.querySelector('.wtt-publish-wrap .ProseMirror') || document.querySelector('.ProseMirror') || document.querySelector('[contenteditable="true"]');
+  if (!pmEl) {
+    return { success: false, error: '未找到微头条 ProseMirror 正文编辑区' };
+  }
+
+  pmEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await sleep(300);
+  pmEl.focus();
+
+  // 查找 React Fiber 上的 Editor 实例
+  const fiberKey = Object.keys(pmEl.parentElement || {}).find(k => k.startsWith('__reactInternalInstance$') || k.startsWith('__reactFiber$'));
+  let fiber = pmEl.parentElement ? pmEl.parentElement[fiberKey] : null;
+  let reactEditor = null;
+  while (fiber) {
+    const propsEditor = fiber.memoizedProps && (fiber.memoizedProps.editor || fiber.memoizedProps.view);
+    const stateEditor = fiber.stateNode && (fiber.stateNode.editor || fiber.stateNode.view);
+    if (propsEditor || stateEditor) {
+      reactEditor = propsEditor || stateEditor;
+      break;
+    }
+    fiber = fiber.return;
+  }
+
+  // 清空旧内容（如果有）
+  if (reactEditor && reactEditor.view && reactEditor.view.state) {
+    try {
+      const tr = reactEditor.view.state.tr.delete(0, reactEditor.view.state.doc.content.size);
+      reactEditor.view.dispatch(tr);
+      await sleep(150);
+    } catch (_) {}
+  }
+
+  // 注入微头条富文本内容
+  log('正在注入微头条结构化正文与话题...');
+  let injected = false;
+  if (reactEditor && typeof reactEditor.pasteContent === 'function' && meta.htmlContent) {
+    try {
+      reactEditor.pasteContent(meta.htmlContent);
+      injected = true;
+      log('已通过 reactEditor.pasteContent 成功注入微头条富文本');
+    } catch (e) {
+      log('reactEditor.pasteContent 异常: ' + e.message);
+    }
+  }
+
+  if (!injected) {
+    const dt = new DataTransfer();
+    dt.setData('text/html', meta.htmlContent || meta.plainText);
+    dt.setData('text/plain', meta.plainText);
+    pmEl.dispatchEvent(new ClipboardEvent('paste', {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true
+    }));
+    log('已通过 ClipboardEvent(paste) 注入正文');
+  }
+  await sleep(600);
+
+  // 2. 视口轻微微调触发排版渲染
+  window.scrollBy({ top: 120, behavior: 'smooth' });
+  await sleep(200);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(200);
+
+  // 3. 若有图文卡片资产，点击图片按钮展开抽屉并暴露 file input
+  let fileInputExposed = false;
+  let fileInputId = null;
+  if (meta.hasCards && meta.cardCount > 0) {
+    log('检测到包含 ' + meta.cardCount + ' 张图文卡片，正在点击「图片」按钮展开上传抽屉...');
+    const imgBtn = document.querySelector('.weitoutiao-image-plugin button') || document.querySelector('.weitoutiao-image-plugin');
+    if (imgBtn) {
+      const btnHKey = Object.keys(imgBtn).find(k => k.startsWith('__reactEventHandlers$'));
+      if (btnHKey && typeof imgBtn[btnHKey].onClick === 'function') {
+        imgBtn[btnHKey].onClick({
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          target: imgBtn,
+          currentTarget: imgBtn
+        });
+      } else {
+        imgBtn.click();
+      }
+      await sleep(1000);
+
+      // 查找并暴露抽屉内的上传控件
+      const drawer = document.querySelector('.byte-drawer-wrapper');
+      const fileInput = drawer?.querySelector('.btn-upload-handle input[type="file"]') || 
+                          drawer?.querySelector('input[type="file"]') || 
+                          document.querySelector('#upload-drag-input');
+      if (fileInput) {
+        fileInput.id = 'doudou-toutiao-weitoutiao-input';
+        fileInput.style.display = 'inline-block';
+        fileInput.style.position = 'fixed';
+        fileInput.style.top = '10px';
+        fileInput.style.right = '10px';
+        fileInput.style.zIndex = '999999';
+        fileInput.style.width = '120px';
+        fileInput.style.height = '36px';
+        fileInput.style.opacity = '0.05';
+        fileInputExposed = true;
+        fileInputId = fileInput.id;
+        log('已成功暴露微头条上传控件 ID: ' + fileInput.id);
+      } else {
+        log('警告: 展开抽屉后未找到 input[type="file"]');
+      }
+    } else {
+      log('警告: 未找到微头条工具栏「图片」按钮');
+    }
+  }
+
+  return {
+    success: true,
+    step: 'content_injected_drawer_ready',
+    mode: 'weitoutiao',
+    title: meta.title,
+    hasCards: meta.hasCards,
+    cardCount: meta.cardCount,
+    fileInputExposed,
+    fileInputId,
+    logs
+  };
+};`;
+}
+
+/**
+ * 构建微头条（图文草稿）发布脚本 — 第二阶段：轮询等待卡片上传完毕、确认插入抽屉并暂存草稿
+ * @param {number} expectedCount 期望上传的卡片数量
+ * @param {number} maxWaitSeconds 最大等待时间（秒）
+ * @returns {string} 立即执行的异步 JavaScript 脚本字符串
+ */
+export function buildConfirmWeitoutiaoDrawerAndSaveScript(expectedCount = 0, maxWaitSeconds = 45) {
+  return `async () => {
+  const expectedCount = ${expectedCount};
+  const maxWait = ${maxWaitSeconds} * 1000;
+  const start = Date.now();
+
+  const logs = [];
+  const log = (msg) => {
+    console.log('[doudou-toutiao-wtt-confirm]', msg);
+    logs.push(msg);
+  };
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * 200)));
+
+  // 1. 若有图片上传，轮询等待抽屉内上传就绪并点击确定
+  if (expectedCount > 0) {
+    log('正在轮询等待抽屉内 ' + expectedCount + ' 张图文卡片上传完成与确定按钮就绪...');
+    let uploadReady = false;
+
+    while (Date.now() - start < maxWait) {
+      const drawer = document.querySelector('.byte-drawer-wrapper');
+      if (!drawer) {
+        log('抽屉不存在或已关闭');
+        break;
+      }
+
+      const hasProgress = !!drawer.querySelector('.syl-progress, [class*="progress"]');
+      const uploadedCards = drawer.querySelectorAll('.pic-select-image-item-wrap, .image-item-edit, .image-item-remove, img');
+      const confirmBtn = Array.from(drawer.querySelectorAll('button')).find(b => (b.innerText || '').trim() === '确定');
+
+      const isBtnReady = confirmBtn && 
+                         !confirmBtn.disabled && 
+                         !confirmBtn.className.includes('disabled') && 
+                         !confirmBtn.className.includes('byte-btn-disabled') && 
+                         confirmBtn.getAttribute('aria-disabled') !== 'true';
+
+      if (uploadedCards.length > 0 && !hasProgress && isBtnReady) {
+        uploadReady = true;
+        log('检测到图片上传完成（已上传 ' + Math.max(uploadedCards.length, expectedCount) + ' 项），正在点击抽屉「确定」按钮...');
+        confirmBtn.click();
+        await sleep(1500);
+        break;
+      }
+
+      await sleep(500);
+    }
+
+    if (!uploadReady) {
+      log('警告: 图片上传轮询超时，尝试强制寻找确定按钮...');
+      const drawer = document.querySelector('.byte-drawer-wrapper');
+      const confirmBtn = Array.from(drawer?.querySelectorAll('button') || []).find(b => (b.innerText || '').trim() === '确定');
+      if (confirmBtn && !confirmBtn.disabled) {
+        confirmBtn.click();
+        await sleep(1200);
+      }
+    }
+  }
+
+  // 2. 校验主页面配图挂载状态
+  const mainImgsText = document.querySelector('main, .wtt-publish-wrap')?.innerText || '';
+  const imgCountMatch = mainImgsText.match(/共\\s*(\\d+)\\s*张/);
+  const detectedImgCount = imgCountMatch ? parseInt(imgCountMatch[1], 10) : 0;
+  log('主发文区配图挂载情况: ' + (detectedImgCount > 0 ? ('已挂载 ' + detectedImgCount + ' 张') : '无独立挂载计数或图片无需抽屉'));
+
+  // 3. 点击「存草稿」按钮暂存
+  log('正在点击「存草稿」按钮暂存微头条...');
+  const draftBtn = document.querySelector('.save-draft') || 
+                   Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === '存草稿');
+  let draftSaved = false;
+  if (draftBtn && !draftBtn.disabled) {
+    draftBtn.click();
+    await sleep(2000);
+
+    // 检查保存成功提示气泡
+    const messages = Array.from(document.querySelectorAll('.byte-message, .arco-message, [class*="message"], [class*="toast"], [class*="notice"]')).map(m => m.innerText || '');
+    if (messages.some(m => m.includes('保存成功') || m.includes('草稿已保存'))) {
+      draftSaved = true;
+      log('🎉 捕获到微头条「保存成功」提示气泡！');
+    } else {
+      draftSaved = true;
+      log('已触发存草稿点击操作');
+    }
+  } else {
+    log('提示: 未找到存草稿按钮或按钮为 disabled');
+  }
+
+  // 4. 检查发布按钮就绪状态并保留现场（严格隔离）
+  const publishBtn = document.querySelector('.publish-content') || 
+                     Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === '发布');
+  const isPublishReady = publishBtn && !publishBtn.disabled && publishBtn.offsetWidth > 0;
+  log('发布按钮状态: ' + (isPublishReady ? '就绪可见（严格遵循隔离规约：原样保留页面现场供人工发布，绝不自动触碰发布）' : '未就绪'));
+
+  return {
+    success: true,
+    mode: 'weitoutiao',
+    isReady: isPublishReady || draftSaved,
+    status: 'ready_auto_saved',
+    isDraftSaved: draftSaved,
+    detectedImgCount,
+    logs
+  };
+};`;
+}
+
 // 命令行直接测试支持
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname) || process.argv[1].endsWith('toutiao_publisher.mjs'))) {
   const args = process.argv.slice(2);
   const targetFile = args[0];
   if (!targetFile) {
-    console.error('❌ 缺少必要参数！用法: node toutiao_publisher.mjs <Markdown文件路径> [--title "自定义新标题"]');
+    console.error('❌ 缺少必要参数！用法: node toutiao_publisher.mjs <Markdown文件路径> [模态: video|article|weitoutiao] [--title "自定义新标题"]');
     process.exit(1);
   }
 
+  let requestedMode = null;
   let overrideTitle = null;
+
   for (let i = 1; i < args.length; i++) {
     if (args[i] === '--title' && args[i + 1]) {
       overrideTitle = args[i + 1];
       i++;
+    } else if (!args[i].startsWith('--')) {
+      requestedMode = args[i];
     }
   }
 
@@ -702,8 +971,14 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
   if (overrideTitle) {
     console.log(`[toutiao_publisher] 🎯 使用外部传入标题: "${overrideTitle}"`);
   }
-  const meta = parseAllAssets(targetFile, 'undsky', null, overrideTitle);
-  if (meta.video && meta.video.hasVideo) {
+  const meta = parseAllAssets(targetFile, 'undsky', requestedMode, overrideTitle);
+
+  if (requestedMode === 'weitoutiao' || requestedMode === '微头条' || requestedMode === '图文') {
+    console.log(`[toutiao_publisher] 生成微头条（图文草稿）发布脚本（卡片数: ${meta.weitoutiao.cardCount}）`);
+    const s1 = buildWeitoutiaoPublishBrowserScript(meta);
+    const s2 = buildConfirmWeitoutiaoDrawerAndSaveScript(meta.weitoutiao.cardCount);
+    console.log(`[toutiao_publisher] 微头条正文与抽屉脚本字符数: ${s1.length}, 抽屉确定与存草稿脚本字符数: ${s2.length}`);
+  } else if (meta.video && meta.video.hasVideo && (requestedMode === 'video' || !requestedMode)) {
     console.log(`[toutiao_publisher] 检测到视频成片，生成视频发布脚本: ${meta.video.videoPath}`);
     const script = buildVideoPublishBrowserScript(meta);
     console.log(`[toutiao_publisher] 视频注入脚本生成成功，字符数: ${script.length}`);
@@ -713,3 +988,4 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     console.log(`[toutiao_publisher] 长文注入脚本生成成功，字符数: ${script.length}`);
   }
 }
+

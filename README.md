@@ -58,7 +58,7 @@ npx skills add undsky/doudou-publish-skills --yes
 | 技能名称               | 目录                                                       | 一句话介绍                                                                       |
 | :--------------------- | :--------------------------------------------------------- | :------------------------------------------------------------------------------- |
 | **doudou-weixin**      | [`skills/doudou-weixin`](./skills/doudou-weixin)           | 将文章、图文发布到 [微信公众平台](https://mp.weixin.qq.com)                      |
-| **doudou-toutiao**     | [`skills/doudou-toutiao`](./skills/doudou-toutiao)         | 将文章、视频发布到 [今日头条](https://mp.toutiao.com)                            |
+| **doudou-toutiao**     | [`skills/doudou-toutiao`](./skills/doudou-toutiao)         | 将文章、视频、微头条（图文）发布到 [今日头条](https://mp.toutiao.com)            |
 | **doudou-baijia**      | [`skills/doudou-baijia`](./skills/doudou-baijia)           | 将文章、视频发布到 [百度百家号](https://baijiahao.baidu.com)                     |
 | **doudou-qiehao**      | [`skills/doudou-qiehao`](./skills/doudou-qiehao)           | 将文章、视频发布到 [企鹅号](https://om.qq.com)                                   |
 | **doudou-juejin**      | [`skills/doudou-juejin`](./skills/doudou-juejin)           | 将文章发布到 [稀土掘金](https://juejin.cn)                                       |

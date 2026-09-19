@@ -58,7 +58,7 @@ Publish articles/ai-guide.md to WeChat Official Account and Toutiao draft boxes.
 | Skill Name             | Directory                                                  | Description                                                                                              |
 | :--------------------- | :--------------------------------------------------------- | :------------------------------------------------------------------------------------------------------- |
 | **doudou-weixin**      | [`skills/doudou-weixin`](./skills/doudou-weixin)           | Publish articles and image-text posts to [WeChat Official Accounts](https://mp.weixin.qq.com)            |
-| **doudou-toutiao**     | [`skills/doudou-toutiao`](./skills/doudou-toutiao)         | Publish articles and videos to [Toutiao](https://mp.toutiao.com)                                         |
+| **doudou-toutiao**     | [`skills/doudou-toutiao`](./skills/doudou-toutiao)         | Publish articles, videos, and Weitoutiao (image-text posts) to [Toutiao](https://mp.toutiao.com)        |
 | **doudou-baijia**      | [`skills/doudou-baijia`](./skills/doudou-baijia)           | Publish articles and videos to [Baidu Baijiahao](https://baijiahao.baidu.com)                            |
 | **doudou-qiehao**      | [`skills/doudou-qiehao`](./skills/doudou-qiehao)           | Publish articles and videos to [Tencent Penguin (Qiehao)](https://om.qq.com)                             |
 | **doudou-juejin**      | [`skills/doudou-juejin`](./skills/doudou-juejin)           | Publish articles to [Juejin](https://juejin.cn)                                                          |

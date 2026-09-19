@@ -661,18 +661,142 @@ export function resolveVideoAsset(markdownFilePath) {
 }
 
 /**
+ * 解析微头条图文卡片集（对应其他技能的 xhs_images 卡片集）
+ * 优先读取 xhs_images/images/ (或 xhs_images/) 3:4 卡片集，排除 _yuantu.png 与 _thumb.png
+ * 最多截取 9 张（微头条标准排版）
+ * @param {string} markdownFilePath 
+ * @returns {Array<{ name: string, localPath: string, mimeType: string }>}
+ */
+export function resolveWeitoutiaoCards(markdownFilePath) {
+  const absPath = path.resolve(markdownFilePath);
+  const dir = path.dirname(absPath);
+  const baseName = path.basename(absPath, path.extname(absPath));
+  const articleDir = path.join(dir, baseName);
+
+  const candidateDirs = [
+    path.join(articleDir, 'xhs_images', 'images'),
+    path.join(articleDir, 'xhs_images')
+  ];
+
+  for (const targetDir of candidateDirs) {
+    if (fs.existsSync(targetDir) && fs.statSync(targetDir).isDirectory()) {
+      const allFiles = fs.readdirSync(targetDir)
+        .filter(f => !f.includes('_yuantu') && (f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.webp')));
+      const nonThumbFiles = allFiles.filter(f => !f.includes('_thumb') && !f.includes('thumb'));
+      // 如果同时存在无后缀主卡片（如 04-card.png）和重试版本（如 04-card_1.png），优先取主卡片
+      const mainCards = nonThumbFiles.filter(f => !/_\d+\.(png|jpg|jpeg|webp)$/i.test(f));
+      const files = (mainCards.length > 0 ? mainCards : nonThumbFiles)
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+      if (files.length > 0) {
+        return files.slice(0, 9).map(file => {
+          const localPath = path.join(targetDir, file);
+          const mimeType = file.endsWith('.jpg') || file.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+          return {
+            name: file,
+            localPath,
+            mimeType
+          };
+        });
+      }
+    }
+  }
+
+  return [];
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * 提炼微头条正文内容（包含首行标题、引言摘要、核心要点与 #话题# 标签）
+ * 微头条发文区采用单正文框（无独立标题输入框），首行通常为精炼主题
+ * @param {string} content 
+ * @param {string} title 
+ * @param {string[]} tags 
+ * @returns {{ title: string, summary: string, points: string[], tags: string[], plainText: string, htmlContent: string }}
+ */
+export function extractWeitoutiaoContent(content, title = '', tags = []) {
+  const lines = content.split('\n');
+  const points = [];
+  let isCodeBlock = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      isCodeBlock = !isCodeBlock;
+      continue;
+    }
+    if (isCodeBlock || !trimmed) continue;
+
+    if (trimmed.startsWith('- ') || trimmed.startsWith('1. ') || trimmed.startsWith('2. ') || trimmed.startsWith('3. ') || trimmed.startsWith('4. ') || trimmed.startsWith('5. ')) {
+      const clean = trimmed
+        .replace(/^[-*\d.]+\s+/, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[*_`~]/g, '')
+        .trim();
+      if (clean.length > 6 && clean.length < 80) {
+        points.push(clean);
+      }
+    }
+    if (points.length >= 5) break;
+  }
+
+  const cleanTitle = cleanTitleText(title || extractArticleTitle(content, '未命名微头条'));
+  const summary = extractArticleSummary(content, cleanTitle);
+  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t.replace(/#/g, '').trim()}#`).join(' ') : '';
+
+  // 1. 组装纯文本
+  let plain = `【${cleanTitle}】\n\n💡 ${summary}\n\n`;
+  if (points.length > 0) {
+    plain += `🔥 核心要点干货整理：\n` + points.map((p, idx) => `0${idx + 1} ${p}`).join('\n') + '\n\n';
+  }
+  plain += `✨ 欢迎关注与评论区交流探讨！`;
+  if (tagString) {
+    plain += `\n\n${tagString}`;
+  }
+
+  // 2. 组装适用于 ProseMirror 的 HTML 富文本
+  let html = `<p><strong>【${escapeHtml(cleanTitle)}】</strong></p><p>💡 ${escapeHtml(summary)}</p>`;
+  if (points.length > 0) {
+    html += `<p>🔥 <strong>核心要点干货整理：</strong></p>`;
+    for (let idx = 0; idx < points.length; idx++) {
+      html += `<p>0${idx + 1} ${escapeHtml(points[idx])}</p>`;
+    }
+  }
+  html += `<p>✨ 欢迎关注与评论区交流探讨！</p>`;
+  if (tagString) {
+    html += `<p>${escapeHtml(tagString)}</p>`;
+  }
+
+  return {
+    title: cleanTitle,
+    summary,
+    points,
+    tags,
+    plainText: plain,
+    htmlContent: html
+  };
+}
+
+/**
  * 全面解析 Markdown 文件及其关联资产
  * @param {string} markdownFilePath 
  * @param {string} author 
  * @returns {object}
  */
 /**
- * 头条号支持的两种发布模态定义（按推荐执行顺序排列）
- * 顺序原因：视频上传与转码耗时最长优先启动，长文图文随后执行
+ * 头条号支持的三种发布模态定义（按推荐执行顺序排列）
+ * 顺序原因：视频上传与转码耗时最长优先启动，长文随后，微头条图文轻量迅速执行
  */
 export const PUBLISH_MODES = [
   { mode: 'video', label: '视频', aliases: ['video', '视频', '短视频', '西瓜视频', '视频作品'] },
-  { mode: 'article', label: '长文图文', aliases: ['article', '文章', '长文', '图文', '长文图文', '图文文章'] }
+  { mode: 'article', label: '长文图文', aliases: ['article', '长文', '文章', '长文图文', '图文文章'] },
+  { mode: 'weitoutiao', label: '微头条', aliases: ['weitoutiao', '微头条', '图文', '图文卡片', '微头条图文', '动态', '贴图', 'image', 'images'] }
 ];
 
 /**
@@ -715,6 +839,10 @@ export function resolvePublishPlan(meta, requestedModes = null) {
     article: {
       ok: !!(meta.articleHtml && meta.articleHtml.htmlContent && meta.articleHtml.htmlContent.trim().length > 0),
       reason: '未解析出可用的排版正文 HTML'
+    },
+    weitoutiao: {
+      ok: !!(meta.weitoutiao && meta.weitoutiao.hasCards && meta.weitoutiao.cards.length > 0),
+      reason: '同名目录下未找到 xhs_images 图文卡片集'
     }
   };
 
@@ -761,6 +889,22 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const videoTitle = extractVideoTitle(rawContent, '未命名视频', video.manifestTitle, overrideTitle);
   const videoDesc = extractVideoDescription(rawContent, videoTitle, tags);
 
+  // 微头条资产解析（其他技能的图文卡片集 xhs_images）
+  const cards = resolveWeitoutiaoCards(absPath);
+  const weitoutiaoContent = extractWeitoutiaoContent(rawContent, articleTitle, tags);
+  const weitoutiao = {
+    hasCards: cards.length > 0,
+    cards,
+    cardPaths: cards.map(c => c.localPath),
+    cardCount: cards.length,
+    title: weitoutiaoContent.title,
+    summary: weitoutiaoContent.summary,
+    points: weitoutiaoContent.points,
+    tags: weitoutiaoContent.tags,
+    plainText: weitoutiaoContent.plainText,
+    htmlContent: weitoutiaoContent.htmlContent
+  };
+
   const result = {
     markdownFilePath: absPath,
     articleTitle,
@@ -772,7 +916,8 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
     videoCover,
     videoTitle,
     videoDesc,
-    video
+    video,
+    weitoutiao
   };
 
   result.publishPlan = resolvePublishPlan(result, requestedModes);
@@ -826,6 +971,12 @@ if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(new URL(i
     videoDescLength: result.videoDesc?.length,
     hasVideo: result.video?.hasVideo,
     videoPath: result.video?.videoPath,
-    videoSize: result.video?.sizeBytes
+    videoSize: result.video?.sizeBytes,
+    hasWeitoutiaoCards: result.weitoutiao?.hasCards,
+    weitoutiaoCardCount: result.weitoutiao?.cardCount,
+    weitoutiaoCards: result.weitoutiao?.cards?.map(c => c.name),
+    weitoutiaoTitle: result.weitoutiao?.title,
+    weitoutiaoPlainTextLength: result.weitoutiao?.plainText?.length
   }, null, 2));
 }
+
