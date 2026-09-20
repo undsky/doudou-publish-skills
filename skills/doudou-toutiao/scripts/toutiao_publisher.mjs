@@ -744,6 +744,11 @@ export function buildWeitoutiaoPublishBrowserScript(meta) {
     } catch (_) {}
   }
 
+  // 清理输入中可能包含的 ASCII 控制字符（如 \u0002 等引发豆腐块方框的不可见字符）
+  const sanitize = (s) => typeof s === 'string' ? s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') : s;
+  meta.htmlContent = sanitize(meta.htmlContent);
+  meta.plainText = sanitize(meta.plainText);
+
   // 注入微头条富文本内容
   log('正在注入微头条结构化正文与话题...');
   let injected = false;
@@ -769,6 +774,17 @@ export function buildWeitoutiaoPublishBrowserScript(meta) {
     log('已通过 ClipboardEvent(paste) 注入正文');
   }
   await sleep(600);
+
+  // 清理 Sylph 编辑器行内节点可能产生的 \u0002 等未映射控制字符（彻底杜绝缺字豆腐块 □）
+  try {
+    const walker = document.createTreeWalker(pmEl, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      if (textNode.nodeValue && /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(textNode.nodeValue)) {
+        textNode.nodeValue = textNode.nodeValue.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ');
+      }
+    }
+  } catch (_) {}
 
   // 2. 视口轻微微调触发排版渲染
   window.scrollBy({ top: 120, behavior: 'smooth' });

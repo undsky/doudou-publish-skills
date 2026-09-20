@@ -570,7 +570,7 @@ export function extractVideoDescription(content, title = '', tags = []) {
     if (points.length >= 5) break;
   }
 
-  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t}#`).join(' ') : '';
+  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t.replace(/#/g, '').trim()}`).join(' ') : '';
   const summary = extractArticleSummary(content, title);
 
   let desc = `💡 ${summary}\n\n`;
@@ -748,7 +748,7 @@ export function extractWeitoutiaoContent(content, title = '', tags = []) {
 
   const cleanTitle = cleanTitleText(title || extractArticleTitle(content, '未命名微头条'));
   const summary = extractArticleSummary(content, cleanTitle);
-  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t.replace(/#/g, '').trim()}#`).join(' ') : '';
+  const tagString = Array.isArray(tags) && tags.length > 0 ? tags.map(t => `#${t.replace(/#/g, '').trim()}`).join(' ') : '';
 
   // 1. 组装纯文本
   let plain = `【${cleanTitle}】\n\n💡 ${summary}\n\n`;
@@ -878,8 +878,26 @@ export function parseAllAssets(markdownFilePath, author = 'undsky', requestedMod
   const rawContent = fs.readFileSync(absPath, 'utf-8');
   const articleTitle = extractArticleTitle(rawContent, '未命名文章', overrideTitle);
   const articleSummary = extractArticleSummary(rawContent, articleTitle);
-  // 由 asset_resolver.inferTags 从标题与正文推断（上限 3）。
-  const tags = inferTags(rawContent, articleTitle, 3);
+  // 优先复用同名资产目录或同级 daily_meta.json 中已定义的 tags，否则由 asset_resolver.inferTags 推断
+  let tags = [];
+  const candidateMetaPaths = [
+    path.join(path.dirname(absPath), path.basename(absPath, path.extname(absPath)), 'daily_meta.json'),
+    path.join(path.dirname(absPath), 'daily_meta.json')
+  ];
+  for (const metaP of candidateMetaPaths) {
+    if (fs.existsSync(metaP)) {
+      try {
+        const metaObj = JSON.parse(fs.readFileSync(metaP, 'utf-8'));
+        if (Array.isArray(metaObj.tags) && metaObj.tags.length > 0) {
+          tags = metaObj.tags.map(t => String(t).replace(/#/g, '').trim()).filter(Boolean);
+          break;
+        }
+      } catch (_) {}
+    }
+  }
+  if (!tags.length) {
+    tags = inferTags(rawContent, articleTitle, 3);
+  }
   const articleHtml = resolveArticleHtml(absPath);
   const cover = resolveCoverImage(absPath, rawContent);
   const videoCover = resolveVideoCoverImage(absPath, rawContent);
