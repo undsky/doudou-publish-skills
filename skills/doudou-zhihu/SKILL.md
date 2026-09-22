@@ -33,12 +33,16 @@ node scripts/parser.mjs <Markdown文件绝对路径>
 - `htmlContent`: 适配知乎 Draft.js 剪贴板规范的富文本 HTML
 - `cover`: 封面图信息（CDN URL 或 Local Base64）
 
-Agent 可在步骤 1 打开页面后，直接调用脚本一键注入文章标题、富文本正文、话题与封面：
+> **【速度与稳定性核心规约 · 严禁遗漏】**
+> 知乎专栏写作页面包含常驻后台 WebSocket (`wss://sugar.zhihu.com`) 与高频数据埋点心跳，网络与 DOM 永远不会达到完全空闲（Idle）。因此，**在知乎页面调用 chrome-devtools-mcp 的 `evaluate_script` 时，必须显式声明 `waitForStableDom: false`**！若未配置该参数，MCP 将默认死等 180 秒直至超时报出 `Execution context was destroyed / Timeout`。
+
+Agent 可在步骤 1 打开页面后，直接调用一键自包含发布脚本，极速注入文章标题、富文本正文与封面：
 ```javascript
 import { buildBrowserPublishScript } from './scripts/zhihu_publisher.mjs';
 
 const code = buildBrowserPublishScript(markdownFilePath);
-await evaluate_script({ pageId, function: code });
+// 必须显式声明 waitForStableDom: false，极速 0.2s 完成执行
+const result = await evaluate_script({ pageId, function: code, waitForStableDom: false });
 ```
 
 ---
@@ -113,13 +117,19 @@ if (editorEl) {
 
 ### 步骤 4：官方通道上传并绑定文章封面
 
-若存在封面图资产（CDN URL 或本地 Base64）：
+封面图处理支持两种高速免 CSP 拦截模式（知乎文章封面推荐比例为 16:9 或 2.35:1）：
 
-1. 在浏览器端将图片转换为 `File` 对象（`new File([blob], 'cover.png', { type: blob.type })`）；
-2. 获取知乎官方封面上传输入组件 `input.UploadPicture-input` 上的 React Props；
-3. 调用 `props.onChange({ target: { files: [file] } })` 触发官方通道上传与绑定；
-4. 监听封面状态由「添加文章封面」变更为「更换 / 删除」；
-5. 随机停顿 600ms~1000ms。
+- **模式 A（一键发布脚本内存直传 · 默认推荐）**：
+  `parser.mjs` 优先将本地 16:9 封面读为 Base64。浏览器端脚本在纯内存中使用 `atob` 构建 `Blob` 与 `File` 对象，完全免去浏览器网络请求，100% 规避知乎 `connect-src` CSP 拦截，并通过 React Props `onChange` 触发官方通道极速绑定。
+- **模式 B（CDP 原生 upload_file · 极速备选）**：
+  若希望零脚本开销，可直接获取 `parser.mjs` 输出的 `cover.localPath`，通过 DevTools 工具原生注入：
+  ```javascript
+  await upload_file({
+    pageId,
+    filePath: cover.localPath,
+    selector: 'input.UploadPicture-input, label.UploadPicture-wrapper input'
+  });
+  ```
 
 ---
 

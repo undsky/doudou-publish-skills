@@ -110,10 +110,14 @@ export function resolveCoverImage(markdownFilePath, content = '') {
   }
 
   // 1. 优先从同名目录的 cdn_manifest.json 查找
-  //    统一走 asset_resolver。原逻辑的 cover/ 路径识别本身没问题，但无论如何都读本地图
-  //    转 base64（claw163 实测 764KB），而知乎发布器有 `cover.base64 || cover.url` 双分支，
-  //    直接给 CDN 直链即可，避免注入载荷被撑爆。
-  const fromManifest = resolveCoverFromManifest(artifactDir);
+  //    统一走 asset_resolver。知乎专栏封面由于页面受严格 CSP (connect-src) 限制，
+  //    在浏览器内 fetch 外部 CDN 或内网图片会直接被浏览器阻断；
+  //    且知乎最适配比例为 16:9（或 2.35:1）。
+  //    因此优先生成本地图片的 Base64（preferBase64: true），确保 100% 绕过 CSP，0ms 极速注入。
+  const fromManifest = resolveCoverFromManifest(artifactDir, {
+    preferBase64: true,
+    aspectPriority: ['16:9', '2.35:1', '1:1']
+  });
   if (fromManifest) return fromManifest;
 
   // 2. 从同名目录的 cover/images 查找本地图片
